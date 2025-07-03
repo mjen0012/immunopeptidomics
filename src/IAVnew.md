@@ -103,17 +103,26 @@ function list(arr = []) {
 ```
 
 ```js
-// quick sanity check
-const genotypesearch = ["H5N1", "H7N9"];      // ← must be strings
+// helper – builds “?, ?, ?” safely, no new APIs needed
+function list(arr) {
+  if (arr.length === 0) return sql`NULL`;      // never evaluated when empty
+  let frag = sql`${arr[0]}`;                   // first placeholder
+  for (let i = 1; i < arr.length; i++)
+    frag = sql`${frag}, ${arr[i]}`;            // more “, ?”
+  return frag;
+}
+
+const genotypesearch = ["H5N1", "H7N9"];
 ```
 
 ```js
-Inputs.table(await sql([`
+
+
+Inputs.table(await sql`
   SELECT DISTINCT genotype
   FROM proteins
-  WHERE genotype IN (${[genotypesearch]})
-`]))
-
+  WHERE genotype IN (${list(genotypesearch)})
+`);
 ```
 
 
