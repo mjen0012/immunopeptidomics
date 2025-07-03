@@ -84,11 +84,11 @@ filtered AS (
      If the array has items, it uses the SQL `IN` operator to match any of them.
   */
   WHERE
-    protein = ${tableName}
-    AND (${selectedGenotypes.value.length} = 0
-        OR genotype IN (${selectedGenotypes.value}))
-    AND (${selectedCountries.value.length} = 0
-        OR country  IN (${selectedCountries.value}))
+    protein = ${tableName}                             -- string
+    AND (${selectedGenotypes.length} = 0               -- array length
+        OR genotype IN (${selectedGenotypes}))        -- array itself
+    AND (${selectedCountries.length} = 0
+        OR country  IN (${selectedCountries}))
 ),
 parsed AS (
   SELECT sequence, LENGTH(sequence) AS len
