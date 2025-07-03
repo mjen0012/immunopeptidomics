@@ -89,15 +89,6 @@ const countriesArr = Array.isArray(selectedCountries.value)
 
 ```
 
-```js
-// helper: turns ["H1N1","H3N2"] → sql`?, ?`
-function list(arr = []) {
-  // spread the array so every element becomes its own bound param
-  return sql(raw => raw.join(", "))(arr);
-}
-
-
-```
 
 
 ```sql id=sequenceCalcnew display
@@ -106,14 +97,16 @@ WITH filtered AS (
   FROM proteins
   WHERE protein = ${tableName.value}
 
+    -- genotype filter ----------------------------------------------
     AND (
       ${genotypesArr.length} = 0
-      OR genotype IN (${list(genotypesArr)})
+      OR genotype IN (SELECT * FROM UNNEST(${genotypesArr}) AS g(genotype))
     )
 
+    -- country filter -----------------------------------------------
     AND (
       ${countriesArr.length} = 0
-      OR country  IN (${list(countriesArr)})
+      OR country  IN (SELECT * FROM UNNEST(${countriesArr}) AS c(country))
     )
 ),
 parsed AS (
