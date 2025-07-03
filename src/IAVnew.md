@@ -60,19 +60,34 @@ const selectedCountries = view(
 ```
 
 ```js
-// BLOCK 3: CREATE DYNAMIC SQL FILTERS (Final Correction)
-// We must import `sql` to use it and its helpers (like .join) in a JS block.
-import {sql} from "@observablehq/framework";
+// BLOCK 3: CREATE DYNAMIC SQL FILTERS (Pure JavaScript Method)
 
-// When a filter is not needed, we return the plain string "TRUE".
-// The framework will substitute this text directly into the main query.
-const genotypeFilter = selectedGenotypes.length
-  ? sql`genotype IN (${sql.join(selectedGenotypes)})`
-  : "TRUE";
+/**
+ * Creates a SQL "IN" clause as a string from an array of values.
+ * @param {string} columnName The name of the SQL column to filter.
+ * @param {string[]} values The array of values for the IN clause.
+ * @returns {string} A valid SQL condition string.
+ */
+function createSqlInClause(columnName, values) {
+  // If the array is empty or null, return "TRUE" which acts as a pass-through filter.
+  if (!values || values.length === 0) {
+    return "TRUE";
+  }
 
-const countryFilter = selectedCountries.length
-  ? sql`country IN (${sql.join(selectedCountries)})`
-  : "TRUE";
+  // 1. Sanitize each value: Escape single quotes to handle names like "Côte d'Ivoire".
+  // 2. Wrap each sanitized value in single quotes for the SQL query.
+  const sanitizedValues = values.map(value => `'${value.replace(/'/g, "''")}'`);
+
+  // 3. Join the values into a single comma-separated string.
+  // e.g., [''USA'', ''Canada''] becomes "'USA', 'Canada'"
+  const inList = sanitizedValues.join(", ");
+
+  // 4. Construct the final "col IN (...)" string.
+  return `${columnName} IN (${inList})`;
+}
+
+const genotypeFilter = createSqlInClause("genotype", selectedGenotypes);
+const countryFilter = createSqlInClause("country", selectedCountries);
 ```
 
 <style>
