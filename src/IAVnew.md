@@ -12,32 +12,38 @@ sql:
 // 1. Import the custom component.
 import {multiSelect} from "./components/multiSelect.js";
 
+// 2. Define the data for the filters by awaiting the SQL query results.
+// This ensures `distinctGenotypes` and `distinctCountries` are JavaScript arrays.
+const distinctGenotypes = await sql`SELECT DISTINCT genotype FROM proteins WHERE genotype IS NOT NULL ORDER BY genotype`;
+const distinctCountries = await sql`SELECT DISTINCT country FROM proteins WHERE country IS NOT NULL ORDER BY country`;
+
 // 3. Define the datasets for the protein selector.
 const datasets = [
-  { id: "M1", label: "M1" },
-  { id: "M2", label: "M2" },
-  { id: "HA", label: "HA" },
-  { id: "PAX", label: "PA-X" },
-  { id: "NA", label: "NA" },
-  { id: "PB1F2", label: "PB1F2" },
-  { id: "NP", label: "NP" },
-  { id: "NS1", label: "NS1" },
-  { id: "NS2", label: "NS2" },
-  { id: "PA", label: "PA" },
-  { id: "PB1", label: "PB1" },
-  { id: "PB2", label: "PB2" },
+  { id: "M1", label: "M1" },
+  { id: "M2", label: "M2" },
+  { id: "HA", label: "HA" },
+  { id: "PAX", label: "PA-X" },
+  { id: "NA", label: "NA" },
+  { id: "PB1F2", label: "PB1F2" },
+  { id: "NP", label: "NP" },
+  { id: "NS1", label: "NS1" },
+  { id: "NS2", label: "NS2" },
+  { id: "PA", label: "PA" },
+  { id: "PB1", label: "PB1" },
+  { id: "PB2", label: "PB2" },
 ];
 
 const tableName = view(
-  Inputs.select(datasets, {
-    label: "Choose dataset:",
-    value: datasets[0],
-    keyof:  d => d.label,
-    valueof: d => d.id
-  })
+  Inputs.select(datasets, {
+    label: "Choose dataset:",
+    value: datasets[0],
+    keyof:  d => d.label,
+    valueof: d => d.id
+  })
 );
 
-// 4. Use the multiSelect component. This will now work correctly.
+// 4. Use the multiSelect component. This will now work correctly because
+// distinctGenotypes and distinctCountries are arrays.
 const genotypes = view(multiSelect(distinctGenotypes.map(d => d.genotype), {label: "Filter by Genotype(s):"}));
 const countries = view(multiSelect(distinctCountries.map(d => d.country), {label: "Filter by Country(s):"}));
 ```
@@ -54,17 +60,6 @@ const countries = view(multiSelect(distinctCountries.map(d => d.country), {label
   .suggestion-item:hover { background-color: #f0f0f0; }
   .suggestion-item.disabled { color: #999; cursor: not-allowed; }
 </style>
-
-
-```sql id=distinctGenotypes display
--- NEW: This query gets all unique genotypes to populate the filter.
-SELECT DISTINCT genotype FROM proteins WHERE genotype IS NOT NULL ORDER BY genotype
-```
-
-```sql id=distinctCountries display
--- NEW: This query gets all unique countries to populate the filter.
-SELECT DISTINCT country FROM proteins WHERE country IS NOT NULL ORDER BY country
-```
 
 ```sql id=sequenceCalcnew display
 WITH
