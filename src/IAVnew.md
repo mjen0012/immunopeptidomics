@@ -112,14 +112,16 @@ WITH filtered AS (
   FROM proteins
   WHERE protein = ${tableName.value}
 
+    -- genotype filter ----------------------------------------------
     AND (
       ${genotypesArr.length} = 0
-      OR genotype IN (${list(genotypesArr)})
+      OR genotype IN (${[genotypesArr]})
     )
 
+    -- country filter -----------------------------------------------
     AND (
       ${countriesArr.length} = 0
-      OR country  IN (${list(countriesArr)})
+      OR country  IN (${[countriesArr]})
     )
 ),
 parsed AS (
