@@ -89,7 +89,17 @@ const countriesArr = Array.isArray(selectedCountries.value)
 
 ```
 
+```js
+// list() – turns ["H1N1","H3N2"] into sql`?, ?`
+function list(arr) {
+  if (arr.length === 0) return sql`NULL`;           // never used when empty
+  let frag = sql`${arr[0]}`;                        // first element → `?`
+  for (let i = 1; i < arr.length; i++)              // subsequent ? , ? , ?
+    frag = sql`${frag}, ${arr[i]}`;
+  return frag;                                      // ← SQLFragment
+}
 
+```
 
 ```sql id=sequenceCalcnew display
 WITH filtered AS (
@@ -97,16 +107,14 @@ WITH filtered AS (
   FROM proteins
   WHERE protein = ${tableName.value}
 
-    -- genotype filter ----------------------------------------------
     AND (
-      ${genotypesArr.length} = 0
-      OR genotype IN (SELECT * FROM UNNEST(${genotypesArr}) AS g(genotype))
+      ${genotypesArr.length} = 0           -- no filter chosen
+      OR genotype IN (${list(genotypesArr)})
     )
 
-    -- country filter -----------------------------------------------
     AND (
       ${countriesArr.length} = 0
-      OR country  IN (SELECT * FROM UNNEST(${countriesArr}) AS c(country))
+      OR country  IN (${list(countriesArr)})
     )
 ),
 parsed AS (
