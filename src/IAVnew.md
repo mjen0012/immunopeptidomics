@@ -8,6 +8,6 @@ sql:
     sequencecalc: data/IAV_sequencecalc.parquet
 ---
 
-```sql
+```sql id=fulltable display
 SELECT * FROM proteins ORDER BY protein LIMIT 100
 ```
