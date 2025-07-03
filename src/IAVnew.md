@@ -110,8 +110,8 @@ filtered AS (
   SELECT *
   FROM proteins
   WHERE protein = ${tableName}
-    AND ${genotypeFilter}       -- ← uses sql.join(...)
-    AND ${countryFilter}
+    AND ${sql.raw(genotypeFilter)}   -- ⬅️ Use sql.raw()
+    AND ${sql.raw(countryFilter)}   -- ⬅️ Use sql.raw()
 ),
 parsed AS (
   SELECT sequence, LENGTH(sequence) AS len
