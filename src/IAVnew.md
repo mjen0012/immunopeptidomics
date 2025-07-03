@@ -50,13 +50,6 @@ const selectedCountries = view(
 );
 ```
 
-```js
-// DIAGNOSTIC CELL
-const testData = await sql`SELECT DISTINCT genotype FROM proteins WHERE genotype IS NOT NULL LIMIT 10`;
-display(testData);
-display(Array.isArray(testData));
-```
-
 <style>
   .multi-select-container { position: relative; max-width: 400px; margin-bottom: 1rem; }
   .multi-select-container .label { font-weight: bold; display: block; margin-bottom: 4px; font-size: 14px;}
