@@ -90,13 +90,18 @@ const countriesArr = Array.isArray(selectedCountries.value)
 ```
 
 ```js
-// list() – turns ["H1N1","H3N2"] into sql`?, ?`
-function list(arr) {
-  if (arr.length === 0) return sql`NULL`;           // never used when empty
-  let frag = sql`${arr[0]}`;                        // first element → `?`
-  for (let i = 1; i < arr.length; i++)              // subsequent ? , ? , ?
-    frag = sql`${frag}, ${arr[i]}`;
-  return frag;                                      // ← SQLFragment
+// list(["H1N1","H3N2"])  →  sql`?, ?`
+function list(arr = []) {
+  if (arr.length === 0) return sql`NULL`;        // never used when empty
+
+  // first element
+  let frag = sql`${arr[0]}`;                     // → SQLFragment with 1 param
+
+  // append “, ?” for each subsequent element
+  for (let i = 1; i < arr.length; i++) {
+    frag = sql`${frag}, ${arr[i]}`;              // keeps merging fragments
+  }
+  return frag;                                   // final SQLFragment
 }
 
 ```
@@ -108,7 +113,7 @@ WITH filtered AS (
   WHERE protein = ${tableName.value}
 
     AND (
-      ${genotypesArr.length} = 0           -- no filter chosen
+      ${genotypesArr.length} = 0
       OR genotype IN (${list(genotypesArr)})
     )
 
