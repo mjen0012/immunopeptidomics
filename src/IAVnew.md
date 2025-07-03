@@ -59,6 +59,20 @@ const selectedCountries = view(
 );
 ```
 
+```js
+// BLOCK 3: CREATE DYNAMIC SQL FILTERS
+// This block creates the filter clauses for the main SQL query below.
+// It depends on the `selectedGenotypes` and `selectedCountries` views from Block 2.
+
+const genotypeFilter = selectedGenotypes.length
+  ? sql`genotype IN (${sql.join(selectedGenotypes)})`
+  : sql`1=1`;
+
+const countryFilter = selectedCountries.length
+  ? sql`country IN (${sql.join(selectedCountries)})`
+  : sql`1=1`;
+```
+
 <style>
   .multi-select-container { position: relative; max-width: 400px; margin-bottom: 1rem; }
   .multi-select-container .label { font-weight: bold; display: block; margin-bottom: 4px; font-size: 14px;}
@@ -74,21 +88,13 @@ const selectedCountries = view(
 
 ```sql id=sequenceCalcnew display
 WITH
-/* ─────  A.  all sequences  ─────────────────────────────────────────── */
+/* ─────  A.  all sequences  ─────────────────────────────── */
 filtered AS (
   SELECT *
   FROM proteins
-  /* --- UPDATED WHERE CLAUSE ---
-     The logic is changed to handle an array of selected items from the multi-select component.
-     If the array is empty (length=0), the filter is ignored (evaluates to TRUE).
-     If the array has items, it uses the SQL `IN` operator to match any of them.
-  */
-  WHERE
-    protein = ${tableName}                             -- string
-    AND (${selectedGenotypes.length} = 0               -- array length
-        OR genotype IN (${selectedGenotypes}))        -- array itself
-    AND (${selectedCountries.length} = 0
-        OR country  IN (${selectedCountries}))
+  WHERE protein = ${tableName}
+    AND ${genotypeFilter}       -- ← uses sql.join(...)
+    AND ${countryFilter}
 ),
 parsed AS (
   SELECT sequence, LENGTH(sequence) AS len
