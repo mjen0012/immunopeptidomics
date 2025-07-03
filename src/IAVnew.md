@@ -89,18 +89,7 @@ const countriesArr = Array.isArray(selectedCountries.value)
 
 ```
 
-```js
-// list(["H5N1","H3N2"])  →  sql`?, ?`
-function list(arr = []) {
-  if (arr.length === 0) return sql``;            // empty → nothing
-  let frag = sql`${arr[0]}`;                     // first placeholder
-  for (let i = 1; i < arr.length; i++) {         // subsequent ", ?"
-    frag = sql`${frag}, ${arr[i]}`;
-  }
-  return frag;                                   // SQLFragment
-}
 
-```
 
 ```js
 // helper – builds “?, ?, ?” safely, no new APIs needed
