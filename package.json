@@ -9,12 +9,21 @@
     "observable": "observable"
   },
   "dependencies": {
-    "@observablehq/framework": "^1.13.3"
+    "@duckdb/duckdb-wasm": "1.29.1-dev132.0",
+    "@observablehq/framework": "^1.13.3",
+    "@openapitools/openapi-generator-cli": "^2.20.2"
   },
   "devDependencies": {
     "rimraf": "^5.0.5"
   },
   "engines": {
     "node": ">=18"
-  }
+  },
+  "name": "thesis-2.0",
+  "version": "1.0.0",
+  "description": "This is an [Observable Framework](https://observablehq.com/framework/) app. To install the required dependencies, run:",
+  "main": "observablehq.config.js",
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
 }

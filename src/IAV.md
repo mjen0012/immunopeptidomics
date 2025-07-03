@@ -9,3 +9,5 @@ sql:
 ```sql id=fulltable display
 SELECT * FROM proteins ORDER BY protein LIMIT 10
 ```
+
+# Yup
