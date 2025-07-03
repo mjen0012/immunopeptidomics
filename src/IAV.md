@@ -4,8 +4,8 @@ title: Influenza A (IAV)
 slug: IAV
 toc: false
 sql:
-    proteins: data/IAV6-all.parquet
-    sequencecalc: data/IAV6_sequencecalc.parquet
+    proteins: data/IAV_all.parquet
+    sequencecalc: data/IAV_sequencecalc.parquet
 ---
 
 ```js
@@ -178,7 +178,7 @@ const referencefasta = view(Inputs.file({label: "FASTA file", accept: ".fasta", 
  * 1️⃣ (Revised) Load pre-computed data and build frequency maps
  *****************************************************************/
 const seqCalcAll = (
-  await FileAttachment("data/IAV6_sequencecalc.parquet").parquet()
+  await FileAttachment("data/IAV_sequencecalc.parquet").parquet()
 )
   .toArray()
   .map(r => ({

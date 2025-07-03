@@ -4,7 +4,7 @@ title: Influenza B (IBV)
 slug: IBV
 toc: false
 sql:
-    proteins: data/IBV-all.parquet
+    proteins: data/IBV_all.parquet
     sequencecalc: data/IBV_sequencecalc.parquet
 ---
 
