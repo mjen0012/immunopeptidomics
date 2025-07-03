@@ -59,36 +59,6 @@ const selectedCountries = view(
 );
 ```
 
-```js
-// BLOCK 3: CREATE DYNAMIC SQL FILTERS (Pure JavaScript Method)
-
-/**
- * Creates a SQL "IN" clause as a string from an array of values.
- * @param {string} columnName The name of the SQL column to filter.
- * @param {string[]} values The array of values for the IN clause.
- * @returns {string} A valid SQL condition string.
- */
-function createSqlInClause(columnName, values) {
-  // If the array is empty or null, return "TRUE" which acts as a pass-through filter.
-  if (!values || values.length === 0) {
-    return "TRUE";
-  }
-
-  // 1. Sanitize each value: Escape single quotes to handle names like "Côte d'Ivoire".
-  // 2. Wrap each sanitized value in single quotes for the SQL query.
-  const sanitizedValues = values.map(value => `'${value.replace(/'/g, "''")}'`);
-
-  // 3. Join the values into a single comma-separated string.
-  // e.g., [''USA'', ''Canada''] becomes "'USA', 'Canada'"
-  const inList = sanitizedValues.join(", ");
-
-  // 4. Construct the final "col IN (...)" string.
-  return `${columnName} IN (${inList})`;
-}
-
-const genotypeFilter = createSqlInClause("genotype", selectedGenotypes);
-const countryFilter = createSqlInClause("country", selectedCountries);
-```
 
 <style>
   .multi-select-container { position: relative; max-width: 400px; margin-bottom: 1rem; }
@@ -105,7 +75,7 @@ const countryFilter = createSqlInClause("country", selectedCountries);
 
 ```js
 // helper — always an array, never undefined
-genotypesArr = Array.isArray(selectedGenotypes.value)
+const genotypesArr = Array.isArray(selectedGenotypes.value)
   ? selectedGenotypes.value
   : []
 
@@ -113,7 +83,7 @@ genotypesArr = Array.isArray(selectedGenotypes.value)
 
 ```js
 // helper — always an array, never undefined
-countriesArr = Array.isArray(selectedCountries.value)
+const countriesArr = Array.isArray(selectedCountries.value)
   ? selectedCountries.value
   : []
 
