@@ -9,24 +9,8 @@ sql:
 ---
 
 ```js
-// --- ALL JAVASCRIPT IS NOW IN ONE BLOCK FOR ROBUSTNESS ---
-
 // 1. Import the custom component.
 import {multiSelect} from "./components/multiSelect.js";
-
-// 2. Add the CSS styles for the component.
-display(htl.html`<style>
-  .multi-select-container { position: relative; max-width: 400px; margin-bottom: 1rem; }
-  .multi-select-container .label { font-weight: bold; display: block; margin-bottom: 4px; font-size: 14px;}
-  .multi-select-pills { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
-  .multi-select-pill { background-color: #e0e0e0; color: #333; padding: 4px 8px; border-radius: 12px; font-size: 14px; display: flex; align-items: center; }
-  .multi-select-pill .remove-btn { background: none; border: none; color: #555; cursor: pointer; font-size: 16px; margin-left: 6px; padding: 0; line-height: 1; }
-  .multi-select-container .text-input { width: 100%; box-sizing: border-box; }
-  .multi-select-suggestions { position: absolute; background: white; border: 1px solid #ccc; border-top: none; width: 100%; max-height: 200px; overflow-y: auto; z-index: 1000; box-sizing: border-box;}
-  .suggestion-item { padding: 8px 12px; cursor: pointer; }
-  .suggestion-item:hover { background-color: #f0f0f0; }
-  .suggestion-item.disabled { color: #999; cursor: not-allowed; }
-</style>`);
 
 // 3. Define the datasets for the protein selector.
 const datasets = [
@@ -58,12 +42,26 @@ const genotypes = view(multiSelect(distinctGenotypes.map(d => d.genotype), {labe
 const countries = view(multiSelect(distinctCountries.map(d => d.country), {label: "Filter by Country(s):"}));
 ```
 
-```sql id=distinctGenotypes
+<style>
+  .multi-select-container { position: relative; max-width: 400px; margin-bottom: 1rem; }
+  .multi-select-container .label { font-weight: bold; display: block; margin-bottom: 4px; font-size: 14px;}
+  .multi-select-pills { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+  .multi-select-pill { background-color: #e0e0e0; color: #333; padding: 4px 8px; border-radius: 12px; font-size: 14px; display: flex; align-items: center; }
+  .multi-select-pill .remove-btn { background: none; border: none; color: #555; cursor: pointer; font-size: 16px; margin-left: 6px; padding: 0; line-height: 1; }
+  .multi-select-container .text-input { width: 100%; box-sizing: border-box; }
+  .multi-select-suggestions { position: absolute; background: white; border: 1px solid #ccc; border-top: none; width: 100%; max-height: 200px; overflow-y: auto; z-index: 1000; box-sizing: border-box;}
+  .suggestion-item { padding: 8px 12px; cursor: pointer; }
+  .suggestion-item:hover { background-color: #f0f0f0; }
+  .suggestion-item.disabled { color: #999; cursor: not-allowed; }
+</style>
+
+
+```sql id=distinctGenotypes display
 -- NEW: This query gets all unique genotypes to populate the filter.
 SELECT DISTINCT genotype FROM proteins WHERE genotype IS NOT NULL ORDER BY genotype
 ```
 
-```sql id=distinctCountries
+```sql id=distinctCountries display
 -- NEW: This query gets all unique countries to populate the filter.
 SELECT DISTINCT country FROM proteins WHERE country IS NOT NULL ORDER BY country
 ```
