@@ -104,14 +104,18 @@ const countryFilter = createSqlInClause("country", selectedCountries);
 </style>
 
 ```sql id=sequenceCalcnew display
-WITH
-/* ─────  A.  all sequences  ─────────────────────────────── */
-filtered AS (
+WITH filtered AS (
   SELECT *
   FROM proteins
-  WHERE protein = ${tableName}
-    AND ${sql.raw(genotypeFilter)}   -- ⬅️ Use sql.raw()
-    AND ${sql.raw(countryFilter)}   -- ⬅️ Use sql.raw()
+  WHERE protein = ${tableName.value}
+    AND (
+      ${selectedGenotypes.value.length} = 0
+      OR genotype IN (${sql.join(selectedGenotypes.value)})
+    )
+    AND (
+      ${selectedCountries.value.length} = 0
+      OR country  IN (${sql.join(selectedCountries.value)})
+    )
 ),
 parsed AS (
   SELECT sequence, LENGTH(sequence) AS len
