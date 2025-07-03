@@ -1,7 +1,14 @@
 ---
-theme: [glacier, slate]
+theme: [wide]
+title: Thesis 2.0
+toc: false
 ---
 
-# Immunopeptidomics
 
-Hello!
+# Hello
+
+
+
+
+
+
