@@ -60,16 +60,22 @@ const selectedCountries = view(
 ```
 
 ```js
-// BLOCK 3: CREATE DYNAMIC SQL FILTERS (Corrected)
-// The `join` helper method is attached to the data loader client,
-// which we access via `loaders.sql`, not the global `sql` tag.
+// BLOCK 3 ─ dynamic SQL filters (no sql.join)
 
-const genotypeFilter = selectedGenotypes.length
-  ? sql`genotype IN (${loaders.sql.join(selectedGenotypes)})`
+// --- helper -------------------------------------------------------------
+const sqlEscape = s => String(s).replaceAll("'", "''");  // '  ->  ''
+
+// --- build comma-separated literal lists --------------------------------
+const gList = selectedGenotypes.value.map(d => `'${sqlEscape(d)}'`).join(", ");
+const cList = selectedCountries.value.map(d => `'${sqlEscape(d)}'`).join(", ");
+
+// --- final WHERE fragments ----------------------------------------------
+const genotypeFilter = selectedGenotypes.value.length
+  ? `genotype IN (${gList})`   // e.g. genotype IN ('H5N1','H5N6')
   : "TRUE";
 
-const countryFilter = selectedCountries.length
-  ? sql`country IN (${loaders.sql.join(selectedCountries)})`
+const countryFilter = selectedCountries.value.length
+  ? `country IN (${cList})`
   : "TRUE";
 ```
 
