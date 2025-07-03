@@ -9,13 +9,17 @@ sql:
 ---
 
 ```js
-// 1. Import the custom component.
-import {multiSelect} from "./components/multiSelect.js";
+
 
 // 2. Define the data for the filters by awaiting the SQL query results.
 // This ensures `distinctGenotypes` and `distinctCountries` are JavaScript arrays.
 const distinctGenotypes = await sql`SELECT DISTINCT genotype FROM proteins WHERE genotype IS NOT NULL ORDER BY genotype`;
 const distinctCountries = await sql`SELECT DISTINCT country FROM proteins WHERE country IS NOT NULL ORDER BY country`;
+```
+
+```js
+// 1. Import the custom component.
+import {multiSelect} from "./components/multiSelect.js";
 
 // 3. Define the datasets for the protein selector.
 const datasets = [
