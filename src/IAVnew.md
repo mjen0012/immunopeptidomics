@@ -103,18 +103,31 @@ const countryFilter = createSqlInClause("country", selectedCountries);
   .suggestion-item.disabled { color: #999; cursor: not-allowed; }
 </style>
 
+```js
+// helpers.js  ── guarantees we always have arrays, never undefined
+export const genotypesArr  =
+  Array.isArray(selectedGenotypes.value) ? selectedGenotypes.value : [];
+
+export const countriesArr =
+  Array.isArray(selectedCountries.value) ? selectedCountries.value : [];
+```
+
 ```sql id=sequenceCalcnew display
 WITH filtered AS (
   SELECT *
   FROM proteins
   WHERE protein = ${tableName.value}
+
+    -- genotype filter ----------------------------------------------
     AND (
-      ${selectedGenotypes.value.length} = 0
-      OR genotype IN (${sql.join(selectedGenotypes.value)})
+      ${genotypesArr.length} = 0            -- no filter? pass-through
+      OR genotype IN (${sql.join(genotypesArr)})
     )
+
+    -- country filter -----------------------------------------------
     AND (
-      ${selectedCountries.value.length} = 0
-      OR country  IN (${sql.join(selectedCountries.value)})
+      ${countriesArr.length} = 0
+      OR country  IN (${sql.join(countriesArr)})
     )
 ),
 parsed AS (
