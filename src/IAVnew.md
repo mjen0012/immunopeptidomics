@@ -9,17 +9,13 @@ sql:
 ---
 
 ```js
-
-
-// 2. Define the data for the filters by awaiting the SQL query results.
-// This ensures `distinctGenotypes` and `distinctCountries` are JavaScript arrays.
-const distinctGenotypes = await sql`SELECT DISTINCT genotype FROM proteins WHERE genotype IS NOT NULL ORDER BY genotype`;
-const distinctCountries = await sql`SELECT DISTINCT country FROM proteins WHERE country IS NOT NULL ORDER BY country`;
-```
-
-```js
 // 1. Import the custom component.
 import {multiSelect} from "./components/multiSelect.js";
+
+// 2. Define the data for the filters by awaiting the SQL query results.
+// This ensures they are JavaScript arrays before being used.
+const distinctGenotypes = await sql`SELECT DISTINCT genotype FROM proteins WHERE genotype IS NOT NULL ORDER BY genotype`;
+const distinctCountries = await sql`SELECT DISTINCT country FROM proteins WHERE country IS NOT NULL ORDER BY country`;
 
 // 3. Define the datasets for the protein selector.
 const datasets = [
@@ -37,6 +33,7 @@ const datasets = [
   { id: "PB2", label: "PB2" },
 ];
 
+// 4. Define the reactive inputs (views) for the UI.
 const tableName = view(
   Inputs.select(datasets, {
     label: "Choose dataset:",
@@ -46,8 +43,8 @@ const tableName = view(
   })
 );
 
-// 4. Use the multiSelect component. This will now work correctly because
-// distinctGenotypes and distinctCountries are arrays.
+// 5. Use the multiSelect component. This will now work correctly because the await
+// calls above have completed and populated the arrays.
 const genotypes = view(multiSelect(distinctGenotypes.map(d => d.genotype), {label: "Filter by Genotype(s):"}));
 const countries = view(multiSelect(distinctCountries.map(d => d.country), {label: "Filter by Country(s):"}));
 ```
