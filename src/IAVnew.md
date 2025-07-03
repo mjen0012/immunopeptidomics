@@ -12,8 +12,14 @@ sql:
 // BLOCK 1: DEFINE DATA
 // This block fetches the raw data for the filter options.
 // It contains no reactive `view()` calls.
-const genotypeOptions = await sql`SELECT DISTINCT genotype FROM proteins WHERE genotype IS NOT NULL ORDER BY genotype`;
-const countryOptions = await sql`SELECT DISTINCT country FROM proteins WHERE country IS NOT NULL ORDER BY country`;
+// 1 ▸ fetch → rows → simple string arrays
+const distinctGenotypes = (
+  await sql`SELECT DISTINCT genotype FROM proteins WHERE genotype IS NOT NULL ORDER BY genotype`
+).map(d => d.genotype);          // ["A", "B", "C", …]
+
+const distinctCountries = (
+  await sql`SELECT DISTINCT country FROM proteins WHERE country IS NOT NULL ORDER BY country`
+).map(d => d.country);           // ["Australia", "China", …]
 ```
 
 ```js
@@ -35,8 +41,13 @@ const tableName = view(
   })
 );
 
-const genotypes = view(multiSelect(genotypeOptions.map(d => d.genotype), {label: "Filter by Genotype(s):"}));
-const countries = view(multiSelect(countryOptions.map(d => d.country), {label: "Filter by Country(s):"}));
+// 2 ▸ multiselect inputs (returns a view whose .value is the current selection array)
+const selectedGenotypes = view(
+  multiSelect(distinctGenotypes, { label: "Filter by Genotype(s):" })
+);
+const selectedCountries = view(
+  multiSelect(distinctCountries, { label: "Filter by Country(s):" })
+);
 ```
 
 ```js
