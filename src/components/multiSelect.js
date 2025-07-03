@@ -1,5 +1,3 @@
-import {htl} from "observablehq/htl";
-
 // The main component function. It's exported so it can be imported in other files.
 export function multiSelect(data, {label = "Select items", placeholder = "Type to search..."} = {}) {
   let selectedItems = []; // Internal state for selected items
