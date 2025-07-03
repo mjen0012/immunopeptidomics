@@ -90,21 +90,34 @@ const countriesArr = Array.isArray(selectedCountries.value)
 ```
 
 ```js
-// list(["H1N1","H3N2"])  →  sql`?, ?`
+// list(["H5N1","H3N2"])  →  sql`?, ?`
 function list(arr = []) {
-  if (arr.length === 0) return sql`NULL`;        // never used when empty
-
-  // first element
-  let frag = sql`${arr[0]}`;                     // → SQLFragment with 1 param
-
-  // append “, ?” for each subsequent element
-  for (let i = 1; i < arr.length; i++) {
-    frag = sql`${frag}, ${arr[i]}`;              // keeps merging fragments
+  if (arr.length === 0) return sql``;            // empty → nothing
+  let frag = sql`${arr[0]}`;                     // first placeholder
+  for (let i = 1; i < arr.length; i++) {         // subsequent ", ?"
+    frag = sql`${frag}, ${arr[i]}`;
   }
-  return frag;                                   // final SQLFragment
+  return frag;                                   // SQLFragment
 }
 
 ```
+
+```js
+// quick sanity check
+const genotypesearch = ["H5N1", "H7N9"];      // ← must be strings
+```
+
+```js
+Inputs.table(await sql([`
+  SELECT DISTINCT genotype
+  FROM proteins
+  WHERE genotype IN (${[genotypesearch]})
+`]))
+
+```
+
+
+
 
 ```sql id=sequenceCalcnew display
 WITH filtered AS (
