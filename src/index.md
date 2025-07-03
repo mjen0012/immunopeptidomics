@@ -1,6 +1,6 @@
 ---
 theme: [wide]
-title: Thesis 2.0
+title: Immunopeptidomics
 toc: false
 ---
 

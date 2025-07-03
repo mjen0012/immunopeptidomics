@@ -1,7 +1,7 @@
 ---
 theme: [wide, air]
-title: IAV
-slug: test3-copy-2
+title: Influenza A (IAV)
+slug: IAV
 toc: false
 sql:
     proteins: data/IAV6-all.parquet

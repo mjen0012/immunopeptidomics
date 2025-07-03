@@ -1,7 +1,7 @@
 ---
 theme: [wide, air]
-title: IBV
-slug: test3-copy
+title: Influenza B (IBV)
+slug: IBV
 toc: false
 sql:
     proteins: data/IBV-all.parquet
