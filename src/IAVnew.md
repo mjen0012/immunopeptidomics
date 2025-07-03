@@ -60,17 +60,19 @@ const selectedCountries = view(
 ```
 
 ```js
-// BLOCK 3: CREATE DYNAMIC SQL FILTERS
+// BLOCK 3: CREATE DYNAMIC SQL FILTERS (Corrected)
 // This block creates the filter clauses for the main SQL query below.
-// It depends on the `selectedGenotypes` and `selectedCountries` views from Block 2.
 
+// When a filter is not needed, we return the plain string "TRUE".
+// The framework will substitute this text directly into the main query,
+// avoiding the parser error caused by `sql`1=1``.
 const genotypeFilter = selectedGenotypes.length
   ? sql`genotype IN (${sql.join(selectedGenotypes)})`
-  : sql`1=1`;
+  : "TRUE";
 
 const countryFilter = selectedCountries.length
   ? sql`country IN (${sql.join(selectedCountries)})`
-  : sql`1=1`;
+  : "TRUE";
 ```
 
 <style>
