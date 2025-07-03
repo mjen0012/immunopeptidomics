@@ -9,44 +9,41 @@ sql:
 ---
 
 ```js
-// 1. Import the custom component.
+// BLOCK 1: DEFINE DATA
+// This block fetches the raw data for the filter options.
+// It contains no reactive `view()` calls.
+const genotypeOptions = await sql`SELECT DISTINCT genotype FROM proteins WHERE genotype IS NOT NULL ORDER BY genotype`;
+const countryOptions = await sql`SELECT DISTINCT country FROM proteins WHERE country IS NOT NULL ORDER BY country`;
+```
+
+```js
+// BLOCK 2: DEFINE UI VIEWS
+// This block depends on `genotypeOptions` and `countryOptions` from the cell above.
+// The Framework will wait for Block 1 to fully resolve before running this block.
 import {multiSelect} from "./components/multiSelect.js";
 
-// 2. Define the data for the filters by awaiting the SQL query results.
-// This ensures they are JavaScript arrays before being used.
-const distinctGenotypes = await sql`SELECT DISTINCT genotype FROM proteins WHERE genotype IS NOT NULL ORDER BY genotype`;
-const distinctCountries = await sql`SELECT DISTINCT country FROM proteins WHERE country IS NOT NULL ORDER BY country`;
-
-// 3. Define the datasets for the protein selector.
 const datasets = [
-  { id: "M1", label: "M1" },
-  { id: "M2", label: "M2" },
-  { id: "HA", label: "HA" },
-  { id: "PAX", label: "PA-X" },
-  { id: "NA", label: "NA" },
-  { id: "PB1F2", label: "PB1F2" },
-  { id: "NP", label: "NP" },
-  { id: "NS1", label: "NS1" },
-  { id: "NS2", label: "NS2" },
-  { id: "PA", label: "PA" },
-  { id: "PB1", label: "PB1" },
-  { id: "PB2", label: "PB2" },
+  {id: "M1", label: "M1"}, {id: "M2", label: "M2"}, {id: "HA", label: "HA"},
+  {id: "PAX", label: "PA-X"}, {id: "NA", label: "NA"}, {id: "PB1F2", label: "PB1F2"},
+  {id: "NP", label: "NP"}, {id: "NS1", label: "NS1"}, {id: "NS2", label: "NS2"},
+  {id: "PA", label: "PA"}, {id: "PB1", label: "PB1"}, {id: "PB2", label: "PB2"}
 ];
 
-// 4. Define the reactive inputs (views) for the UI.
 const tableName = view(
-  Inputs.select(datasets, {
-    label: "Choose dataset:",
-    value: datasets[0],
-    keyof:  d => d.label,
-    valueof: d => d.id
-  })
+  Inputs.select(datasets, {
+    label: "Choose dataset:", value: datasets[0], keyof: d => d.label, valueof: d => d.id
+  })
 );
 
-// 5. Use the multiSelect component. This will now work correctly because the await
-// calls above have completed and populated the arrays.
-const genotypes = view(multiSelect(distinctGenotypes.map(d => d.genotype), {label: "Filter by Genotype(s):"}));
-const countries = view(multiSelect(distinctCountries.map(d => d.country), {label: "Filter by Country(s):"}));
+const genotypes = view(multiSelect(genotypeOptions.map(d => d.genotype), {label: "Filter by Genotype(s):"}));
+const countries = view(multiSelect(countryOptions.map(d => d.country), {label: "Filter by Country(s):"}));
+```
+
+```js
+// DIAGNOSTIC CELL
+const testData = await sql`SELECT DISTINCT genotype FROM proteins WHERE genotype IS NOT NULL LIMIT 10`;
+display(testData);
+display(Array.isArray(testData));
 ```
 
 <style>
