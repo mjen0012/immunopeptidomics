@@ -9,17 +9,26 @@ sql:
 ---
 
 ```js
-// BLOCK 1: DEFINE DATA
-// This block fetches the raw data for the filter options.
-// It contains no reactive `view()` calls.
-// 1 ▸ fetch → rows → simple string arrays
-const distinctGenotypes = (
-  await sql`SELECT DISTINCT genotype FROM proteins WHERE genotype IS NOT NULL ORDER BY genotype`
-).map(d => d.genotype);          // ["A", "B", "C", …]
+// BLOCK 1 ─ fetch → Arrow table → JS array → string[]
+const genotypeRows   = await sql`
+  SELECT DISTINCT genotype
+  FROM proteins
+  WHERE genotype IS NOT NULL
+  ORDER BY genotype
+`;                     // Arrow Table
 
-const distinctCountries = (
-  await sql`SELECT DISTINCT country FROM proteins WHERE country IS NOT NULL ORDER BY country`
-).map(d => d.country);           // ["Australia", "China", …]
+const distinctGenotypes = genotypeRows.toArray()        // now a plain array
+                                    .map(d => d.genotype);
+
+const countryRows    = await sql`
+  SELECT DISTINCT country
+  FROM proteins
+  WHERE country IS NOT NULL
+  ORDER BY country
+`;
+
+const distinctCountries = countryRows.toArray()
+                                    .map(d => d.country);
 ```
 
 ```js
@@ -76,8 +85,10 @@ filtered AS (
   */
   WHERE
     protein = ${tableName}
-    AND (${genotypes.length} = 0 OR genotype IN (${genotypes}))
-    AND (${countries.length} = 0 OR country IN (${countries}))
+    AND (${selectedGenotypes.value.length} = 0
+        OR genotype IN (${selectedGenotypes.value}))
+    AND (${selectedCountries.value.length} = 0
+        OR country  IN (${selectedCountries.value}))
 ),
 parsed AS (
   SELECT sequence, LENGTH(sequence) AS len
