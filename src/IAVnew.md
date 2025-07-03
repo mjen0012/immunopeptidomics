@@ -60,22 +60,18 @@ const selectedCountries = view(
 ```
 
 ```js
-// BLOCK 3 ─ dynamic SQL filters (no sql.join)
+// BLOCK 3: CREATE DYNAMIC SQL FILTERS (Final Correction)
+// We must import `sql` to use it and its helpers (like .join) in a JS block.
+import {sql} from "@observablehq/framework";
 
-// --- helper -------------------------------------------------------------
-const sqlEscape = s => String(s).replaceAll("'", "''");  // '  ->  ''
-
-// --- build comma-separated literal lists --------------------------------
-const gList = selectedGenotypes.value.map(d => `'${sqlEscape(d)}'`).join(", ");
-const cList = selectedCountries.value.map(d => `'${sqlEscape(d)}'`).join(", ");
-
-// --- final WHERE fragments ----------------------------------------------
-const genotypeFilter = selectedGenotypes.value.length
-  ? `genotype IN (${gList})`   // e.g. genotype IN ('H5N1','H5N6')
+// When a filter is not needed, we return the plain string "TRUE".
+// The framework will substitute this text directly into the main query.
+const genotypeFilter = selectedGenotypes.length
+  ? sql`genotype IN (${sql.join(selectedGenotypes)})`
   : "TRUE";
 
-const countryFilter = selectedCountries.value.length
-  ? `country IN (${cList})`
+const countryFilter = selectedCountries.length
+  ? sql`country IN (${sql.join(selectedCountries)})`
   : "TRUE";
 ```
 
