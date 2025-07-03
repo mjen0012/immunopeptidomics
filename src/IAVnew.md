@@ -104,13 +104,21 @@ const countryFilter = createSqlInClause("country", selectedCountries);
 </style>
 
 ```js
-// helpers.js  ── guarantees we always have arrays, never undefined
-export const genotypesArr  =
-  Array.isArray(selectedGenotypes.value) ? selectedGenotypes.value : [];
+// helper — always an array, never undefined
+genotypesArr = Array.isArray(selectedGenotypes.value)
+  ? selectedGenotypes.value
+  : []
 
-export const countriesArr =
-  Array.isArray(selectedCountries.value) ? selectedCountries.value : [];
 ```
+
+```js
+// helper — always an array, never undefined
+countriesArr = Array.isArray(selectedCountries.value)
+  ? selectedCountries.value
+  : []
+
+```
+
 
 ```sql id=sequenceCalcnew display
 WITH filtered AS (
