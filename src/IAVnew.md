@@ -4,8 +4,8 @@ title: Influenza A (IAV) New
 slug: IAVnew
 toc: false
 sql:
-    proteins: data/IAV_all.parquet
-    sequencecalc: data/IAV_sequencecalc.parquet
+    proteins: data/IAV6-all.parquet
+    sequencecalc: data/IAV6_sequencecalc.parquet
 ---
 
 ```js
