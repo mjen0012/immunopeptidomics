@@ -4,7 +4,6 @@ title: Influenza A (IAV) New
 slug: IAVnew
 toc: false
 sql:
-    proteins: data/IAV6-all.parquet
     sequencecalc: data/IAV6_sequencecalc.parquet
 ---
 
@@ -58,118 +57,63 @@ const db = extendDB(
 );
 ```
 
+```js
+// should log true
+db[extended]
+```
+
+```js
+const rowsn = db.sql`SELECT COUNT(*) AS n_rows FROM proteins`
+
+```
+
+```js
+Inputs.table(rowsn)
+```
 
 
 
+```js
+// hard-coded sample — replace with your own later
+const testGenotypes = [];
 
+```
 
+```js
+const row2 = db.sql`
+SELECT *
+FROM   proteins
+WHERE  ${
+  selectedGenotypes.length
+    ? sql`genotype IN (${ selectedGenotypes })`
+    : sql`TRUE`
+}
+LIMIT  10
+`
 
+```
 
+```js
 
+Inputs.table(row2)
+```
 
-
-
-
-
-
-
-```sql id=sequenceCalcnew display
-WITH filtered AS (
-  SELECT *
+```js
+/* pull distinct genotypes once */
+const allGenotypes = (await db.sql`
+  SELECT DISTINCT genotype
   FROM proteins
-  WHERE protein = ${tableName.value}
+  WHERE genotype IS NOT NULL
+`).toArray()
+  .map(d => d.genotype)
+  .sort();
+```
 
-    -- genotype filter ----------------------------------------------
-    AND (
-      ${genotypesArr.length} = 0
-      OR genotype IN (${[genotypesArr]})
-    )
-
-    -- country filter -----------------------------------------------
-    AND (
-      ${countriesArr.length} = 0
-      OR country  IN (${[countriesArr]})
-    )
-),
-parsed AS (
-  SELECT sequence, LENGTH(sequence) AS len
-  FROM filtered
-),
-pos AS (
-  SELECT p.sequence, gs.position
-  FROM parsed AS p
-  CROSS JOIN generate_series(1, p.len) AS gs(position)
-),
-chars AS (
-  SELECT position,
-         SUBSTRING(sequence, position, 1) AS aminoacid
-  FROM pos
-),
-counts AS (                            -- frequency_all
-  SELECT position, aminoacid, COUNT(*) AS cnt
-  FROM chars
-  GROUP BY position, aminoacid
-),
-totals AS (                            -- total_all
-  SELECT position, SUM(cnt) AS total
-  FROM counts
-  GROUP BY position
-),
-
-/* ─────  B.  unique sequences only  ─────────────────────────────────── */
-filtered_u AS (                        -- one row per distinct sequence
-  SELECT DISTINCT sequence
-  FROM filtered
-),
-parsed_u AS (
-  SELECT sequence, LENGTH(sequence) AS len
-  FROM filtered_u
-),
-pos_u AS (
-  SELECT p.sequence, gs.position
-  FROM parsed_u AS p
-  CROSS JOIN generate_series(1, p.len) AS gs(position)
-),
-chars_u AS (
-  SELECT position,
-         SUBSTRING(sequence, position, 1) AS aminoacid
-  FROM pos_u
-),
-counts_u AS (                          -- frequency_unique
-  SELECT position, aminoacid, COUNT(*) AS cnt
-  FROM chars_u
-  GROUP BY position, aminoacid
-),
-totals_u AS (                          -- total_unique
-  SELECT position, SUM(cnt) AS total
-  FROM counts_u
-  GROUP BY position
-)
-
-/* ─────  C.  final projection  ──────────────────────────────────────── */
-SELECT
-  c.position,
-  c.aminoacid,
-
-  /* all-sequence metrics */
-  CAST(c.cnt   AS INT) AS frequency_all,
-  CAST(t.total AS INT) AS total_all,
-  (c.cnt::DOUBLE) / t.total            AS value,
-
-  /* unique-sequence metrics */
-  CAST(cu.cnt  AS INT) AS frequency_unique,
-  CAST(tu.total AS INT) AS total_unique,
-  (cu.cnt::DOUBLE) / tu.total          AS value_unique
-
-FROM counts      AS c
-JOIN totals      AS t   USING (position)
-LEFT JOIN counts_u AS cu
-       ON cu.position  = c.position
-      AND cu.aminoacid = c.aminoacid
-LEFT JOIN totals_u AS tu
-       ON tu.position  = c.position
-ORDER BY
-  c.position,
-  c.aminoacid;
+```js
+/* UI: checkbox list */
+const selectedGenotypes = view(Inputs.checkbox(allGenotypes, {
+  label: "Genotype filter",
+  value: []            // ← start with none checked
+}));
 
 ```
