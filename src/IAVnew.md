@@ -9,29 +9,6 @@ sql:
 ---
 
 ```js
-// BLOCK 1 ─ fetch → Arrow table → JS array → string[]
-const genotypeRows   = await sql`
-  SELECT DISTINCT genotype
-  FROM proteins
-  WHERE genotype IS NOT NULL
-  ORDER BY genotype
-`;                     // Arrow Table
-
-const distinctGenotypes = genotypeRows.toArray()        // now a plain array
-                                    .map(d => d.genotype);
-
-const countryRows    = await sql`
-  SELECT DISTINCT country
-  FROM proteins
-  WHERE country IS NOT NULL
-  ORDER BY country
-`;
-
-const distinctCountries = countryRows.toArray()
-                                    .map(d => d.country);
-```
-
-```js
 // BLOCK 2: DEFINE UI VIEWS
 // This block depends on `genotypeOptions` and `countryOptions` from the cell above.
 // The Framework will wait for Block 1 to fully resolve before running this block.
@@ -49,14 +26,6 @@ const tableName = view(
     label: "Choose dataset:", value: datasets[0], keyof: d => d.label, valueof: d => d.id
   })
 );
-
-// 2 ▸ multiselect inputs (returns a view whose .value is the current selection array)
-const selectedGenotypes = view(
-  multiSelect(distinctGenotypes, { label: "Filter by Genotype(s):" })
-);
-const selectedCountries = view(
-  multiSelect(distinctCountries, { label: "Filter by Country(s):" })
-);
 ```
 
 
@@ -73,46 +42,33 @@ const selectedCountries = view(
   .suggestion-item.disabled { color: #999; cursor: not-allowed; }
 </style>
 
+
 ```js
-// helper — always an array, never undefined
-const genotypesArr = Array.isArray(selectedGenotypes.value)
-  ? selectedGenotypes.value
-  : []
+import {extendDB, sql, extended} from "./components/extenddb.js"
+import {DuckDBClient} from "npm:@observablehq/duckdb";
 
 ```
 
 ```js
-// helper — always an array, never undefined
-const countriesArr = Array.isArray(selectedCountries.value)
-  ? selectedCountries.value
-  : []
-
+/* ----------   wrap the client  ---------- */
+const db = extendDB(
+  await DuckDBClient.of({
+    proteins: FileAttachment("data/IAV_all.parquet").arrow()
+  })
+);
 ```
 
 
 
-```js
-// helper – builds “?, ?, ?” safely, no new APIs needed
-function list(arr) {
-  if (arr.length === 0) return sql`NULL`;      // never evaluated when empty
-  let frag = sql`${arr[0]}`;                   // first placeholder
-  for (let i = 1; i < arr.length; i++)
-    frag = sql`${frag}, ${arr[i]}`;            // more “, ?”
-  return frag;
-}
-
-const genotypesearch = ["H5N1", "H7N9"];
-```
-
-```js
 
 
-Inputs.table(await sql`
-  SELECT DISTINCT genotype
-  FROM proteins
-  WHERE genotype IN (${list(genotypesearch)})
-`);
-```
+
+
+
+
+
+
+
 
 
 
