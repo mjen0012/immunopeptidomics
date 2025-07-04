@@ -53,7 +53,7 @@ import {DuckDBClient} from "npm:@observablehq/duckdb";
 /* ----------   wrap the client  ---------- */
 const db = extendDB(
   await DuckDBClient.of({
-    proteins: FileAttachment("data/IAV6-all.parquet").arrow()
+    proteins: FileAttachment("./src/data/IAV6-all.parquet").arrow()
   })
 );
 ```
