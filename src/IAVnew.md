@@ -8,48 +8,16 @@ sql:
 ---
 
 ```js
-// BLOCK 2: DEFINE UI VIEWS
-// This block depends on `genotypeOptions` and `countryOptions` from the cell above.
-// The Framework will wait for Block 1 to fully resolve before running this block.
-import {multiSelect} from "./components/multiSelect.js";
-
-const datasets = [
-  {id: "M1", label: "M1"}, {id: "M2", label: "M2"}, {id: "HA", label: "HA"},
-  {id: "PAX", label: "PA-X"}, {id: "NA", label: "NA"}, {id: "PB1F2", label: "PB1F2"},
-  {id: "NP", label: "NP"}, {id: "NS1", label: "NS1"}, {id: "NS2", label: "NS2"},
-  {id: "PA", label: "PA"}, {id: "PB1", label: "PB1"}, {id: "PB2", label: "PB2"}
-];
-
-const tableName = view(
-  Inputs.select(datasets, {
-    label: "Choose dataset:", value: datasets[0], keyof: d => d.label, valueof: d => d.id
-  })
-);
-```
-
-
-<style>
-  .multi-select-container { position: relative; max-width: 400px; margin-bottom: 1rem; }
-  .multi-select-container .label { font-weight: bold; display: block; margin-bottom: 4px; font-size: 14px;}
-  .multi-select-pills { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
-  .multi-select-pill { background-color: #e0e0e0; color: #333; padding: 4px 8px; border-radius: 12px; font-size: 14px; display: flex; align-items: center; }
-  .multi-select-pill .remove-btn { background: none; border: none; color: #555; cursor: pointer; font-size: 16px; margin-left: 6px; padding: 0; line-height: 1; }
-  .multi-select-container .text-input { width: 100%; box-sizing: border-box; }
-  .multi-select-suggestions { position: absolute; background: white; border: 1px solid #ccc; border-top: none; width: 100%; max-height: 200px; overflow-y: auto; z-index: 1000; box-sizing: border-box;}
-  .suggestion-item { padding: 8px 12px; cursor: pointer; }
-  .suggestion-item:hover { background-color: #f0f0f0; }
-  .suggestion-item.disabled { color: #999; cursor: not-allowed; }
-</style>
-
-
-```js
+/* Imports */
 import {extendDB, sql, extended} from "./components/extenddb.js"
 import {DuckDBClient} from "npm:@observablehq/duckdb";
-
+import {dropSelect} from "./components/dropSelect.js";
+import {comboSelect} from "./components/comboSelect.js"
+import {dateSelect} from "./components/dateSelect.js";
 ```
 
 ```js
-/* ----------   wrap the client  ---------- */
+/* Wrap Database */
 const db = extendDB(
   await DuckDBClient.of({
     proteins: FileAttachment("data/IAV6-all.parquet").parquet()
@@ -58,48 +26,101 @@ const db = extendDB(
 ```
 
 ```js
-// should log true
-db[extended]
-```
-
-```js
-const rowsn = db.sql`SELECT COUNT(*) AS n_rows FROM proteins`
-
-```
-
-```js
-Inputs.table(rowsn)
-```
-
-
-
-```js
-// hard-coded sample — replace with your own later
-const testGenotypes = [];
-
-```
-
-```js
 const row2 = db.sql`
 SELECT *
 FROM   proteins
-WHERE  ${
+WHERE  protein = ${ tableName }
+AND       ${
   selectedGenotypes.length
     ? sql`genotype IN (${ selectedGenotypes })`
     : sql`TRUE`
 }
-LIMIT  10
+AND    ${
+  selectedHosts.length
+    ? sql`host      IN (${ selectedHosts })`
+    : sql`TRUE`
+}
+AND    ${
+  hostCategory.includes("Human") && !hostCategory.includes("Non-human")
+    ? sql`host = 'Homo sapiens'`
+    : (!hostCategory.includes("Human") && hostCategory.includes("Non-human"))
+        ? sql`host <> 'Homo sapiens'`
+        : sql`TRUE`
+}
+AND    ${
+  selectedCountries.length
+    ? sql`country IN (${ selectedCountries })`
+    : sql`TRUE`
+}
+AND    ${
+  selectedDates.from || selectedDates.to
+    ? sql`
+        TRY_CAST(
+          CASE
+            WHEN collection_date IS NULL OR collection_date = '' THEN NULL
+            WHEN LENGTH(collection_date)=4  THEN collection_date || '-01-01'
+            WHEN LENGTH(collection_date)=7  THEN collection_date || '-01'
+            ELSE collection_date
+          END AS DATE
+        )
+        ${
+          selectedDates.from && selectedDates.to
+            ? sql`BETWEEN CAST(${ selectedDates.from } AS DATE)
+                     AND   CAST(${ selectedDates.to   } AS DATE)`
+            : selectedDates.from
+                ? sql`>= CAST(${ selectedDates.from } AS DATE)`
+                : sql`<= CAST(${ selectedDates.to   } AS DATE)`
+        }
+      `
+    : sql`TRUE`
+}
+AND    ${
+  selectedReleaseDates.from || selectedReleaseDates.to
+    ? sql`
+        TRY_CAST(
+          CASE
+            WHEN release_date IS NULL OR release_date = '' THEN NULL
+            WHEN LENGTH(release_date)=4 THEN release_date || '-01-01'
+            WHEN LENGTH(release_date)=7 THEN release_date || '-01'
+            ELSE release_date
+          END AS DATE
+        )
+        ${
+          selectedReleaseDates.from && selectedReleaseDates.to
+            ? sql`BETWEEN CAST(${ selectedReleaseDates.from } AS DATE)
+                     AND   CAST(${ selectedReleaseDates.to   } AS DATE)`
+            : selectedReleaseDates.from
+                ? sql`>= CAST(${ selectedReleaseDates.from } AS DATE)`
+                : sql`<= CAST(${ selectedReleaseDates.to   } AS DATE)`
+        }
+      `
+    : sql`TRUE`
+}
+LIMIT  25
 `
-
 ```
 
 ```js
-
 Inputs.table(row2)
 ```
 
 ```js
-/* pull distinct genotypes once */
+/* Filter Helpers */
+const datasets = [
+  {id: "M1",    label: "Matrix 1 (M1)"},
+  {id: "M2",    label: "Matrix 2 (M2)"},
+  {id: "HA",    label: "Hemagglutinin (HA)"},
+  {id: "PAX",   label: "Polymerase Acidic X (PA-X)"},
+  {id: "NA",    label: "Neuraminidase (NA)"},
+  {id: "PB1F2", label: "PB1-F2 (PB1-F2)"},
+  {id: "NP",    label: "Nucleocapsid (NP)"},
+  {id: "NS1",   label: "Nonstructural 1 (NS1)"},
+  {id: "NS2",   label: "Nonstructural 2 (NS2)"},
+  {id: "PA",    label: "Polymerase Acidic (PA)"},
+  {id: "PB1",   label: "Polymerase Basic 1 (PB1)"},
+  {id: "PB2",   label: "Polymerase Basic 2 (PB2)"}
+];
+
 const allGenotypes = (await db.sql`
   SELECT DISTINCT genotype
   FROM proteins
@@ -107,13 +128,58 @@ const allGenotypes = (await db.sql`
 `).toArray()
   .map(d => d.genotype)
   .sort();
+
+const allHosts = (await db.sql`
+  SELECT DISTINCT host
+  FROM   proteins
+  WHERE  host IS NOT NULL
+`).toArray().map(d => d.host).sort();
+
+const allCountries = (await db.sql`
+  SELECT DISTINCT country
+  FROM   proteins
+  WHERE  country IS NOT NULL
+`).toArray().map(d => d.country).sort();
 ```
 
 ```js
-/* UI: checkbox list */
-const selectedGenotypes = view(Inputs.checkbox(allGenotypes, {
-  label: "Genotype filter",
-  value: []            // ← start with none checked
+/* Filter Buttons */
+const tableName = view(dropSelect(datasets, {
+  label: "Protein",
+  fontFamily: "'Roboto', sans-serif"
 }));
 
+const selectedGenotypes = view(comboSelect(allGenotypes, {
+  label: "Genotype",
+  placeholder: "Type genotype…",
+  fontFamily: "'Roboto', sans-serif"
+}))
+
+const selectedHosts = view(comboSelect(allHosts, {
+  label: "Host",
+  placeholder: "Type host…",
+  fontFamily: "'Roboto', sans-serif"
+}));
+
+const hostCategory = view(Inputs.checkbox(
+  ["Human", "Non-human"],
+  { label: "Host category", value: [] }
+));
+
+const selectedCountries = view(comboSelect(allCountries, {
+  label: "Country",
+  placeholder: "Type country…",
+  fontFamily: "'Roboto', sans-serif"
+}));
+
+const selectedDates = view(dateSelect({
+  label: "Collection date",
+  fontFamily: "'Roboto', sans-serif"
+}));
+
+const selectedReleaseDates = view(dateSelect({
+  label: "Release date",
+  fontFamily: "'Roboto', sans-serif"
+}));
 ```
+
