@@ -26,10 +26,10 @@ const db = extendDB(
 ```
 
 ```js
-const row2 = db.sql`
+const filteredData = db.sql`
 SELECT *
 FROM   proteins
-WHERE  protein = ${ tableName }
+WHERE  protein = ${ selectedProtein }
 AND       ${
   selectedGenotypes.length
     ? sql`genotype IN (${ selectedGenotypes })`
@@ -101,12 +101,12 @@ LIMIT  25
 ```
 
 ```js
-Inputs.table(row2)
+Inputs.table(filteredData)
 ```
 
 ```js
 /* Filter Helpers */
-const datasets = [
+const proteinOptions = [
   {id: "M1",    label: "Matrix 1 (M1)"},
   {id: "M2",    label: "Matrix 2 (M2)"},
   {id: "HA",    label: "Hemagglutinin (HA)"},
@@ -144,7 +144,7 @@ const allCountries = (await db.sql`
 
 ```js
 /* Filter Buttons */
-const tableName = view(dropSelect(datasets, {
+const selectedProtein = view(dropSelect(proteinOptions, {
   label: "Protein",
   fontFamily: "'Roboto', sans-serif"
 }));
