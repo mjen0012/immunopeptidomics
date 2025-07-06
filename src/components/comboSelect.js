@@ -1,5 +1,11 @@
 /* ────────────────────────────────────────────────────────────────
-   src/components/comboSelect.js  •  v2
+   src/components/comboSelect.js  •  v5
+   ----------------------------------------------------------------
+   • Pill colour #006DAE, white ×
+   • Search box 166×36, radius 6
+   • Dropdown 166×auto
+   • Pills wrap within 166-px column (flex-wrap)
+   • List stays open after each selection
 -----------------------------------------------------------------*/
 
 export function comboSelect(
@@ -8,8 +14,8 @@ export function comboSelect(
     label        = "",
     placeholder  = "Search…",
     fontFamily   = "inherit",
-    pillColor    = "#e0e0e0",
-    pillText     = "#333",
+    pillColor    = "#006DAE",
+    pillText     = "#fff",
     listHeight   = 180
   } = {}
 ) {
@@ -25,7 +31,7 @@ export function comboSelect(
   const labelEl = label ? document.createElement("label") : null;
 
   root.className = "combo-root";
-  root.style.position = "relative";          // for absolute dropdown
+  root.style.position = "relative";
 
   /* label */
   if (labelEl) {
@@ -49,6 +55,10 @@ export function comboSelect(
   /* pill row */
   pills.className   = "combo-pills";
   root.appendChild(pills);
+
+  /* helpers to show / hide */
+  const showList = () => { if (filtered.length) list.style.display = "block"; };
+  const hideList = () => { list.style.display = "none"; };
 
   /* ─ helpers ─ */
   const refreshPills = () => {
@@ -75,93 +85,79 @@ export function comboSelect(
       const li = Object.assign(document.createElement("li"), {
         className : "combo-item" + (selected.has(val) ? " is-selected" : ""),
         textContent: val,
-        onclick    : () => { toggleSelect(val); }
+        onclick    : () => toggleSelect(val)
       });
       list.appendChild(li);
     }
   };
 
-  const showList = () => {
-    if (filtered.length) list.style.display = "block";
-  };
-  const hideList = () => { list.style.display = "none"; };
-
   const toggleSelect = val => {
     selected.has(val) ? selected.delete(val) : selected.add(val);
-    input.value = "";          // clear search box after choosing
-    update();
+    input.value = "";
+    update();                     // keeps list visible because input stays focused
     input.focus();
   };
 
   /* ─ update cycle ─ */
   function update() {
     const q = input.value.trim().toLowerCase();
-    filtered = q
-      ? items.filter(d => d.toLowerCase().includes(q))
-      : items.slice();
+    filtered = q ? items.filter(d => d.toLowerCase().includes(q)) : items.slice();
     refreshPills();
     refreshList();
+    if (document.activeElement === input) showList();
     root.value = Array.from(selected);
     root.dispatchEvent(new CustomEvent("input"));
   }
 
   /* ─ event wiring ─ */
   input.addEventListener("input", update);
-
   input.addEventListener("keydown", e => {
-    if (e.key === "Enter") {
-      if (filtered.length) {
-        toggleSelect(filtered[0]);   // choose top option
-      }
-      e.preventDefault();
-    }
+    if (e.key === "Enter" && filtered.length) { toggleSelect(filtered[0]); e.preventDefault(); }
   });
+  input.addEventListener("focus", showList);
+  document.addEventListener("click", evt => { if (!root.contains(evt.target)) hideList(); });
 
-  input.addEventListener("focus", () => { list.style.display = "block"; });
-
-  document.addEventListener("click", evt => {
-    if (!root.contains(evt.target)) list.style.display = "none";
-  });
-
-  /* ─ initial paint ─ */
+  /* initial paint */
   update();
 
   /* ─ styles ─ */
   const style = document.createElement("style");
   style.textContent = `
-.combo-root { font-family:${fontFamily}; }
+.combo-root { font-family:${fontFamily}; width:166px; }
 .combo-search {
-  width:100%; padding:.4em .5em; font:inherit;
-  border:1px solid #bbb; border-radius:4px;
+  width:166px; height:36px;
+  padding:.4em .5em; font:inherit;
+  border:1px solid #bbb; border-radius:6px;
 }
 .combo-list {
   margin:0; padding:0; list-style:none;
-  max-height:${listHeight}px; overflow-y:auto;
-  border:1px solid #ccc; border-radius:4px; background:#fff;
-  position:absolute; top:100%; left:0; width:100%; box-sizing:border-box;
+  width:166px; max-height:${listHeight}px; overflow-y:auto;
+  border:1px solid #ccc; border-radius:6px; background:#fff;
+  position:absolute; top:100%; left:0; box-sizing:border-box;
   z-index:10; display:none;
 }
 .combo-item { padding:.3em .5em; cursor:pointer; }
 .combo-item:hover { background:#f0f0f0; }
 .combo-item.is-selected { background:#e8f4ff; }
-.combo-pills { display:flex; gap:4px; flex-wrap:wrap; margin-top:6px;}
+.combo-pills {
+  width:166px;
+  display:flex; gap:4px; flex-wrap:wrap;
+  margin-top:6px;
+}
 .combo-pill {
-  background:${pillColor}; color:${pillText}; padding:.2em .4em; border-radius:12px;
+  background:${pillColor}; color:${pillText};
+  padding:.2em .4em; border-radius:12px;
   display:inline-flex; align-items:center; gap:4px; font-size:.85em;
 }
 .combo-x {
   background:none; border:none; cursor:pointer; font-size:1em; line-height:1;
+  color:#fff;                                /* white × symbol */
 }
 .combo-label { display:block; margin-bottom:4px; }
 `;
   root.appendChild(style);
-    root.clear = () => {
-    selected.clear();            // empty the Set
-    input.value = "";
-    update();                    // refresh UI and .value
-  };
 
-  update();
+  root.clear = () => { selected.clear(); input.value = ""; update(); };
 
   return root;
 }

@@ -1,7 +1,7 @@
 // See https://observablehq.com/framework/config for documentation.
 export default {
   // The app’s title; used in the sidebar and webpage titles.
-  title: ".\\ Thesis 2.0",
+  title: "Peptide Viewer",
   interpreters: {
     ".py": ["python"],
   },

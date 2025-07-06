@@ -1,9 +1,145 @@
 ---
-theme: [wide, air]
+theme: [wide, air, alt]
 title: Influenza A (IAV) New
 slug: IAVnew
 toc: false
 ---
+
+
+
+```js
+const banner = await FileAttachment("banner_static.jpg").image();
+banner.alt = "";
+banner.className = "banner__bg";
+```
+
+<style>
+@import url("https://fonts.googleapis.com/css2?family=Roboto+Condensed:wght@300;400;700&display=swap");
+
+/* ------------- banner shell --------------------------------------- */
+.banner {
+  position: relative;
+  height: 200px;
+  width: 100vw;
+  left: 50%;
+  margin-left: -50vw;
+
+  /* ⬇️ NEW — cancel the article’s built-in top padding */
+  margin-top: calc(-1 * var(--observable-layout-spacing-block, 2rem));
+
+  background: none;           /* handled by the <img> element */
+  display: flex;
+  align-items: center;
+  padding-left: 4rem;
+  font-family: "Roboto Condensed", sans-serif;
+  overflow: hidden;
+}
+
+/* background image fills the box */
+.banner__bg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  z-index: 0;
+}
+
+/* ------------- text ---------------------------------------------- */
+.banner__text {
+  position: relative;
+  z-index: 2;
+}
+.banner__text h1 {
+  margin: 0;
+  font-size: 64px;
+  font-weight: 400;
+  color: #fff;
+  line-height: 1;
+}
+.banner__text h2 {
+  margin: 0;
+  font-size: 36px;
+  font-weight: 300;
+  color: #fff;
+}
+
+/* ------------- translucent “M” ----------------------------------- */
+.banner__logo {
+  position: absolute;
+  top: 0;
+  right: 200px;              /* 30-px inset from edge */
+  width: 88px;
+  height: 100%;
+  fill: rgba(255,255,255,0.30);
+  z-index: 1;
+  pointer-events: none;
+}
+</style>
+
+<header class="banner">
+  ${banner}
+
+  <div class="banner__text">
+    <h1>PEPTIDE VIEWER</h1>
+    <h2>Influenza A</h2>
+  </div>
+
+  <svg class="banner__logo" viewBox="0 0 1 1" preserveAspectRatio="none">
+    <polygon points="0.5745 0,0.5 0.33,0.42 0,0 0,0 1,0.27 1,0.27 0.59,
+                     0.37 1,0.634 1,0.736 0.59,0.736 1,1 1,1 0,0.5745 0" />      
+  </svg>
+</header>
+
+<style>
+/* reusable two-column, 20 / 80 split */
+.row-20-80 {
+  display: grid;
+  grid-template-columns: 20% 80%;
+  gap: var(--observable-layout-spacing-block, 1rem);
+}
+
+/* mobile: stack cards */
+@media (max-width: 640px) {
+  .row-20-80 {
+    grid-template-columns: 1fr;
+  }
+}
+
+.file-heading {
+  font-family: "Roboto", sans-serif;
+  font-weight: 700;
+  font-size: 20px;
+  color: #000;
+  margin: 0 0 0.5rem 0;   /* optional bottom space */
+  text-align: left;
+}
+</style>
+
+<!-- ── Row 1 · two cards: 20 % + 80 % ─────────────────────────────── -->
+<div class="row-20-80">
+
+  <!-- left card · 20 % -->
+  <div class="card" style="display:flex; flex-direction:column; gap:1rem;">
+    <div class="file-heading">1. Select Files</div>
+    ${referencefasta}
+    ${peptideinput}
+    </br>
+  </div>
+
+  <!-- right card · 80 % -->
+  <div class="card" style="display:flex; flex-direction:column; gap:1rem;">
+    <div class="file-heading">2. Filter</div>
+    <div style="display:grid; grid-template-columns: repeat(3, 1fr); gap:1rem;">
+    ${genotypeInput}
+    ${hostInput}
+    ${countryInput}
+    </div>
+  </div>
+
+</div>
+
+
 
 ```js
 /* Imports */
@@ -14,6 +150,7 @@ import {comboSelect} from "./components/comboSelect.js"
 import {dateSelect} from "./components/dateSelect.js";
 import {uploadButton} from "./components/uploadButton.js";
 ```
+
 
 ```js
 /* Wrap Database */
@@ -149,28 +286,31 @@ const selectedProtein = view(dropSelect(proteinOptions, {
   fontFamily: "'Roboto', sans-serif"
 }));
 
-const selectedGenotypes = view(comboSelect(allGenotypes, {
+const genotypeInput = comboSelect(allGenotypes, {
   label: "Genotype",
   placeholder: "Type genotype…",
   fontFamily: "'Roboto', sans-serif"
-}))
+});
+const selectedGenotypes = Generators.input(genotypeInput);   // reactive value
 
-const selectedHosts = view(comboSelect(allHosts, {
+const hostInput = comboSelect(allHosts, {
   label: "Host",
   placeholder: "Type host…",
   fontFamily: "'Roboto', sans-serif"
-}));
+});
+const selectedHosts = Generators.input(hostInput);           // reactive value
+
+const countryInput = comboSelect(allCountries, {
+  label: "Country",
+  placeholder: "Type country…",
+  fontFamily: "'Roboto', sans-serif"
+});
+const selectedCountries = Generators.input(countryInput);    // reactive value
 
 const hostCategory = view(Inputs.checkbox(
   ["Human", "Non-human"],
   { label: "Host category", value: [] }
 ));
-
-const selectedCountries = view(comboSelect(allCountries, {
-  label: "Country",
-  placeholder: "Type country…",
-  fontFamily: "'Roboto', sans-serif"
-}));
 
 const selectedDates = view(dateSelect({
   label: "Collection date",
@@ -494,8 +634,8 @@ function nwAffineBanded(ref, freqs, baseBandWidth = 75, gOpen = -5, gExt = -2) {
 
 ```js
 /* Fasta Alignment Table */
-const fastaAligned = referencefasta
-  ? (await referencefasta.text())
+const fastaAligned = referenceFile
+  ? (await referenceFile.text())
       .trim()
       .split(/\r?\n>(?=[^\n])/g)
       .map(block => {
@@ -519,8 +659,8 @@ Inputs.table(fastaAligned)
 
 ```js
 /* Read Peptide File + Normalisation */
-const peptidesRaw = peptideinput
-  ? (await (await peptideinput.text()).trim())
+const peptidesRaw = peptideFile
+  ? (await (await peptideFile.text()).trim())
       .split(/\r?\n/)
       .map(line => line.split(/,(?=(?:[^"]*"[^"]*")*[^"]*$)/))
       .map(row => row.map(cell => cell.replace(/^"|"$/g, "")))
@@ -610,17 +750,22 @@ Inputs.table(peptidesAligned)
 ```
 
 ```js
-/* Reference FASTA Upload */
-const referencefasta = view(uploadButton({
-  label   : "Upload Reference",
-  accept  : ".fasta",
+/* ── detached inputs ─────────────────────────────────────────────── */
+const referencefasta = uploadButton({
+  label: "Upload Reference",
+  accept: ".fasta",
   required: true
-}));
+});
+const referenceFile = Generators.input(referencefasta);   // ← value
 
-/* Peptides CSV Upload */
-const peptideinput = view(uploadButton({
-  label   : "Upload Peptides",
-  accept  : ".csv",
+const peptideinput = uploadButton({
+  label: "Upload Peptides",
+  accept: ".csv",
   required: true
-}));
+});
+const peptideFile = Generators.input(peptideinput);       // ← value
+```
+
+```js
+
 ```

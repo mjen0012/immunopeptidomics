@@ -1,8 +1,10 @@
 /* ────────────────────────────────────────────────────────────────
-   src/components/uploadButton.js  •  v2
+   src/components/uploadButton.js  •  v3
    ----------------------------------------------------------------
-   • Roboto Bold 14 px, #006DAE background, white text + icon
-   • Padding 8 px × 16 px, 10 px gap, 6 px corner radius
+   • Styled file-upload control
+   • Roboto Bold 14 for button (white on #006DAE, radius 6)
+   • SVG stroke-width 3 for a “bold” icon
+   • Selected file-name shown to the right (Roboto 14, black)
 -----------------------------------------------------------------*/
 
 export function uploadButton({
@@ -13,9 +15,9 @@ export function uploadButton({
   fontFamily  = "'Roboto', sans-serif",
   fillColor   = "#006DAE",
   textColor   = "#fff",
-  radius      = 6               // corner radius in px
+  radius      = 6
 } = {}) {
-  /* hidden <input type="file"> */
+  /* hidden <input type=file> */
   const fileInput = Object.assign(document.createElement("input"), {
     type     : "file",
     accept,
@@ -41,23 +43,36 @@ export function uploadButton({
     <span class="ub-label">${label}</span>
   `;
 
-  /* root element returned to Observable */
-  const root = document.createElement("div");
-  root.append(fileInput, btn);
+  /* file-name display */
+  const nameSpan = document.createElement("span");
+  nameSpan.className = "ub-filename";
+  nameSpan.textContent = "";   // empty until a file is chosen
 
-  /* value propagation */
+  /* wrapper returned to Observable */
+  const root = document.createElement("div");
+  root.className = "ub-root";
+  root.append(fileInput, btn, nameSpan);
+
+  /* propagate value + update file-name */
   const updateValue = () => {
-    root.value = multiple ? Array.from(fileInput.files)
-                          : fileInput.files[0] ?? null;
+    const files = multiple ? Array.from(fileInput.files)
+                           : fileInput.files[0] ? [fileInput.files[0]] : [];
+    root.value = multiple ? files : files[0] ?? null;
+
+    nameSpan.textContent = files.length
+      ? (multiple ? `${files[0].name} …(+${files.length - 1})` : files[0].name)
+      : "";
     root.dispatchEvent(new CustomEvent("input"));
   };
+
   btn.onclick        = () => fileInput.click();
   fileInput.onchange = updateValue;
 
   /* scoped styles */
   const style = document.createElement("style");
   style.textContent = `
-.ub-btn {
+.ub-root   { display:inline-flex; align-items:center; gap:12px; }
+.ub-btn    {
   display:inline-flex; align-items:center; gap:10px;
   padding:8px 16px;
   font:bold 14px/1.2 ${fontFamily};
@@ -68,6 +83,14 @@ export function uploadButton({
 .ub-btn:hover  { filter:brightness(1.1); }
 .ub-btn:active { filter:brightness(0.95); }
 .ub-icon       { display:inline-flex; }
+.ub-filename   {
+  font:14px/1.2 ${fontFamily};
+  color:#000;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  max-width:240px;           /* adjust if needed */
+}
 `;
   root.appendChild(style);
 
