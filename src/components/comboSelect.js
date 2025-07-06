@@ -79,8 +79,12 @@ export function comboSelect(
       });
       list.appendChild(li);
     }
-    list.style.display = filtered.length ? "block" : "none";
   };
+
+  const showList = () => {
+    if (filtered.length) list.style.display = "block";
+  };
+  const hideList = () => { list.style.display = "none"; };
 
   const toggleSelect = val => {
     selected.has(val) ? selected.delete(val) : selected.add(val);
@@ -151,6 +155,13 @@ export function comboSelect(
 .combo-label { display:block; margin-bottom:4px; }
 `;
   root.appendChild(style);
+    root.clear = () => {
+    selected.clear();            // empty the Set
+    input.value = "";
+    update();                    // refresh UI and .value
+  };
+
+  update();
 
   return root;
 }
