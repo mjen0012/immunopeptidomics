@@ -130,10 +130,17 @@ banner.className = "banner__bg";
   <!-- right card · 80 % -->
   <div class="card" style="display:flex; flex-direction:column; gap:1rem;">
     <div class="file-heading">2. Filter</div>
-    <div style="display:grid; grid-template-columns: repeat(3, 1fr); gap:1rem;">
-    ${genotypeInput}
-    ${hostInput}
-    ${countryInput}
+    <div style="display:grid; grid-template-columns:repeat(6,1fr); gap:1rem;">
+      ${proteinInput}
+      ${genotypeInput}
+      <!-- col 3 · host dropdown + checkboxes stacked -->
+      <div style="display:flex; flex-direction:column; gap:.75rem;">
+        ${hostInput}
+        ${hostCategoryBox}
+      </div>
+      ${countryInput}        <!-- col 4 -->
+      ${collectionDateInput}
+      ${releaseDateInput}
     </div>
   </div>
 
@@ -149,6 +156,7 @@ import {dropSelect} from "./components/dropSelect.js";
 import {comboSelect} from "./components/comboSelect.js"
 import {dateSelect} from "./components/dateSelect.js";
 import {uploadButton} from "./components/uploadButton.js";
+import {checkboxSelect} from "./components/checkboxSelect.js";
 ```
 
 
@@ -281,10 +289,11 @@ const allCountries = (await db.sql`
 
 ```js
 /* Filter Buttons */
-const selectedProtein = view(dropSelect(proteinOptions, {
+const proteinInput = dropSelect(proteinOptions, {
   label: "Protein",
   fontFamily: "'Roboto', sans-serif"
-}));
+});
+const selectedProtein = Generators.input(proteinInput);
 
 const genotypeInput = comboSelect(allGenotypes, {
   label: "Genotype",
@@ -307,20 +316,21 @@ const countryInput = comboSelect(allCountries, {
 });
 const selectedCountries = Generators.input(countryInput);    // reactive value
 
-const hostCategory = view(Inputs.checkbox(
-  ["Human", "Non-human"],
-  { label: "Host category", value: [] }
-));
+const hostCategoryBox = checkboxSelect(["Human", "Non-human"]);
+const hostCategory = Generators.input(hostCategoryBox);   // reactive value
 
-const selectedDates = view(dateSelect({
+
+const collectionDateInput = dateSelect({
   label: "Collection date",
   fontFamily: "'Roboto', sans-serif"
-}));
+});
+const selectedDates = Generators.input(collectionDateInput);    // reactive value
 
-const selectedReleaseDates = view(dateSelect({
+const releaseDateInput = dateSelect({
   label: "Release date",
   fontFamily: "'Roboto', sans-serif"
-}));
+});
+const selectedReleaseDates = Generators.input(releaseDateInput); 
 ```
 
 ```js

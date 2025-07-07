@@ -1,50 +1,48 @@
 /* ────────────────────────────────────────────────────────────────
-   dateSelect.js  ·  from–to date picker for Observable
+   src/components/dateSelect.js  •  v2
    ----------------------------------------------------------------
-   Usage:
-     import {dateSelect} from "./components/dateSelect.js"
-
-     viewof selectedDates = dateSelect({
-       label: "Collection date",
-       fontFamily: "'Roboto', sans-serif"
-     })
-
-   root.value ➜ { from: "YYYY-MM-DD" | null, to: "YYYY-MM-DD" | null }
+   • Each <input type=date> is 166×36, radius 6
+   • Vertical layout:
+        Collection date
+        [from box]
+        –          (en-dash)
+        [to   box]
 -----------------------------------------------------------------*/
 
 export function dateSelect({
-  label        = "",
-  fontFamily   = "inherit",
-  pillColor    = "#e0e0e0",
-  pillText     = "#333"
+  label        = "Date range",
+  fontFamily   = "'Roboto', sans-serif",
+  fillColor    = "#fff",
+  textColor    = "#000",
+  radius       = 6
 } = {}) {
-  /* — elements — */
-  const root   = document.createElement("div");
-  const wrap   = document.createElement("div");   // flex row
+  /* elements */
+  const root  = document.createElement("div");
+  const wrap  = document.createElement("div");     // vertical stack
   const inputFrom = document.createElement("input");
   const inputTo   = document.createElement("input");
-  const labelEl   = label ? document.createElement("label") : null;
+  const dash      = document.createElement("span");
+  const labelEl   = document.createElement("label");
 
-  root.className = "date-root";
+  /* label */
+  labelEl.className   = "date-label";
+  labelEl.textContent = label;
+  root.appendChild(labelEl);
+
+  /* inputs */
+  [inputFrom, inputTo].forEach(inp => {
+    inp.type  = "date";
+    inp.className = "date-input";
+  });
+  dash.className = "date-dash";
+  dash.textContent = "–";
+
+  /* assemble */
   wrap.className = "date-wrap";
-  inputFrom.className = inputTo.className = "date-input";
-
-  if (labelEl) {
-    labelEl.className = "date-label";
-    labelEl.textContent = label;
-    wrap.appendChild(labelEl);
-  }
-
-  inputFrom.type = inputTo.type = "date";
-  inputFrom.placeholder = "Start";
-  inputTo.placeholder   = "End";
-
-  wrap.appendChild(inputFrom);
-  wrap.appendChild(document.createTextNode(" – "));
-  wrap.appendChild(inputTo);
+  wrap.append(inputFrom, dash, inputTo);
   root.appendChild(wrap);
 
-  /* — update helper — */
+  /* reactive value */
   const update = () => {
     root.value = {
       from: inputFrom.value || null,
@@ -52,25 +50,27 @@ export function dateSelect({
     };
     root.dispatchEvent(new CustomEvent("input"));
   };
-
   inputFrom.addEventListener("change", update);
   inputTo  .addEventListener("change", update);
+  update();                       // initial
 
-  /* — scoped CSS — */
+  /* scoped CSS */
   const style = document.createElement("style");
   style.textContent = `
-.date-root { font-family:${fontFamily}; }
-.date-wrap { display:flex; align-items:center; gap:4px; flex-wrap:wrap; }
+.date-label { font-family:${fontFamily}; display:block; margin-bottom:4px; }
+.date-wrap  { display:flex; flex-direction:column; align-items:flex-start; gap:4px; }
 .date-input {
-  padding:.3em .4em; border:1px solid #bbb; border-radius:4px;
-  font:inherit; background:#fff; color:#333;
+  width:240px; height:36px;
+  padding:0 .5em;
+  font:inherit;
+  border:1px solid #bbb;
+  border-radius:${radius}px;
+  box-sizing:border-box;
+  background:${fillColor}; color:${textColor};
 }
-.date-label { margin-right:4px; }
+.date-dash  { font-family:${fontFamily}; }
 `;
   root.appendChild(style);
-
-  /* initial state */
-  update();
 
   return root;
 }

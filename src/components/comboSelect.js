@@ -1,10 +1,10 @@
 /* ────────────────────────────────────────────────────────────────
-   src/components/comboSelect.js  •  v5
+   src/components/comboSelect.js  •  v6
    ----------------------------------------------------------------
    • Pill colour #006DAE, white ×
    • Search box 166×36, radius 6
-   • Dropdown 166×auto
-   • Pills wrap within 166-px column (flex-wrap)
+   • Dropdown 166×auto, now anchored directly under search box
+   • Pills wrap within 166-px column
    • List stays open after each selection
 -----------------------------------------------------------------*/
 
@@ -57,7 +57,15 @@ export function comboSelect(
   root.appendChild(pills);
 
   /* helpers to show / hide */
-  const showList = () => { if (filtered.length) list.style.display = "block"; };
+  const positionList = () => {
+    list.style.top = (input.offsetTop + input.offsetHeight) + "px";
+  };
+  const showList = () => {
+    if (filtered.length) {
+      positionList();
+      list.style.display = "block";
+    }
+  };
   const hideList = () => { list.style.display = "none"; };
 
   /* ─ helpers ─ */
@@ -89,12 +97,13 @@ export function comboSelect(
       });
       list.appendChild(li);
     }
+    positionList();                       // keep flush even after resize
   };
 
   const toggleSelect = val => {
     selected.has(val) ? selected.delete(val) : selected.add(val);
     input.value = "";
-    update();                     // keeps list visible because input stays focused
+    update();                              // list remains visible
     input.focus();
   };
 
@@ -126,14 +135,16 @@ export function comboSelect(
 .combo-root { font-family:${fontFamily}; width:166px; }
 .combo-search {
   width:166px; height:36px;
-  padding:.4em .5em; font:inherit;
+  padding:0 .5em;
+  font:inherit;
   border:1px solid #bbb; border-radius:6px;
+  box-sizing:border-box;
 }
 .combo-list {
   margin:0; padding:0; list-style:none;
-  width:166px; max-height:${listHeight}px; overflow-y:auto;
+  width:240px; max-height:${listHeight}px; overflow-y:auto;
   border:1px solid #ccc; border-radius:6px; background:#fff;
-  position:absolute; top:100%; left:0; box-sizing:border-box;
+  position:absolute; left:0; box-sizing:border-box;
   z-index:10; display:none;
 }
 .combo-item { padding:.3em .5em; cursor:pointer; }
@@ -151,7 +162,7 @@ export function comboSelect(
 }
 .combo-x {
   background:none; border:none; cursor:pointer; font-size:1em; line-height:1;
-  color:#fff;                                /* white × symbol */
+  color:#fff;
 }
 .combo-label { display:block; margin-bottom:4px; }
 `;
