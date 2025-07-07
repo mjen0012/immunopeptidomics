@@ -124,7 +124,6 @@ banner.className = "banner__bg";
     <div class="file-heading">1. Select Files</div>
     ${referencefasta}
     ${peptideinput}
-    </br>
   </div>
 
   <!-- right card · 80 % -->
@@ -141,9 +140,12 @@ banner.className = "banner__bg";
       ${countryInput}        <!-- col 4 -->
       ${collectionDateInput}
       ${releaseDateInput}
-    </div>
+      </div>
+    <div style="grid-column:1 / -1; justify-self:start;">
+      ${applyButtonInput}
+      ${clearButtonInput}
   </div>
-
+  </div>
 </div>
 
 
@@ -174,31 +176,38 @@ const db = extendDB(
 const filteredData = db.sql`
 SELECT *
 FROM   proteins
-WHERE  protein = ${ selectedProtein }
-AND       ${
-  selectedGenotypes.length
-    ? sql`genotype IN (${ selectedGenotypes })`
+WHERE  protein = ${ proteinCommitted }
+
+AND ${
+  genotypesCommitted.length
+    ? sql`genotype IN (${ genotypesCommitted })`
     : sql`TRUE`
 }
-AND    ${
-  selectedHosts.length
-    ? sql`host      IN (${ selectedHosts })`
+
+AND ${
+  hostsCommitted.length
+    ? sql`host IN (${ hostsCommitted })`
     : sql`TRUE`
 }
-AND    ${
-  hostCategory.includes("Human") && !hostCategory.includes("Non-human")
+
+AND ${
+  hostCategoryCommitted.includes("Human") &&
+  !hostCategoryCommitted.includes("Non-human")
     ? sql`host = 'Homo sapiens'`
-    : (!hostCategory.includes("Human") && hostCategory.includes("Non-human"))
+    : (!hostCategoryCommitted.includes("Human") &&
+        hostCategoryCommitted.includes("Non-human"))
         ? sql`host <> 'Homo sapiens'`
         : sql`TRUE`
 }
-AND    ${
-  selectedCountries.length
-    ? sql`country IN (${ selectedCountries })`
+
+AND ${
+  countriesCommitted.length
+    ? sql`country IN (${ countriesCommitted })`
     : sql`TRUE`
 }
-AND    ${
-  selectedDates.from || selectedDates.to
+
+AND ${
+  collectionDatesCommitted.from || collectionDatesCommitted.to
     ? sql`
         TRY_CAST(
           CASE
@@ -209,18 +218,19 @@ AND    ${
           END AS DATE
         )
         ${
-          selectedDates.from && selectedDates.to
-            ? sql`BETWEEN CAST(${ selectedDates.from } AS DATE)
-                     AND   CAST(${ selectedDates.to   } AS DATE)`
-            : selectedDates.from
-                ? sql`>= CAST(${ selectedDates.from } AS DATE)`
-                : sql`<= CAST(${ selectedDates.to   } AS DATE)`
+          collectionDatesCommitted.from && collectionDatesCommitted.to
+            ? sql`BETWEEN CAST(${ collectionDatesCommitted.from } AS DATE)
+                     AND   CAST(${ collectionDatesCommitted.to   } AS DATE)`
+            : collectionDatesCommitted.from
+                ? sql`>= CAST(${ collectionDatesCommitted.from } AS DATE)`
+                : sql`<= CAST(${ collectionDatesCommitted.to   } AS DATE)`
         }
       `
     : sql`TRUE`
 }
-AND    ${
-  selectedReleaseDates.from || selectedReleaseDates.to
+
+AND ${
+  releaseDatesCommitted.from || releaseDatesCommitted.to
     ? sql`
         TRY_CAST(
           CASE
@@ -231,18 +241,18 @@ AND    ${
           END AS DATE
         )
         ${
-          selectedReleaseDates.from && selectedReleaseDates.to
-            ? sql`BETWEEN CAST(${ selectedReleaseDates.from } AS DATE)
-                     AND   CAST(${ selectedReleaseDates.to   } AS DATE)`
-            : selectedReleaseDates.from
-                ? sql`>= CAST(${ selectedReleaseDates.from } AS DATE)`
-                : sql`<= CAST(${ selectedReleaseDates.to   } AS DATE)`
+          releaseDatesCommitted.from && releaseDatesCommitted.to
+            ? sql`BETWEEN CAST(${ releaseDatesCommitted.from } AS DATE)
+                     AND   CAST(${ releaseDatesCommitted.to   } AS DATE)`
+            : releaseDatesCommitted.from
+                ? sql`>= CAST(${ releaseDatesCommitted.from } AS DATE)`
+                : sql`<= CAST(${ releaseDatesCommitted.to   } AS DATE)`
         }
       `
     : sql`TRUE`
 }
-LIMIT  25
-`
+LIMIT 25
+`;
 ```
 
 ```js
@@ -309,6 +319,8 @@ const hostInput = comboSelect(allHosts, {
 });
 const selectedHosts = Generators.input(hostInput);           // reactive value
 
+const safe = arr => Array.isArray(arr) ? arr : [];
+
 const countryInput = comboSelect(allCountries, {
   label: "Country",
   placeholder: "Type country…",
@@ -336,89 +348,91 @@ const selectedReleaseDates = Generators.input(releaseDateInput);
 ```js
 const positionStats = db.sql`
 WITH
-/* Data Filters */
+/* ──────────────  A.  Data Filters  ───────────────────────────── */
 filtered AS (
   SELECT *
   FROM   proteins
-  WHERE  protein = ${ selectedProtein }
+  WHERE  protein = ${ proteinCommitted } 
 
-    /* Genotype */
-    AND ${
-      selectedGenotypes.length
-        ? sql`genotype IN (${ selectedGenotypes })`
-        : sql`TRUE`
-    }
+  /* Genotype */
+  AND ${
+    genotypesCommitted.length
+      ? sql`genotype IN (${ genotypesCommitted })`
+      : sql`TRUE`
+  }
 
-    /* Host Filter */
-    AND ${
-      selectedHosts.length
-        ? sql`host IN (${ selectedHosts })`
-        : sql`TRUE`
-    }
+  /* Host drop-down */
+  AND ${
+    hostsCommitted.length
+      ? sql`host IN (${ hostsCommitted })`
+      : sql`TRUE`
+  }
 
-    /* Host Checkbox Filter */
-    AND ${
-      hostCategory.includes("Human") && !hostCategory.includes("Non-human")
-        ? sql`host = 'Homo sapiens'`
-        : (!hostCategory.includes("Human") && hostCategory.includes("Non-human"))
-            ? sql`host <> 'Homo sapiens'`
-            : sql`TRUE`
-    }
+  /* Host category checkboxes */
+  AND ${
+    hostCategoryCommitted.includes("Human") &&
+    !hostCategoryCommitted.includes("Non-human")
+      ? sql`host = 'Homo sapiens'`
+      : (!hostCategoryCommitted.includes("Human") &&
+         hostCategoryCommitted.includes("Non-human"))
+          ? sql`host <> 'Homo sapiens'`
+          : sql`TRUE`
+  }
 
-    /* Country Filter */
-    AND ${
-      selectedCountries.length
-        ? sql`country IN (${ selectedCountries })`
-        : sql`TRUE`
-    }
+  /* Country */
+  AND ${
+    countriesCommitted.length
+      ? sql`country IN (${ countriesCommitted })`
+      : sql`TRUE`
+  }
 
-    /* Collection Date Filter */
-    AND ${
-      selectedDates.from || selectedDates.to
-        ? sql`
-            TRY_CAST(
-              CASE
-                WHEN collection_date IS NULL OR collection_date = '' THEN NULL
-                WHEN LENGTH(collection_date)=4  THEN collection_date || '-01-01'
-                WHEN LENGTH(collection_date)=7  THEN collection_date || '-01'
-                ELSE collection_date
-              END AS DATE
-            )
-            ${
-              selectedDates.from && selectedDates.to
-                ? sql`BETWEEN CAST(${ selectedDates.from } AS DATE)
-                         AND   CAST(${ selectedDates.to   } AS DATE)`
-                : selectedDates.from
-                    ? sql`>= CAST(${ selectedDates.from } AS DATE)`
-                    : sql`<= CAST(${ selectedDates.to   } AS DATE)`
-            }
-          `
-        : sql`TRUE`
-    }
+  /* Collection date */
+  AND ${
+    collectionDatesCommitted.from || collectionDatesCommitted.to
+      ? sql`
+          TRY_CAST(
+            CASE
+              WHEN collection_date IS NULL OR collection_date = '' THEN NULL
+              WHEN LENGTH(collection_date)=4  THEN collection_date || '-01-01'
+              WHEN LENGTH(collection_date)=7  THEN collection_date || '-01'
+              ELSE collection_date
+            END AS DATE
+          )
+          ${
+            collectionDatesCommitted.from && collectionDatesCommitted.to
+              ? sql`BETWEEN CAST(${ collectionDatesCommitted.from } AS DATE)
+                       AND   CAST(${ collectionDatesCommitted.to   } AS DATE)`
+              : collectionDatesCommitted.from
+                  ? sql`>= CAST(${ collectionDatesCommitted.from } AS DATE)`
+                  : sql`<= CAST(${ collectionDatesCommitted.to   } AS DATE)`
+          }
+        `
+      : sql`TRUE`
+  }
 
-    /* Release Date Filter */
-    AND ${
-      selectedReleaseDates.from || selectedReleaseDates.to
-        ? sql`
-            TRY_CAST(
-              CASE
-                WHEN release_date IS NULL OR release_date = '' THEN NULL
-                WHEN LENGTH(release_date)=4 THEN release_date || '-01-01'
-                WHEN LENGTH(release_date)=7 THEN release_date || '-01'
-                ELSE release_date
-              END AS DATE
-            )
-            ${
-              selectedReleaseDates.from && selectedReleaseDates.to
-                ? sql`BETWEEN CAST(${ selectedReleaseDates.from } AS DATE)
-                         AND   CAST(${ selectedReleaseDates.to   } AS DATE)`
-                : selectedReleaseDates.from
-                    ? sql`>= CAST(${ selectedReleaseDates.from } AS DATE)`
-                    : sql`<= CAST(${ selectedReleaseDates.to   } AS DATE)`
-            }
-          `
-        : sql`TRUE`
-    }
+  /* Release date */
+  AND ${
+    releaseDatesCommitted.from || releaseDatesCommitted.to
+      ? sql`
+          TRY_CAST(
+            CASE
+              WHEN release_date IS NULL OR release_date = '' THEN NULL
+              WHEN LENGTH(release_date)=4 THEN release_date || '-01-01'
+              WHEN LENGTH(release_date)=7 THEN release_date || '-01'
+              ELSE release_date
+            END AS DATE
+          )
+          ${
+            releaseDatesCommitted.from && releaseDatesCommitted.to
+              ? sql`BETWEEN CAST(${ releaseDatesCommitted.from } AS DATE)
+                       AND   CAST(${ releaseDatesCommitted.to   } AS DATE)`
+              : releaseDatesCommitted.from
+                  ? sql`>= CAST(${ releaseDatesCommitted.from } AS DATE)`
+                  : sql`<= CAST(${ releaseDatesCommitted.to   } AS DATE)`
+          }
+        `
+      : sql`TRUE`
+  }
 ),
 
 /* Total Tallies */
@@ -776,6 +790,80 @@ const peptideinput = uploadButton({
 const peptideFile = Generators.input(peptideinput);       // ← value
 ```
 
+
 ```js
+/* detached control (not yet rendered) */
+const applyButtonInput  = filterButton("Apply filters",  {color:"#006DAE"});
+
+/* a reactive signal: every click bumps the counter (1, 2, 3 …) */
+const applyTrigger = Generators.input(applyButtonInput);
 
 ```
+
+```js
+/* helper — returns element.value once and only when the button fires */
+function commit(element) {
+  return Generators.observe((change) => {
+    const update = () => change(element.value);   // pull DOM value
+    update();                                     // initial load
+    applyButtonInput.addEventListener("input", update);
+    return () => applyButtonInput.removeEventListener("input", update);
+  });
+}
+
+/* committed filters (DOM not reactive) */
+const proteinCommitted         = commit(proteinInput);        // "M1", "HA", …
+const genotypesCommitted       = commit(genotypeInput);       // [] or ["H3N2", …]
+const hostsCommitted           = commit(hostInput);
+const hostCategoryCommitted    = commit(hostCategoryBox);     // [] | ["Human"]…
+const countriesCommitted       = commit(countryInput);
+const collectionDatesCommitted = commit(collectionDateInput); // {from,to}
+const releaseDatesCommitted    = commit(releaseDateInput);
+
+
+
+```
+```js
+import {filterButton} from "./components/filterButton.js";
+```
+
+
+```js
+/* CLEAR button — detached element */
+const clearButtonInput  = filterButton("Clear filters",  {color:"#A3A3A3"});
+
+/* reset all widgets when clicked */
+clearButtonInput.addEventListener("input", () => {
+  proteinInput.clear();            // drop-down
+  genotypeInput.clear();           // comboSelect
+  hostInput.clear();
+  countryInput.clear();
+  hostCategoryBox.clear();         // checkboxes
+  collectionDateInput.clear();     // date pickers
+  releaseDateInput.clear();
+});
+```
+
+```js
+
+import {downloadButton} from "./components/downloadButton.js";
+
+/* download current Fasta Alignment table */
+const downloadFastaBtn = downloadButton({
+  label   : "Download FASTA CSV",
+  filename: "fastaAligned.csv",
+  data    : () => fastaAligned          // pass as function so it’s always fresh
+});
+
+/* download current Peptide Alignment table */
+const downloadPeptideBtn = downloadButton({
+  label   : "Download Peptides CSV",
+  filename: "peptidesAligned.csv",
+  data    : () => peptidesAligned
+});
+```
+
+<div class="card">
+  ${downloadFastaBtn}
+  ${downloadPeptideBtn}
+</div>

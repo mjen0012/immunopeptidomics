@@ -151,7 +151,7 @@ export function comboSelect(
 .combo-item:hover { background:#f0f0f0; }
 .combo-item.is-selected { background:#e8f4ff; }
 .combo-pills {
-  width:166px;
+  width:240px;
   display:flex; gap:4px; flex-wrap:wrap;
   margin-top:6px;
 }

@@ -67,5 +67,12 @@ export function dropSelect(
 `;
   root.appendChild(style);
 
+  /* public helper */
+  root.clear = () => {
+    select.value = items[0].id;   // back to first option
+    root.value   = select.value;
+    select.dispatchEvent(new Event("change", {bubbles:true}));
+  };
+
   return root;
 }

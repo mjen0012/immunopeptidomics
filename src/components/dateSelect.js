@@ -72,5 +72,11 @@ export function dateSelect({
 `;
   root.appendChild(style);
 
+  root.clear = () => {
+    inputFrom.value = "";
+    inputTo.value   = "";
+    update();
+  };
+
   return root;
 }

@@ -63,6 +63,10 @@ export function checkboxSelect(
 .cb-line span { line-height:1.2; }
 `;
   root.appendChild(style);
-
+  root.clear = () => {
+    root.querySelectorAll("input[type=checkbox]").forEach(cb => (cb.checked = false));
+    root.dispatchEvent(new Event("change", {bubbles:true}));
+  };
+  
   return root;
 }
