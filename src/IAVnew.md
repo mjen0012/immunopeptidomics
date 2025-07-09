@@ -5,8 +5,7 @@ slug: IAVnew
 toc: false
 ---
 
-
-
+<!-- Banner -->
 ```js
 const banner = await FileAttachment("banner_static.jpg").image();
 banner.alt = "";
@@ -92,6 +91,8 @@ banner.className = "banner__bg";
   </svg>
 </header>
 
+<!-- Dashboard CSS -->
+
 <style>
 /* 20 % / 80 % grid with uniform gap */
 .layout-20-80 {
@@ -116,6 +117,8 @@ banner.className = "banner__bg";
   color: #000;
 }
 </style>
+
+<!-- HTML -->
 
 <div class="layout-20-80">
 
@@ -147,7 +150,9 @@ banner.className = "banner__bg";
   </div>
 
   <!-- Row 2-4 · 20 % · continuous sidebar card -->
-  <div class="card" style="grid-row: 2 / span 3;"></div>
+  <div class="card" style="grid-row: 2 / span 3;">
+    <div class="file-heading">3. Control Panel</div>
+  </div>
 
   <!-- Row 2 · 80 % · metric cards -->
   <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:1rem;">
@@ -170,7 +175,7 @@ banner.className = "banner__bg";
 
 </div>
 
-
+<!-- Imports and Loading Data -->
 ```js
 /* Imports */
 import {extendDB, sql, extended} from "./components/extenddb.js"
@@ -180,8 +185,15 @@ import {comboSelect} from "./components/comboSelect.js"
 import {dateSelect} from "./components/dateSelect.js";
 import {uploadButton} from "./components/uploadButton.js";
 import {checkboxSelect} from "./components/checkboxSelect.js";
+import {filterButton} from "./components/filterButton.js";
+import {downloadButton} from "./components/downloadButton.js";
+import {metricCard} from "./components/metricCard.js";
+import {peptideChart} from "./components/peptideChart.js";
+import {stackedChart} from "./components/stackedChart.js";
+import {makePeptideScale, colourAA} from "./components/palettes.js";
+import { peptideHeatmap } from "./components/peptideHeatmap.js";
+import * as d3 from "npm:d3";
 ```
-
 
 ```js
 /* Wrap Database */
@@ -193,93 +205,7 @@ const db = extendDB(
 );
 ```
 
-```js
-const filteredData = db.sql`
-SELECT *
-FROM   proteins
-WHERE  protein = ${ proteinCommitted }
-
-AND ${
-  genotypesCommitted.length
-    ? sql`genotype IN (${ genotypesCommitted })`
-    : sql`TRUE`
-}
-
-AND ${
-  hostsCommitted.length
-    ? sql`host IN (${ hostsCommitted })`
-    : sql`TRUE`
-}
-
-AND ${
-  hostCategoryCommitted.includes("Human") &&
-  !hostCategoryCommitted.includes("Non-human")
-    ? sql`host = 'Homo sapiens'`
-    : (!hostCategoryCommitted.includes("Human") &&
-        hostCategoryCommitted.includes("Non-human"))
-        ? sql`host <> 'Homo sapiens'`
-        : sql`TRUE`
-}
-
-AND ${
-  countriesCommitted.length
-    ? sql`country IN (${ countriesCommitted })`
-    : sql`TRUE`
-}
-
-AND ${
-  collectionDatesCommitted.from || collectionDatesCommitted.to
-    ? sql`
-        TRY_CAST(
-          CASE
-            WHEN collection_date IS NULL OR collection_date = '' THEN NULL
-            WHEN LENGTH(collection_date)=4  THEN collection_date || '-01-01'
-            WHEN LENGTH(collection_date)=7  THEN collection_date || '-01'
-            ELSE collection_date
-          END AS DATE
-        )
-        ${
-          collectionDatesCommitted.from && collectionDatesCommitted.to
-            ? sql`BETWEEN CAST(${ collectionDatesCommitted.from } AS DATE)
-                     AND   CAST(${ collectionDatesCommitted.to   } AS DATE)`
-            : collectionDatesCommitted.from
-                ? sql`>= CAST(${ collectionDatesCommitted.from } AS DATE)`
-                : sql`<= CAST(${ collectionDatesCommitted.to   } AS DATE)`
-        }
-      `
-    : sql`TRUE`
-}
-
-AND ${
-  releaseDatesCommitted.from || releaseDatesCommitted.to
-    ? sql`
-        TRY_CAST(
-          CASE
-            WHEN release_date IS NULL OR release_date = '' THEN NULL
-            WHEN LENGTH(release_date)=4 THEN release_date || '-01-01'
-            WHEN LENGTH(release_date)=7 THEN release_date || '-01'
-            ELSE release_date
-          END AS DATE
-        )
-        ${
-          releaseDatesCommitted.from && releaseDatesCommitted.to
-            ? sql`BETWEEN CAST(${ releaseDatesCommitted.from } AS DATE)
-                     AND   CAST(${ releaseDatesCommitted.to   } AS DATE)`
-            : releaseDatesCommitted.from
-                ? sql`>= CAST(${ releaseDatesCommitted.from } AS DATE)`
-                : sql`<= CAST(${ releaseDatesCommitted.to   } AS DATE)`
-        }
-      `
-    : sql`TRUE`
-}
-LIMIT 25
-`;
-```
-
-```js
-Inputs.table(filteredData)
-```
-
+<!-- Filter Buttons + Helpers -->
 ```js
 /* Filter Helpers */
 const proteinOptions = [
@@ -331,14 +257,14 @@ const genotypeInput = comboSelect(allGenotypes, {
   placeholder: "Type genotype…",
   fontFamily: "'Roboto', sans-serif"
 });
-const selectedGenotypes = Generators.input(genotypeInput);   // reactive value
+const selectedGenotypes = Generators.input(genotypeInput);
 
 const hostInput = comboSelect(allHosts, {
   label: "Host",
   placeholder: "Type host…",
   fontFamily: "'Roboto', sans-serif"
 });
-const selectedHosts = Generators.input(hostInput);           // reactive value
+const selectedHosts = Generators.input(hostInput);
 
 const safe = arr => Array.isArray(arr) ? arr : [];
 
@@ -347,17 +273,16 @@ const countryInput = comboSelect(allCountries, {
   placeholder: "Type country…",
   fontFamily: "'Roboto', sans-serif"
 });
-const selectedCountries = Generators.input(countryInput);    // reactive value
+const selectedCountries = Generators.input(countryInput);
 
 const hostCategoryBox = checkboxSelect(["Human", "Non-human"]);
-const hostCategory = Generators.input(hostCategoryBox);   // reactive value
-
+const hostCategory = Generators.input(hostCategoryBox);
 
 const collectionDateInput = dateSelect({
   label: "Collection date",
   fontFamily: "'Roboto', sans-serif"
 });
-const selectedDates = Generators.input(collectionDateInput);    // reactive value
+const selectedDates = Generators.input(collectionDateInput);
 
 const releaseDateInput = dateSelect({
   label: "Release date",
@@ -366,12 +291,49 @@ const releaseDateInput = dateSelect({
 const selectedReleaseDates = Generators.input(releaseDateInput); 
 ```
 
-
-
 ```js
-Inputs.table(positionStats)
+/* Apply Filters Button */
+const applyButtonInput  = filterButton("Apply filters",  {color:"#006DAE"});
+const applyTrigger = Generators.input(applyButtonInput);
 ```
 
+```js
+/* Apply Filters Function */
+function commit(element) {
+  return Generators.observe((change) => {
+    const update = () => change(element.value);
+    update();
+    applyButtonInput.addEventListener("input", update);
+    return () => applyButtonInput.removeEventListener("input", update);
+  });
+}
+
+/* Committed Filters */
+const proteinCommitted         = commit(proteinInput);
+const genotypesCommitted       = commit(genotypeInput);
+const hostsCommitted           = commit(hostInput);
+const hostCategoryCommitted    = commit(hostCategoryBox);
+const countriesCommitted       = commit(countryInput);
+const collectionDatesCommitted = commit(collectionDateInput);
+const releaseDatesCommitted    = commit(releaseDateInput);
+```
+
+```js
+/* Clear Filters Button */
+const clearButtonInput  = filterButton("Clear filters",  {color:"#A3A3A3"});
+
+clearButtonInput.addEventListener("input", () => {
+  proteinInput.clear();
+  genotypeInput.clear();
+  hostInput.clear();
+  countryInput.clear();
+  hostCategoryBox.clear();
+  collectionDateInput.clear();
+  releaseDateInput.clear();
+});
+```
+
+<!-- Summary Stat Cards -->
 ```js
 /* Current Counts */
 const total_all_count = positionStats.toArray()[0]?.total_all ?? 0;
@@ -395,6 +357,23 @@ function trackPrev() {
 
 const getPrevTotal = trackPrev();
 const getPrevUnique = trackPrev();
+```
+
+```js
+/* Peptide Alignment Count Tracker */
+const aligned_count    = peptidesAligned.filter(d => d.peptide_aligned)?.length ?? 0;
+const nonaligned_count = peptidesAligned.length - aligned_count;
+```
+
+<!-- Input Reference FASTA Alignment -->
+```js
+/* Input FASTA Button */
+const referencefasta = uploadButton({
+  label: "Upload Reference",
+  accept: ".fasta",
+  required: false
+});
+const referenceFile = Generators.input(referencefasta);
 ```
 
 ```js
@@ -523,8 +502,15 @@ const fastaAligned = referenceFile
   : [];
 ```
 
+<!-- Input Peptide Alignment -->
 ```js
-Inputs.table(fastaAligned)
+/* Input Peptide Button */
+const peptideinput = uploadButton({
+  label: "Upload Peptides",
+  accept: ".csv",
+  required: false
+});
+const peptideFile = Generators.input(peptideinput);
 ```
 
 ```js
@@ -615,99 +601,16 @@ const peptidesAligned = peptidesClean.map(d => {
 });
 ```
 
+<!-- Download Buttons -->
 ```js
-Inputs.table(peptidesAligned)
-```
-
-```js
-/* counts derived from peptidesAligned */
-const aligned_count    = peptidesAligned.filter(d => d.peptide_aligned)?.length ?? 0;
-const nonaligned_count = peptidesAligned.length - aligned_count;
-
-```
-
-```js
-/* ── detached inputs ─────────────────────────────────────────────── */
-const referencefasta = uploadButton({
-  label: "Upload Reference",
-  accept: ".fasta",
-  required: false
-});
-const referenceFile = Generators.input(referencefasta);   // ← value
-
-const peptideinput = uploadButton({
-  label: "Upload Peptides",
-  accept: ".csv",
-  required: false
-});
-const peptideFile = Generators.input(peptideinput);       // ← value
-```
-
-
-```js
-/* detached control (not yet rendered) */
-const applyButtonInput  = filterButton("Apply filters",  {color:"#006DAE"});
-
-/* a reactive signal: every click bumps the counter (1, 2, 3 …) */
-const applyTrigger = Generators.input(applyButtonInput);
-
-```
-
-```js
-/* helper — returns element.value once and only when the button fires */
-function commit(element) {
-  return Generators.observe((change) => {
-    const update = () => change(element.value);   // pull DOM value
-    update();                                     // initial load
-    applyButtonInput.addEventListener("input", update);
-    return () => applyButtonInput.removeEventListener("input", update);
-  });
-}
-
-/* committed filters (DOM not reactive) */
-const proteinCommitted         = commit(proteinInput);        // "M1", "HA", …
-const genotypesCommitted       = commit(genotypeInput);       // [] or ["H3N2", …]
-const hostsCommitted           = commit(hostInput);
-const hostCategoryCommitted    = commit(hostCategoryBox);     // [] | ["Human"]…
-const countriesCommitted       = commit(countryInput);
-const collectionDatesCommitted = commit(collectionDateInput); // {from,to}
-const releaseDatesCommitted    = commit(releaseDateInput);
-
-
-
-```
-```js
-import {filterButton} from "./components/filterButton.js";
-```
-
-
-```js
-/* CLEAR button — detached element */
-const clearButtonInput  = filterButton("Clear filters",  {color:"#A3A3A3"});
-
-/* reset all widgets when clicked */
-clearButtonInput.addEventListener("input", () => {
-  proteinInput.clear();            // drop-down
-  genotypeInput.clear();           // comboSelect
-  hostInput.clear();
-  countryInput.clear();
-  hostCategoryBox.clear();         // checkboxes
-  collectionDateInput.clear();     // date pickers
-  releaseDateInput.clear();
-});
-```
-
-```js
-import {downloadButton} from "./components/downloadButton.js";
-
-/* download current Fasta Alignment table */
+/* Download Alignment Button */
 const downloadFastaBtn = downloadButton({
   label   : "Download FASTA CSV",
   filename: "fastaAligned.csv",
   data    : () => fastaAligned
 });
 
-/* download current Peptide Alignment table */
+/* Download Peptides Button */
 const downloadPeptideBtn = downloadButton({
   label   : "Download Peptides CSV",
   filename: "peptidesAligned.csv",
@@ -715,56 +618,9 @@ const downloadPeptideBtn = downloadButton({
 });
 ```
 
-<div class="card">
-  ${downloadFastaBtn}
-  ${downloadPeptideBtn}
-</div>
-
-
+<!-- Synchronised Graphs -->
 ```js
-/** Returns a colored ▲▼ + formatted delta, or em-dash if no previous value. */
-function trend(now, prev, {format} = {}) {
-  if (prev == null || isNaN(prev)) return html`<span class="muted">—</span>`;
-
-  const δ = now - prev;
-  const dir = Math.sign(δ);               // -1 ↓  0 —  1 ↑
-  const color = dir > 0
-    ? "var(--theme-foreground-positive)"
-    : dir < 0
-      ? "var(--theme-foreground-negative)"
-      : "var(--theme-foreground-muted)";
-
-  const arrow = dir > 0 ? "▲" : dir < 0 ? "▼" : "";
-  const fmt = new Intl.NumberFormat("en-US", format).format(Math.abs(δ));
-
-  return html`<span style="color:${color}; font-weight:500;">${arrow} ${fmt}</span>`;
-}
-
-```
-
-
-
-```js
-import {metricCard} from "./components/metricCard.js"
-import {peptideChart} from "./components/peptideChart.js";
-import {stackedChart} from "./components/stackedChart.js";
-import * as d3 from "npm:d3";
-```
-
-
-```js
-/*****************************************************************
- *  createIAVDashboard() → SVGElement     ·     “20 % bigger” edition
- *
- *  − Enlarges every visual element ~20 % by scaling:
- *        rowHeight, gap, all margins, default font-size
- *  − Keeps the SVG responsive (width: 100 %, viewBox set)
- *  − Still drives the peptide viewer with a shared zoom.
- *
- *  External symbols (defined upstream):
- *    peptideChart, makePeptideScale, colourAttr,
- *    peptidesAligned, proteinCommitted, width
- *****************************************************************/
+/* Function to Create Synchronised Graphs */
 function createIAVDashboard({
   rowHeight   = 18,
   gap         = 2,
@@ -860,37 +716,36 @@ function createIAVDashboard({
 }
 ```
 
-```js
-createIAVDashboard()
-```
-
-
-
-
-```js
-import {makePeptideScale, colourAA} from "./components/palettes.js";
-```
-
+<!-- Control Panel Buttons -->
 ```js
 const colourAttrInput = Inputs.radio(
   ["attribute_1", "attribute_2", "attribute_3"],
   {label: "Colour peptides by:", value: "attribute_1"}
 );
 const colourAttr = Generators.input(colourAttrInput);
-
-/* ----  B.  helper: build a colour scale for the chosen column ---- */
-function peptideColourScale(data, attr) {
-  const keys = [...new Set(data.map(d => d[attr]))].sort();
-  return makePeptideScale(keys);
-}
 ```
 
 ```js
-
-html`${colourAttrInput}`
+/* Switch All vs Unique Sequences Radio */
+const seqSetInput = Inputs.radio(
+  ["All sequences", "Unique sequences"],
+  {label: "Sequence set:", value: "All sequences"}
+);
+const seqSet = Generators.input(seqSetInput);
 ```
 
 ```js
+/* Colour Peptide Cell Plot Button */
+const colourModeInput = Inputs.radio(
+  ["Mismatches", "Properties"],
+  { label: "Cell colouring:", value: "Mismatches" }
+);
+const colourMode = Generators.input(colourModeInput);
+```
+
+<!-- Data Source Switcher -->
+```js
+/* Any Filters Present */
 function noExtraFilters() {
   return (
     !genotypesCommitted.length          &&
@@ -904,27 +759,7 @@ function noExtraFilters() {
 ```
 
 ```js
-/* quick table — already partitioned by protein */
-const positionStatsPrecalc = db.sql`
-  SELECT position, aminoacid,
-         frequency_all, total_all, value,
-         frequency_unique, total_unique, value_unique
-  FROM sequencecalc
-  WHERE protein = ${proteinCommitted}
-`;
-
-```
-
-
-
-```js
-html`<small style="color:${noExtraFilters() ? 'green' : 'orange'};">
-  Data source: ${noExtraFilters() ? 'pre-calculated (fast)' : 'live query'}
-</small>`
-```
-
-```js
-/* positionStats : DuckDB Arrow Table  (lazy: only 1 query runs) */
+/* Calculate Position Data */
 const positionStats = (
   noExtraFilters()
     ? db.sql`                       -- fast path
@@ -1103,43 +938,29 @@ const positionStats = (
         ORDER  BY c.position, c.aminoacid
     `
 );
-
-```
-
-
-
-```js
-/* === UI control ===================================================== */
-const seqSetInput = Inputs.radio(
-  ["All sequences", "Unique sequences"],
-  {label: "Sequence set:", value: "All sequences"}
-);
-const seqSet = Generators.input(seqSetInput);
-
 ```
 
 ```js
-/* === positionStats ➜ in-memory array with the chosen measure ========= */
+/* JS Array for Plotting */
 const aaFrequencies = (
-  await positionStats.toArray()              // Arrow → JS
+  await positionStats.toArray()
 ).map(r => {
-  const all  = Number(r.value       );       // precalc columns
+  const all  = Number(r.value       );
   const uniq = Number(r.value_unique);
   return {
     position        : Number(r.position),
     aminoacid       : r.aminoacid,
-    /* single field universally used by the charts */
     value_selected  : (seqSet === "Unique sequences" ? uniq : all)
   };
 });
 
-/* === stacked bars (exclude the max AA) ============================== */
+/* Stacked Bar Chart Data */
 const stackedBars = (() => {
   const rows = [];
   for (const [pos, arows] of d3.group(aaFrequencies, d=>d.position)) {
     const maxVal = d3.max(arows, d=>d.value_selected);
     arows
-      .filter(d => d.value_selected !== maxVal)          // drop consensus
+      .filter(d => d.value_selected !== maxVal)
       .sort((a,b)=>d3.descending(a.value_selected,b.value_selected))
       .reduce((y0,d)=>{
         rows.push({
@@ -1153,17 +974,10 @@ const stackedBars = (() => {
   }
   return rows;
 })();
-
-```
-
-
-```js
-
-html`${seqSetInput}`
 ```
 
 ```js
-// in one code block (so foo and setFoo live together)
+/* Mutable Peptide Selected */
 const selectedPeptide = Mutable(null);
 const setSelectedPeptide = x => selectedPeptide.value = x;
 
@@ -1175,34 +989,30 @@ const setSelectedLength = x => selectedLength.value = x;
 ```
 
 ```js
-/* DuckDB query: peptide proportions  – ALL + UNIQUE */
+/* Peptide Query Data */
 const peptideProps = db.sql`
 WITH
-/* ─── 1. click parameters ───────────────────────────────────── */
+/* Clicked Peptide */
 params AS (
   SELECT
     CAST(${selectedStart}  AS BIGINT) AS start,
     CAST(${selectedLength} AS BIGINT) AS len,
     ${selectedPeptide}                 AS sel_peptide
 ),
-
-/* ───── base table with every active filter ─────────────────── */
+/* Chosen Filters */
 filtered AS (
   SELECT *
   FROM   proteins
   WHERE  protein = ${proteinCommitted}
-
-    /* genotype */
+    /* Genotype */
     AND ${ genotypesCommitted.length
             ? sql`genotype IN (${ genotypesCommitted })`
             : sql`TRUE` }
-
-    /* host */
+    /* Host Search */
     AND ${ hostsCommitted.length
             ? sql`host IN (${ hostsCommitted })`
             : sql`TRUE` }
-
-    /* host category */
+    /* Host Checkbox */
     AND ${
           hostCategoryCommitted.includes('Human') &&
           !hostCategoryCommitted.includes('Non-human')
@@ -1212,13 +1022,11 @@ filtered AS (
                 ? sql`host <> 'Homo sapiens'`
                 : sql`TRUE`
         }
-
-    /* country */
+    /* Country */
     AND ${ countriesCommitted.length
             ? sql`country IN (${ countriesCommitted })`
             : sql`TRUE` }
-
-    /* collection-date window */
+    /* Collection Date */
     AND ${
       collectionDatesCommitted.from || collectionDatesCommitted.to
         ? sql`
@@ -1241,8 +1049,7 @@ filtered AS (
           `
         : sql`TRUE`
     }
-
-    /* release-date window */
+    /* Release Date */
     AND ${
       releaseDatesCommitted.from || releaseDatesCommitted.to
         ? sql`
@@ -1267,7 +1074,7 @@ filtered AS (
     }
 ),
 
-/* ─── 3. ALL-sequence tallies ──────────────────────────────── */
+/* All-Sequence Tallies */
 extracted_all AS (
   SELECT SUBSTR(sequence, params.start, params.len) AS peptide
   FROM   filtered, params
@@ -1279,7 +1086,7 @@ counts_all AS (
 ),
 total_all AS ( SELECT SUM(cnt_all) AS total_all FROM counts_all ),
 
-/* ─── 4. UNIQUE-sequence tallies ───────────────────────────── */
+/* Unique-Sequence Tallies */
 filtered_dist AS ( SELECT DISTINCT sequence FROM filtered ),
 extracted_u AS (
   SELECT SUBSTR(sequence, params.start, params.len) AS peptide
@@ -1292,7 +1099,7 @@ counts_u AS (
 ),
 total_u AS ( SELECT SUM(cnt_unique) AS total_unique FROM counts_u ),
 
-/* ─── 5. merge & CAST everything to INT  ───────────────────── */
+/* Merge Lists */
 combined AS (
   SELECT
     COALESCE(ca.peptide, cu.peptide)                      AS peptide,
@@ -1318,7 +1125,7 @@ combined AS (
   CROSS JOIN  total_u     AS tu
 )
 
-/* ─── 6. ensure clicked peptide is last, drop helper cols ─── */
+/* Final Table */
 SELECT *
 FROM   combined                           -- everything except the click
 CROSS  JOIN params
@@ -1332,76 +1139,157 @@ RIGHT  JOIN params
 
 ORDER BY proportion_all DESC;
 `;
-
 ```
 
 ```js
-Inputs.table(peptideProps)
-```
+/* Peptide JS Array */
+const rowsRaw = await peptideProps.toArray();
 
-```js
-/*************************************************************************
- *  Heat-map cell  ·  All-vs-Unique + Colour-mode
- *************************************************************************/
-import { peptideHeatmap } from "./components/peptideHeatmap.js";
-
-/* 1 ▸ pull latest SQL table (reactive to filters & click) */
-const rowsRaw = await peptideProps.toArray();   // [{… all cols …}]
-
-/* 2 ▸ pick columns that match the “All / Unique” radio */
+/* Peptide Unique vs All Switcher */
 const useUnique = seqSet === "Unique sequences";
 
 const propCol = useUnique ? "proportion_unique" : "proportion_all";
 const freqCol = useUnique ? "frequency_unique"  : "frequency_all";
 const totCol  = useUnique ? "total_unique"      : "total_all";
 
-/* 3 ▸ shape rows for the heat-map component */
+/* Map Peptide Plot Data */
 const heatmapData = rowsRaw.map(r => ({
   peptide   : r.peptide,
-  proportion: Number(r[propCol]),    // 0 – 1
+  proportion: Number(r[propCol]),
   frequency : Number(r[freqCol]),
   total     : Number(r[totCol])
 }));
 
-/* 4 ▸ render the SVG */
+/* Create Peptide Plot */
 const heatmapSVG = peptideHeatmap({
   data      : heatmapData,
   selected  : selectedPeptide,
-  colourMode: colourMode            // “Mismatches” | “Properties”
+  colourMode: colourMode
 });
 ```
 
-
 ```js
-/* === UI: cell-colouring mode ====================================== */
-const colourModeInput = Inputs.radio(
-  ["Mismatches", "Properties"],
-  { label: "Cell colouring:", value: "Mismatches" }
-);
-const colourMode = Generators.input(colourModeInput);
-```
-
-```js
-
-
-html`${colourModeInput}`        // put this wherever you like
-
-```
-
-```js
-/* ────────────────────────────────────────────────────────────────
- *  Auto-reset the clicked-peptide state whenever the protein
- *  selection changes.  (Runs once on load, then on every change.)
- * ──────────────────────────────────────────────────────────────── */
+/* Reset Peptide Plot when Protein Changes */
 {
-  /* We rely on Observable’s reactivity:
-     whenever proteinCommitted changes, this block re-runs.       */
-  const _ = proteinCommitted;          // read to create dependency
-
-  /* clear the mutable selection handles */
+  const _ = proteinCommitted;
   setSelectedPeptide(null);
   setSelectedStart(null);
   setSelectedLength(null);
 }
 
+```
+
+
+<!-- Delete Later -->
+```js
+const filteredData = db.sql`
+SELECT *
+FROM   proteins
+WHERE  protein = ${ proteinCommitted }
+
+AND ${
+  genotypesCommitted.length
+    ? sql`genotype IN (${ genotypesCommitted })`
+    : sql`TRUE`
+}
+
+AND ${
+  hostsCommitted.length
+    ? sql`host IN (${ hostsCommitted })`
+    : sql`TRUE`
+}
+
+AND ${
+  hostCategoryCommitted.includes("Human") &&
+  !hostCategoryCommitted.includes("Non-human")
+    ? sql`host = 'Homo sapiens'`
+    : (!hostCategoryCommitted.includes("Human") &&
+        hostCategoryCommitted.includes("Non-human"))
+        ? sql`host <> 'Homo sapiens'`
+        : sql`TRUE`
+}
+
+AND ${
+  countriesCommitted.length
+    ? sql`country IN (${ countriesCommitted })`
+    : sql`TRUE`
+}
+
+AND ${
+  collectionDatesCommitted.from || collectionDatesCommitted.to
+    ? sql`
+        TRY_CAST(
+          CASE
+            WHEN collection_date IS NULL OR collection_date = '' THEN NULL
+            WHEN LENGTH(collection_date)=4  THEN collection_date || '-01-01'
+            WHEN LENGTH(collection_date)=7  THEN collection_date || '-01'
+            ELSE collection_date
+          END AS DATE
+        )
+        ${
+          collectionDatesCommitted.from && collectionDatesCommitted.to
+            ? sql`BETWEEN CAST(${ collectionDatesCommitted.from } AS DATE)
+                     AND   CAST(${ collectionDatesCommitted.to   } AS DATE)`
+            : collectionDatesCommitted.from
+                ? sql`>= CAST(${ collectionDatesCommitted.from } AS DATE)`
+                : sql`<= CAST(${ collectionDatesCommitted.to   } AS DATE)`
+        }
+      `
+    : sql`TRUE`
+}
+
+AND ${
+  releaseDatesCommitted.from || releaseDatesCommitted.to
+    ? sql`
+        TRY_CAST(
+          CASE
+            WHEN release_date IS NULL OR release_date = '' THEN NULL
+            WHEN LENGTH(release_date)=4 THEN release_date || '-01-01'
+            WHEN LENGTH(release_date)=7 THEN release_date || '-01'
+            ELSE release_date
+          END AS DATE
+        )
+        ${
+          releaseDatesCommitted.from && releaseDatesCommitted.to
+            ? sql`BETWEEN CAST(${ releaseDatesCommitted.from } AS DATE)
+                     AND   CAST(${ releaseDatesCommitted.to   } AS DATE)`
+            : releaseDatesCommitted.from
+                ? sql`>= CAST(${ releaseDatesCommitted.from } AS DATE)`
+                : sql`<= CAST(${ releaseDatesCommitted.to   } AS DATE)`
+        }
+      `
+    : sql`TRUE`
+}
+LIMIT 25
+`;
+```
+
+```js
+createIAVDashboard()
+```
+
+${colourAttrInput}
+
+${colourModeInput}
+
+${seqSetInput}
+
+${downloadFastaBtn}
+
+${downloadPeptideBtn}
+
+```js
+Inputs.table(filteredData)
+```
+
+```js
+Inputs.table(positionStats)
+```
+
+```js
+Inputs.table(peptidesAligned)
+```
+
+```js
+Inputs.table(peptideProps)
 ```
