@@ -218,8 +218,6 @@ async function buildTable() {
 
 ```js
 resultsTable = {
-  import {html}       from "htl";
-  import * as Inputs  from "@observablehq/inputs";
 
   /* wait for the async data */
   const rows = await parseRows();
