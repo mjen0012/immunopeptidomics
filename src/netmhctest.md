@@ -52,49 +52,54 @@ Inputs.table(raw)
 
 ```js
 async function submitPipeline() {
-  /* guard: wait for the user to click the Run button */
+  /* Wait until the user presses the button */
   if (!runButton) return null;
 
-  /* load peptides and compute min/max length (IEDB requires [min,max]) */
+  /* Peptides ----------------------------------------------- */
   const peptides = await loadPeptides();
   if (!peptides.length) throw new Error("No peptides to submit.");
 
-  const lengths   = peptides.map(p => p.length);
-  const range     = [Math.min(...lengths), Math.max(...lengths)]; // e.g. [8,11]
-  const fastaText = peptides.map((p, i) => `>pep${i + 1}\n${p}`).join("\n");
+  const lengths = peptides.map(p => p.length);
+  const range   = [Math.min(...lengths), Math.max(...lengths)];   // [min,max]
+  const fasta   = peptides.map((p,i)=>`>pep${i+1}\n${p}`).join("\n");
 
-  /* build payload */
+  /* Allele string (defensive if value is briefly undefined) */
+  const allele = ((alleleInput.value ?? "") + "").trim();
+  if (!allele) throw new Error("Allele field is empty.");
+
+  /* Build payload ----------------------------------------- */
   const body = {
     run_stage_range: [1, 1],
     stages: [{
       stage_number: 1,
       tool_group:   "mhci",
-      input_sequence_text: fastaText,
+      input_sequence_text: fasta,
       input_parameters: {
-        alleles: alleleInput.value.trim(),         // string, not array
-        peptide_length_range: range,               // required [min,max]
-        predictors: [{ type: "binding", method: "netmhcpan_el" }]
+        alleles: allele,                    // STRING, not array
+        peptide_length_range: range,        // e.g. [8,11]
+        predictors: [{type:"binding",method:"netmhcpan_el"}]
       }
     }]
   };
 
-  /* send to proxy on same origin */
-  const res  = await fetch("/api/iedb-pipeline", {
+  /* POST to proxy ----------------------------------------- */
+  const resp = await fetch("/api/iedb-pipeline", {
     method:  "POST",
-    headers: { "content-type": "application/json" },
+    headers: {"content-type":"application/json"},
     body:    JSON.stringify(body)
   });
 
-  const json = await res.json();
+  const json = await resp.json();
 
-  if (!res.ok)
-    throw new Error(json.errors?.join("; ") || res.statusText);
+  if (!resp.ok)
+    throw new Error(json.errors?.join("; ") || resp.statusText);
 
   if (!json.results_uri)
-    throw new Error(`IEDB missing results_uri: ${JSON.stringify(json)}`);
+    throw new Error(`IEDB did not return results_uri: ${JSON.stringify(json)}`);
 
-  return json;            // downstream cells will poll this URI
+  return json;                // { results_uri: "...", … }
 }
+
 
 ```
 
