@@ -52,39 +52,49 @@ Inputs.table(raw)
 
 ```js
 async function submitPipeline() {
+  /* guard: wait for the user to click the Run button */
   if (!runButton) return null;
 
+  /* load peptides and compute min/max length (IEDB requires [min,max]) */
   const peptides = await loadPeptides();
-  const lens     = peptides.map(p => p.length);
-  const range    = [Math.min(...lens), Math.max(...lens)];   // [min,max]
+  if (!peptides.length) throw new Error("No peptides to submit.");
 
+  const lengths   = peptides.map(p => p.length);
+  const range     = [Math.min(...lengths), Math.max(...lengths)]; // e.g. [8,11]
+  const fastaText = peptides.map((p, i) => `>pep${i + 1}\n${p}`).join("\n");
+
+  /* build payload */
   const body = {
     run_stage_range: [1, 1],
     stages: [{
       stage_number: 1,
       tool_group:   "mhci",
-      input_sequence_text: peptides
-        .map((p,i)=>`>pep${i+1}\n${p}`).join("\n"),
+      input_sequence_text: fastaText,
       input_parameters: {
-        alleles: alleleInput.value,        // string (e.g. "HLA-A*02:01")
-        peptide_length_range: range,       // e.g. [8, 11]
-        predictors: [{type:"binding",method:"netmhcpan_el"}]
+        alleles: alleleInput.value.trim(),         // string, not array
+        peptide_length_range: range,               // required [min,max]
+        predictors: [{ type: "binding", method: "netmhcpan_el" }]
       }
     }]
   };
 
-  const r = await fetch("/api/iedb-pipeline", {
+  /* send to proxy on same origin */
+  const res  = await fetch("/api/iedb-pipeline", {
     method:  "POST",
-    headers: {"content-type":"application/json"},
+    headers: { "content-type": "application/json" },
     body:    JSON.stringify(body)
   });
 
-  const json = await r.json();
-  if (!r.ok) throw new Error(json.errors?.join("; ") ?? r.statusText);
-  if (!json.results_uri) throw new Error("Missing results_uri.");
-  return json;
-}
+  const json = await res.json();
 
+  if (!res.ok)
+    throw new Error(json.errors?.join("; ") || res.statusText);
+
+  if (!json.results_uri)
+    throw new Error(`IEDB missing results_uri: ${JSON.stringify(json)}`);
+
+  return json;            // downstream cells will poll this URI
+}
 
 ```
 

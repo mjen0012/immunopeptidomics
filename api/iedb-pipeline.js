@@ -1,10 +1,14 @@
-// api/iedb-pipeline.js
-import fetch from "node-fetch";
+// Serverless proxy: forwards JSON payloads to IEDB Next-Gen pipeline
+import fetch from "node-fetch";             // available in Vercel runtime
 
 export default async function handler(req, res) {
-  if (req.method !== "POST") return res.status(405).send("POST only");
+  if (req.method !== "POST") {
+    res.status(405).send("POST only");
+    return;
+  }
 
   try {
+    /* forward request to IEDB */
     const upstream = await fetch(
       "https://api-nextgen-tools.iedb.org/api/v1/pipeline",
       {
@@ -14,17 +18,17 @@ export default async function handler(req, res) {
       }
     );
 
-    const text   = await upstream.text();         // raw string
-    const parsed = safeJSON(text);                // try to parse once
-    console.log("IEDB responded:", upstream.status, parsed ?? text);
+    /* read once, then log and relay */
+    const raw = await upstream.text();
+    let parsed;
+    try { parsed = JSON.parse(raw); } catch { parsed = null; }
+
+    console.log("IEDB responded:", upstream.status, parsed ?? raw);
 
     res.setHeader("cache-control", "no-store");
-    res.status(upstream.status).send(parsed ?? text);  // one send only
+    res.status(upstream.status).send(parsed ?? raw);   // single send
   } catch (err) {
+    console.error("Proxy error:", err);
     res.status(502).send(`Proxy error: ${err.message}`);
   }
-}
-
-function safeJSON(str) {
-  try { return JSON.parse(str); } catch { return null; }
 }
