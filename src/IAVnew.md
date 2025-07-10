@@ -192,6 +192,7 @@ import {peptideChart} from "./components/peptideChart.js";
 import {stackedChart} from "./components/stackedChart.js";
 import {makePeptideScale, colourAA} from "./components/palettes.js";
 import { peptideHeatmap } from "./components/peptideHeatmap.js";
+import {areaChart} from "./components/areaChart.js";
 import * as d3 from "npm:d3";
 ```
 
@@ -636,8 +637,6 @@ function createIAVDashboard({
   /* d3.scaleOrdinal needs at least 1 key–colour pair */
   const colourScale = makePeptideScale(keys.length ? keys : ["­­dummy­­"]);
 
-  /* 2 ▸ stacked-bar data already built in `stackedBars` -------- */
-
   /* 3 ▸ SHARED X SCALE  (0.5 … max+0.5) ------------------------ */
   const maxPos = Math.max(
     pepData.length ? d3.max(pepData, d => d.start + d.length) : 1,
@@ -686,12 +685,22 @@ function createIAVDashboard({
   });
   yOff += stack.height;
 
+  /* ⭐ 7 ▸ area chart -------------------------------------------- */
+  const area = areaChart(slot(), {
+    data      : areaData,
+    xScale    : xCurrent,
+    sizeFactor,
+    margin,
+    height    : 90 * sizeFactor
+  });
+  yOff += area.height;  
+
   /* 7 ▸ finalise SVG ------------------------------------------ */
   svg.attr("height", yOff)
      .attr("viewBox", `0 0 ${svgWidth} ${yOff}`);
 
   /* 8 ▸ shared zoom (integer ticks preserved) ----------------- */
-  const updaters = [pep.update, stack.update];
+  const updaters = [pep.update, stack.update, area.update];
   const EPS      = 1e-6;
   const zoom = d3.zoom()
     .scaleExtent([1,15])
@@ -974,6 +983,21 @@ const stackedBars = (() => {
   }
   return rows;
 })();
+
+/* Area Chart Data */
+const areaData = Array.from(
+  d3.group(aaFrequencies, d => d.position),
+  ([position, rows]) => {
+    const top = rows.reduce((a, b) =>
+      b.value_selected > a.value_selected ? b : a
+    );
+    return {
+      position : +position,
+      value    : top.value_selected,
+      aminoacid: top.aminoacid
+    };
+  }
+).sort((a, b) => d3.ascending(a.position, b.position));
 ```
 
 ```js
@@ -1264,9 +1288,6 @@ LIMIT 25
 `;
 ```
 
-```js
-createIAVDashboard()
-```
 
 ${colourAttrInput}
 
