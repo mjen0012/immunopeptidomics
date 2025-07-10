@@ -30,12 +30,11 @@ const banner = view(html``);     // initial empty banner
 
 ```js
 
-const statusBanner = html``;        // empty element
-let   setBanner;                    // helper
 
-{
-  /* helper updates inner-HTML in place */
-  setBanner = msg => statusBanner.innerHTML = `<em>${msg}</em>`;
+const statusBanner = html`<div style="margin:0.5rem 0; font-style:italic;"></div>`;
+
+function setBanner(msg) {
+  statusBanner.textContent = msg;       // safe: <div> has .textContent
 }
 ```
 
@@ -229,11 +228,10 @@ async function buildTable() {
 ```
 
 ```js
-/* build the table when predictions are ready */
 const resultsTable = await (async () => {
   setBanner("Fetching peptide table…");
 
-  const rows = await parseRows();      // your existing helper
+  const rows = await parseRows();        // your helper that returns []
 
   if (!rows.length) {
     setBanner("IEDB returned an empty table.");
@@ -247,8 +245,6 @@ const resultsTable = await (async () => {
 
 
 ```js
-
-/* one-off button element */
 const downloadCSV = (() => {
   const btn = Inputs.button("Download CSV");
 
@@ -256,10 +252,10 @@ const downloadCSV = (() => {
     const rows = await parseRows();
     if (!rows.length) return alert("No data yet.");
 
-    const header = Object.keys(rows[0]);
-    const csv    = [
-      header.join(","),
-      ...rows.map(r => header.map(k => r[k]).join(","))
+    const cols = Object.keys(rows[0]);
+    const csv  = [
+      cols.join(","),
+      ...rows.map(r => cols.map(c => r[c]).join(","))
     ].join("\n");
 
     const blob = new Blob([csv], {type:"text/csv"});
