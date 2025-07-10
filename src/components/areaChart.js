@@ -1,11 +1,12 @@
 /*****************************************************************
- *  areaChart() → { update(scale), height }
+ *  areaChart() → { update(scale), height }        ·  clip-safe
  *  --------------------------------------------------------------
- *  A proportional area-chart with optional red-mismatch overlay.
- *  — Synchronises its X-scale with the dashboard zoom.
- *  — Emits a simple tooltip on hover.
+ *  Proportional area chart with hover tooltip.
+ *  • Keeps every visual element strictly inside the x-axis band.
  *****************************************************************/
 import * as d3 from "npm:d3";
+
+let _id = 0;                               // uid for <clipPath>
 
 export function areaChart(
   slotG,
@@ -20,10 +21,10 @@ export function areaChart(
 ) {
   if (!data?.length) {
     slotG.append("text")
-      .attr("x", margin.left)
-      .attr("y", margin.top)
-      .attr("font-style", "italic")
-      .text("No conservation data");
+         .attr("x", margin.left)
+         .attr("y", margin.top)
+         .attr("font-style", "italic")
+         .text("No conservation data");
     return { update: () => {}, height };
   }
 
@@ -33,21 +34,37 @@ export function areaChart(
     [height - margin.bottom, margin.top]
   );
 
-  /* ---- blue proportional area  ---------------------------------- */
+  /* ---- clip-path (same pattern as stackedChart.js) -------------- */
+  const clipId = `clip-area-${++_id}`;
+  const [x0, x1] = xScale.range();
+  const clip = slotG.append("defs")
+    .append("clipPath")
+      .attr("id", clipId)
+    .append("rect")
+      .attr("x", x0)
+      .attr("y", margin.top)
+      .attr("width",  x1 - x0)
+      .attr("height", height - margin.top - margin.bottom);
+
+  /* ---- area + tooltip group – clipped --------------------------- */
+  const gClipped = slotG.append("g")
+      .attr("clip-path", `url(#${clipId})`);
+
+  /* ---- blue proportional area ----------------------------------- */
   const areaGen = d3.area()
     .x(d => xScale(d.position))
     .y0(y(0))
     .y1(d => y(d.value));
 
-  const bg = slotG.append("path")
-    .datum(data)
-    .attr("fill", colour)
-    .attr("fill-opacity", 0.4)
-    .attr("stroke", colour)
-    .attr("stroke-width", 1.5)
-    .attr("d", areaGen);
+  const bg = gClipped.append("path")
+      .datum(data)
+      .attr("fill", colour)
+      .attr("fill-opacity", 0.4)
+      .attr("stroke", colour)
+      .attr("stroke-width", 1.5)
+      .attr("d", areaGen);
 
-  /* ---- hover overlay + tooltip ---------------------------------- */
+  /* ---- hover rectangles + tooltip ------------------------------- */
   const tooltip = d3.select(document.body).append("div")
       .style("position", "absolute")
       .style("pointer-events", "none")
@@ -58,12 +75,10 @@ export function areaChart(
       .style("font", "12px sans-serif")
       .style("opacity", 0);
 
-  slotG.append("g")
+  const hRects = gClipped.append("g")
     .selectAll("rect")
     .data(data)
     .enter().append("rect")
-      .attr("x", d => xScale(d.position - 0.5))
-      .attr("width", d => xScale(d.position + 0.5) - xScale(d.position - 0.5))
       .attr("y", margin.top)
       .attr("height", height - margin.top - margin.bottom)
       .attr("fill", "transparent")
@@ -78,25 +93,42 @@ export function areaChart(
           `);
       })
       .on("mousemove", e =>
-        tooltip
-          .style("left", `${e.pageX + 10}px`)
-          .style("top",  `${e.pageY + 10}px`)
+        tooltip.style("left", `${e.pageX + 10}px`)
+               .style("top",  `${e.pageY + 10}px`)
       )
       .on("mouseout", () => tooltip.style("opacity", 0));
 
-  /* ---- axis ------------------------------------------------------ */
+  positionRects(xScale);                    // initial layout
+
+  function positionRects(scale) {
+    hRects
+      .attr("x",      d => scale(d.position - 0.5))
+      .attr("width",  d => Math.max(0,
+        scale(d.position + 0.5) - scale(d.position - 0.5)));
+  }
+
+  /* ---- x-axis ---------------------------------------------------- */
   const axisG = slotG.append("g")
     .attr("class", "x-axis")
+    .attr("font-size", 10 * sizeFactor)
     .attr("transform", `translate(0,${height - margin.bottom})`)
-    .call(d3.axisBottom(xScale).tickFormat(d3.format("d")))
-    .attr("font-size", 10 * sizeFactor);
+    .call(d3.axisBottom(xScale).tickFormat(d3.format("d")));
 
-  /* ---- public update hook (for zoom) ----------------------------- */
+  /* ---- public update hook (called by dashboard zoom) ------------ */
   function update(newScale) {
+    /* 1. rescale area */
     bg.attr("d", areaGen.x(d => newScale(d.position)));
-    slotG.selectAll("rect")
-      .attr("x", d => newScale(d.position - 0.5))
-      .attr("width", d => newScale(d.position + 0.5) - newScale(d.position - 0.5));
+
+    /* 2. move hover rectangles */
+    positionRects(newScale);
+
+    /* 3. resize the clip-path rect */
+    const [n0, n1] = newScale.range();
+    clip
+      .attr("x", n0)
+      .attr("width", n1 - n0);
+
+    /* 4. refresh axis */
     axisG.call(d3.axisBottom(newScale).tickFormat(d3.format("d")));
   }
 
