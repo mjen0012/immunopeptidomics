@@ -16,16 +16,16 @@ import {dsvFormat}     from "https://cdn.jsdelivr.net/npm/d3-dsv@3/+esm";
 const raw = FileAttachment("data/Peptides A test.csv").csv();
 ```
 ```js
+/* simple reactive banner */
 import {html} from "htl";
 
-const statusBanner = html``;        // empty element
-let   setBanner;                    // helper
-
-{
-  /* helper updates inner-HTML in place */
-  setBanner = msg => statusBanner.innerHTML = `<em>${msg}</em>`;
+let _status = "";                // internal
+function setStatus(msg) {        // call from other cells
+  _status = msg;
+  banner.value = html`<em>${msg}</em>`;
 }
 
+const banner = view(html``);     // initial empty banner
 ```
 
 ```js
