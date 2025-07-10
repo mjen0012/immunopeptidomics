@@ -1,39 +1,27 @@
-// Proxy Vercel function → IEDB Next-Gen pipeline
+// GET /api/iedb-result?id=<UUID>
 import fetch from "node-fetch";
 
 export default async function handler(req, res) {
-  if (req.method !== "POST") {
-    res.status(405).send("POST only");      // early exit
-    return;
-  }
+  if (req.method !== "GET") return res.status(405).send("GET only");
+
+  const { id } = req.query;
+  if (!id) return res.status(400).send("Missing id");
+
+  const url = `https://api-nextgen-tools.iedb.org/api/v1/results/${id}`;
 
   try {
-    /* Forward ------------------------------------------------------- */
-    const upstream = await fetch(
-      "https://api-nextgen-tools.iedb.org/api/v1/pipeline",
-      {
-        method:  "POST",
-        headers: { "content-type": "application/json" },
-        body:    JSON.stringify(req.body)
-      }
-    );
+    const upstream = await fetch(url);
+    const raw      = await upstream.text();
+    const parsed   = tryJSON(raw);
 
-    /* Read once, parse once ---------------------------------------- */
-    const raw    = await upstream.text();          // plain string
-    const parsed = tryJSON(raw);                   // object | null
-
-    console.log("IEDB responded:", upstream.status, parsed ?? raw);
-
-    /* Return exactly one response ---------------------------------- */
     res.setHeader("cache-control", "no-store");
     res.status(upstream.status).send(parsed ?? raw);
   } catch (err) {
-    console.error("Proxy error:", err);
+    console.error("Result proxy error:", err);
     res.status(502).send(`Proxy error: ${err.message}`);
   }
 }
 
 function tryJSON(str) {
-  try { return JSON.parse(str); }
-  catch { return null; }
+  try { return JSON.parse(str); } catch { return null; }
 }

@@ -116,22 +116,31 @@ async function submitPipeline() {
 
 ```js
 async function fetchTSV() {
-  const resp = await submitPipeline();
-  if (!resp) return "";
+  const ticket = await submitPipeline();
+  if (!ticket) return "";
 
-  const {results_uri} = resp;
-  const sleep = ms => new Promise(f => setTimeout(f, ms));
+  /* extract the UUID part from results_uri */
+  const resultId = ticket.results_uri.split("/").pop();
+  const wait     = ms => new Promise(r => setTimeout(r, ms));
 
-  for (let t = 0; t < 30; ++t) {                     // 30 × 1 s
-    const r = await fetch(results_uri);
-    if (!r.ok) throw new Error(`Poll failed (${r.status})`);
+  for (let i = 0; i < 60; ++i) {          // ≤ 60 s
+    const r = await fetch(`/api/iedb-result?id=${resultId}`);
     const j = await r.json();
-    if (j.status === "COMPLETE" && j.outputs?.tsv)   // TSV ready
-      return j.outputs.tsv;
-    await sleep(1000);
+
+    if (j.status === "COMPLETE") {
+      const tsv =
+        j.outputs?.tsv ??
+        j.outputs?.binding?.tsv ??
+        j.outputs?.mhci?.tsv;
+
+      if (tsv) return tsv;
+      throw new Error("Job complete but TSV not found.");
+    }
+    await wait(1000);
   }
-  throw new Error("Timed out waiting for prediction");
+  throw new Error("Timed out waiting for results.");
 }
+
 
 ```
 
