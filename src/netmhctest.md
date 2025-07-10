@@ -119,24 +119,21 @@ async function fetchTSV() {
   const ticket = await submitPipeline();
   if (!ticket) return "";
 
-  /* extract the UUID part from results_uri */
   const resultId = ticket.results_uri.split("/").pop();
-  const wait     = ms => new Promise(r => setTimeout(r, ms));
+  const sleep    = ms => new Promise(r => setTimeout(r, ms));
 
-  for (let i = 0; i < 60; ++i) {          // ≤ 60 s
+  for (let i = 0; i < 60; ++i) {
     const r = await fetch(`/api/iedb-result?id=${resultId}`);
     const j = await r.json();
 
     if (j.status === "COMPLETE") {
-      const tsv =
-        j.outputs?.tsv ??
-        j.outputs?.binding?.tsv ??
-        j.outputs?.mhci?.tsv;
-
+      const tsv = j.outputs?.tsv
+               ?? j.outputs?.binding?.tsv
+               ?? j.outputs?.mhci?.tsv;
       if (tsv) return tsv;
-      throw new Error("Job complete but TSV not found.");
+      throw new Error("Job complete but TSV missing.");
     }
-    await wait(1000);
+    await sleep(1000);
   }
   throw new Error("Timed out waiting for results.");
 }

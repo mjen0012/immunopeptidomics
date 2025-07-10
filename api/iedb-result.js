@@ -1,25 +1,21 @@
 import fetch from "node-fetch";
 
 export default async function handler(req, res) {
-  if (req.method !== "POST") {
-    res.status(405).send("POST only");
+  if (req.method !== "GET") {
+    res.status(405).send("GET only");
     return;
   }
+  const { id } = req.query;
+  if (!id) return res.status(400).send("Missing id");
 
   try {
     const upstream = await fetch(
-      "https://api-nextgen-tools.iedb.org/api/v1/pipeline",
-      {
-        method:  "POST",
-        headers: { "content-type": "application/json" },
-        body:    JSON.stringify(req.body)
-      }
+      `https://api-nextgen-tools.iedb.org/api/v1/results/${id}`
     );
-
     const raw    = await upstream.text();
     const parsed = tryJSON(raw);
 
-    console.log("Pipeline →", upstream.status, parsed ?? raw);
+    console.log("Result →", upstream.status, parsed ?? raw);
 
     res.setHeader("cache-control", "no-store");
     res.status(upstream.status).send(parsed ?? raw);
