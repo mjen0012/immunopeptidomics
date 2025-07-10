@@ -29,6 +29,18 @@ const banner = view(html``);     // initial empty banner
 ```
 
 ```js
+
+const statusBanner = html``;        // empty element
+let   setBanner;                    // helper
+
+{
+  /* helper updates inner-HTML in place */
+  setBanner = msg => statusBanner.innerHTML = `<em>${msg}</em>`;
+}
+```
+
+
+```js
 async function loadPeptides() {
   const rows = await FileAttachment("data/Peptides A test.csv").csv();
   return rows.map(d => d.peptide?.trim()).filter(Boolean);
