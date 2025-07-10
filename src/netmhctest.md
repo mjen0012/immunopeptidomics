@@ -66,9 +66,6 @@ const runButton = view(
 
 
 
-```js
-Inputs.table(raw)
-```
 
 ```js
 async function submitPipeline() {
@@ -215,37 +212,57 @@ async function buildTable() {
   return html`${summary}${table}`;
 }
 
-const resultsTable = view(buildTable());
 
+
+```
+
+```js
+resultsTable = {
+  import {html}       from "htl";
+  import * as Inputs  from "@observablehq/inputs";
+
+  /* wait for the async data */
+  const rows = await parseRows();
+
+  if (!rows.length) return html`<p><em>No predictions yet.</em></p>`;
+
+  /* header + table */
+  const header = html`<p><strong>${rows.length}</strong> predictions loaded.</p>`;
+  const table  = Inputs.table(rows, {rows: 25, height: 420});
+
+  return html`${header}${table}`;
+}
 
 ```
 
 
 ```js
-async function downloadCSV() {
-  const rows = await parseRows();
-  if (!rows.length) {
-    alert("No data yet.");
-    return;
-  }
-  /* convert to CSV */
-  const keys = Object.keys(rows[0]);
-  const csv  = [
-    keys.join(","),                       // header
-    ...rows.map(r => keys.map(k => r[k]).join(","))
-  ].join("\n");
+downloadCSV = {
+  import * as Inputs from "@observablehq/inputs";
 
-  /* make a Blob → link */
-  const blob = new Blob([csv], {type:"text/csv"});
-  const url  = URL.createObjectURL(blob);
-  const a    = document.createElement("a");
-  a.href     = url;
-  a.download = "iedb_predictions.csv";
-  a.click();
-  URL.revokeObjectURL(url);
+  const btn = Inputs.button("Download CSV");
+
+  btn.onclick = async () => {
+    const rows = await parseRows();
+    if (!rows.length) return alert("No data to download.");
+
+    const keys = Object.keys(rows[0]);
+    const csv  = [
+      keys.join(","),                           // header
+      ...rows.map(r => keys.map(k => r[k]).join(","))
+    ].join("\n");
+
+    const blob = new Blob([csv], {type:"text/csv"});
+    const url  = URL.createObjectURL(blob);
+    Object.assign(document.createElement("a"), {
+      href: url,
+      download: "iedb_predictions.csv"
+    }).click();
+    URL.revokeObjectURL(url);
+  };
+
+  return btn;
 }
 
-const dlButton = view(Inputs.button({label:"Download CSV", value:false}));
-dlButton.onclick = downloadCSV;
 
 ```
