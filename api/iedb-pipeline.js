@@ -17,6 +17,11 @@ export default async function handler(req, res) {
       }
     );
 
+    const text = await r.text();
+    console.log("IEDB responded:", r.status, text);   // <-- add
+    if (!r.ok) return res.status(r.status).send(text);
+    res.status(200).send(text);   
+
     // Propagate non-200s so the front-end can surface them
     if (!r.ok) {
       const text = await r.text();
