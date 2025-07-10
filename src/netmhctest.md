@@ -16,16 +16,16 @@ import {dsvFormat}     from "https://cdn.jsdelivr.net/npm/d3-dsv@3/+esm";
 const raw = FileAttachment("data/Peptides A test.csv").csv();
 ```
 ```js
-/* simple reactive banner */
 import {html} from "htl";
 
-let _status = "";                // internal
-function setStatus(msg) {        // call from other cells
-  _status = msg;
-  banner.value = html`<em>${msg}</em>`;
+const statusBanner = html``;        // empty element
+let   setBanner;                    // helper
+
+{
+  /* helper updates inner-HTML in place */
+  setBanner = msg => statusBanner.innerHTML = `<em>${msg}</em>`;
 }
 
-const banner = view(html``);     // initial empty banner
 ```
 
 ```js
@@ -217,49 +217,48 @@ async function buildTable() {
 ```
 
 ```js
-resultsTable = {
+/* build the table when predictions are ready */
+const resultsTable = await (async () => {
+  setBanner("Fetching peptide table…");
 
-  /* wait for the async data */
-  const rows = await parseRows();
+  const rows = await parseRows();      // your existing helper
 
-  if (!rows.length) return html`<p><em>No predictions yet.</em></p>`;
+  if (!rows.length) {
+    setBanner("IEDB returned an empty table.");
+    return html`<p><em>No data.</em></p>`;
+  }
 
-  /* header + table */
-  const header = html`<p><strong>${rows.length}</strong> predictions loaded.</p>`;
-  const table  = Inputs.table(rows, {rows: 25, height: 420});
-
-  return html`${header}${table}`;
-}
-
+  setBanner(`Loaded ${rows.length} predictions.`);
+  return Inputs.table(rows, {rows: 25, height: 420});
+})();
 ```
 
 
 ```js
-downloadCSV = {
 
+/* one-off button element */
+const downloadCSV = (() => {
   const btn = Inputs.button("Download CSV");
 
   btn.onclick = async () => {
     const rows = await parseRows();
-    if (!rows.length) return alert("No data to download.");
+    if (!rows.length) return alert("No data yet.");
 
-    const keys = Object.keys(rows[0]);
-    const csv  = [
-      keys.join(","),                           // header
-      ...rows.map(r => keys.map(k => r[k]).join(","))
+    const header = Object.keys(rows[0]);
+    const csv    = [
+      header.join(","),
+      ...rows.map(r => header.map(k => r[k]).join(","))
     ].join("\n");
 
     const blob = new Blob([csv], {type:"text/csv"});
     const url  = URL.createObjectURL(blob);
     Object.assign(document.createElement("a"), {
-      href: url,
-      download: "iedb_predictions.csv"
+      href: url, download: "iedb_predictions.csv"
     }).click();
     URL.revokeObjectURL(url);
   };
 
   return btn;
-}
-
+})();
 
 ```
