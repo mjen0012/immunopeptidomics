@@ -236,7 +236,6 @@ resultsTable = {
 
 ```js
 downloadCSV = {
-  import * as Inputs from "@observablehq/inputs";
 
   const btn = Inputs.button("Download CSV");
 
