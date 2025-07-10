@@ -55,36 +55,36 @@ async function submitPipeline() {
   if (!runButton) return null;
 
   const peptides = await loadPeptides();
-  const lengths  = await uniqueLengths();
-  const allele   = alleleInput.value;
-
-  const fasta = peptides.map((p, i) => `>pep${i+1}\n${p}`).join("\n");
+  const lens     = peptides.map(p => p.length);
+  const range    = [Math.min(...lens), Math.max(...lens)];   // [min,max]
 
   const body = {
     run_stage_range: [1, 1],
     stages: [{
       stage_number: 1,
       tool_group:   "mhci",
-      input_sequence_text: fasta,
+      input_sequence_text: peptides
+        .map((p,i)=>`>pep${i+1}\n${p}`).join("\n"),
       input_parameters: {
-        alleles: allele,
-        peptide_length_range: lengths,
-        predictors: [{type: "binding", method: "netmhcpan_el"}]
+        alleles: alleleInput.value,        // string (e.g. "HLA-A*02:01")
+        peptide_length_range: range,       // e.g. [8, 11]
+        predictors: [{type:"binding",method:"netmhcpan_el"}]
       }
     }]
   };
 
-  // --------------- proxy instead of direct IEDB call ---------------
-  const r = await fetch("./api/iedb-pipeline", {
+  const r = await fetch("/api/iedb-pipeline", {
     method:  "POST",
     headers: {"content-type":"application/json"},
     body:    JSON.stringify(body)
   });
-  // ------------------------------------------------------------------
 
-  if (!r.ok) throw new Error(`Submit failed (${r.status}): ${await r.text()}`);
-  return r.json();          // {results_uri: "...", ...}
+  const json = await r.json();
+  if (!r.ok) throw new Error(json.errors?.join("; ") ?? r.statusText);
+  if (!json.results_uri) throw new Error("Missing results_uri.");
+  return json;
 }
+
 
 ```
 
