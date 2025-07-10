@@ -34,10 +34,20 @@ async function uniqueLengths() {
 ```
 
 ```js
-const alleleInput = view(
-  Inputs.text({label: "MHC-I allele", value: "HLA-A*02:01"})
-);
+/* create the Inputs control (this object has .value) */
+const alleleCtrl = Inputs.text({
+  label: "MHC-I allele",
+  value: "HLA-A*02:01"         // default
+});
+```
 
+```js
+
+/* show it in the page */
+const alleleInput = view(alleleCtrl);   // DOM element (no .value)
+```
+
+```js
 const runButton = view(
   Inputs.button("Run NetMHCpan (EL 4.1)")
 );
@@ -64,8 +74,9 @@ async function submitPipeline() {
   const fasta   = peptides.map((p,i)=>`>pep${i+1}\n${p}`).join("\n");
 
   /* Allele string (defensive if value is briefly undefined) */
-  const allele = ((alleleInput.value ?? "") + "").trim();
+  const allele = (alleleCtrl.value + "").trim();   // ← use alleleCtrl
   if (!allele) throw new Error("Allele field is empty.");
+
 
   /* Build payload ----------------------------------------- */
   const body = {
