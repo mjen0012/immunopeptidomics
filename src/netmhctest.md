@@ -243,6 +243,15 @@ const resultsTable = await (async () => {
 })();
 ```
 
+```js
+Inputs.table(resultsTable)
+```
+
+```js
+${resultsTable}
+```
+
+
 
 ```js
 const downloadCSV = (() => {
@@ -270,3 +279,7 @@ const downloadCSV = (() => {
 })();
 
 ```
+
+```js
+
+display(downloadCSV)
