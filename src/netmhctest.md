@@ -15,8 +15,18 @@ import {dsvFormat}     from "https://cdn.jsdelivr.net/npm/d3-dsv@3/+esm";
 ```js
 const raw = FileAttachment("data/Peptides A test.csv").csv();
 ```
+```js
+/* simple reactive banner */
+import {html} from "htl";
 
+let _status = "";                // internal
+function setStatus(msg) {        // call from other cells
+  _status = msg;
+  banner.value = html`<em>${msg}</em>`;
+}
 
+const banner = view(html``);     // initial empty banner
+```
 
 ```js
 async function loadPeptides() {
@@ -116,27 +126,54 @@ async function submitPipeline() {
 
 ```js
 async function fetchPeptideTable() {
-  const ticket   = await submitPipeline();
-  if (!ticket) return [];                // e.g. first page load
+  setStatus("Submitting to IEDB…");
+
+  const ticket = await submitPipeline();
+  if (!ticket) {
+    setStatus("No ticket returned.");   // should never happen
+    return [];
+  }
 
   const resultId = ticket.results_uri.split("/").pop();
   const sleep    = ms => new Promise(r => setTimeout(r, ms));
 
-  for (let i = 0; i < 60; ++i) {         // poll ≤ 60 s
-    const r  = await fetch(`/api/iedb-result?id=${resultId}`);
-    const j  = await r.json();
+  for (let i = 0; i < 60; ++i) {        // ≤ 60 s
+    setStatus(`Polling ${i + 1}/60…`);
+    const r = await fetch(`/api/iedb-result?id=${resultId}`);
+
+    if (!r.ok) {
+      const text = await r.text();
+      console.error("Poll failed", r.status, text);
+      setStatus(`Poll failed (${r.status}). Check console.`);
+      throw new Error("Poll failed");
+    }
+
+    const j = await r.json();
+    console.log("Poll cycle", i + 1, j.status);
 
     if (j.status === "done") {
-      /* locate the table with type === "peptide_table" */
-      const table = (j.data?.results || [])
-        .find(t => t.type === "peptide_table");
-      if (!table) throw new Error("Peptide table not found.");
+      const resultsArray = j.data?.results;
+      console.log("results array:", resultsArray);
 
+      if (!Array.isArray(resultsArray)) {
+        setStatus("Unexpected results format.");
+        throw new Error("No results array");
+      }
+
+      const table = resultsArray.find(t => t.type === "peptide_table");
+      if (!table) {
+        setStatus("Peptide table missing.");
+        throw new Error("No peptide_table");
+      }
+
+      setStatus("Peptide table received.");
       return {columns: table.table_columns, rows: table.table_data};
     }
     await sleep(1000);
   }
-  throw new Error("Timed out waiting for peptide table.");
+
+  setStatus("Timed out (60 s).");
+  throw new Error("Timed out waiting for peptide table");
 }
 
 
@@ -146,13 +183,19 @@ async function fetchPeptideTable() {
 ```js
 async function parseRows() {
   const tbl = await fetchPeptideTable();
-  if (!tbl.rows?.length) return [];
+  if (!tbl.rows?.length) {
+    console.warn("No rows in peptide table", tbl);
+    setStatus("IEDB returned an empty table.");
+    return [];
+  }
 
-  /* build an array of objects using the column defs */
-  const keys = tbl.columns.map(c => c.display_name || c.name);
-  return tbl.rows.map(row =>
-    Object.fromEntries(row.map((v,i) => [keys[i], v]))
+  const keys = tbl.columns.map(c => c.display_name || c.name || c);
+  const rows = tbl.rows.map(row =>
+    Object.fromEntries(row.map((v, i) => [keys[i] ?? `col_${i}`, v]))
   );
+
+  setStatus(`Loaded ${rows.length} rows.`);
+  return rows;
 }
 
 
