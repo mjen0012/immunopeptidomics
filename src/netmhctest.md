@@ -115,43 +115,46 @@ async function submitPipeline() {
 ```
 
 ```js
-async function fetchTSV() {
-  const ticket = await submitPipeline();
-  if (!ticket) return "";
+async function fetchPeptideTable() {
+  const ticket   = await submitPipeline();
+  if (!ticket) return [];                // e.g. first page load
 
   const resultId = ticket.results_uri.split("/").pop();
   const sleep    = ms => new Promise(r => setTimeout(r, ms));
 
-  for (let i = 0; i < 60; ++i) {
-    const r = await fetch(`/api/iedb-result?id=${resultId}`);
-    const j = await r.json();
+  for (let i = 0; i < 60; ++i) {         // poll ≤ 60 s
+    const r  = await fetch(`/api/iedb-result?id=${resultId}`);
+    const j  = await r.json();
 
-    if (j.status === "COMPLETE") {
-      const tsv = j.outputs?.tsv
-               ?? j.outputs?.binding?.tsv
-               ?? j.outputs?.mhci?.tsv;
-      if (tsv) return tsv;
-      throw new Error("Job complete but TSV missing.");
+    if (j.status === "done") {
+      /* locate the table with type === "peptide_table" */
+      const table = (j.data?.results || [])
+        .find(t => t.type === "peptide_table");
+      if (!table) throw new Error("Peptide table not found.");
+
+      return {columns: table.table_columns, rows: table.table_data};
     }
     await sleep(1000);
   }
-  throw new Error("Timed out waiting for results.");
+  throw new Error("Timed out waiting for peptide table.");
 }
+
 
 
 ```
 
 ```js
 async function parseRows() {
-  const tsv = await fetchTSV();
-  if (!tsv) return [];
-  const cleaned = tsv
-    .split("\n")
-    .filter(l => l && !l.startsWith("#"))
-    .join("\n");
-  const tsvFmt = dsvFormat("\t");
-  return tsvFmt.parse(cleaned);
+  const tbl = await fetchPeptideTable();
+  if (!tbl.rows?.length) return [];
+
+  /* build an array of objects using the column defs */
+  const keys = tbl.columns.map(c => c.display_name || c.name);
+  return tbl.rows.map(row =>
+    Object.fromEntries(row.map((v,i) => [keys[i], v]))
+  );
 }
+
 
 ```
 
