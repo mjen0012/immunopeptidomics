@@ -61,7 +61,7 @@ export function peptideChart(
           onClick(d);                                     // mutate globals
           /* dev aid – identical to the old prototype   */
           console.log(
-            `Clicked peptide: ${d.peptide} start= ${d.start} length= ${d.length}`
+            `Clicked peptide: ${d.peptide_aligned} start= ${d.start} length= ${d.length}`
           );
         });
 

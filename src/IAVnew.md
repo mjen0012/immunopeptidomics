@@ -152,6 +152,12 @@ banner.className = "banner__bg";
   <!-- Row 2-4 · 20 % · continuous sidebar card -->
   <div class="card" style="grid-row: 2 / span 3;">
     <div class="file-heading">3. Control Panel</div>
+    <br>${facetSelectInput}</br>
+    <br>${colourAttrInput}</br>
+    <br>${colourModeInput}</br>
+    <br>${seqSetInput}</br>
+    <br>${downloadFastaBtn}</br>
+    <br>${downloadPeptideBtn}</br>
   </div>
 
   <!-- Row 2 · 80 % · metric cards -->
@@ -165,7 +171,7 @@ banner.className = "banner__bg";
   <!-- Row 3 · 80 % · two equal cards -->
   <div style="display:grid; grid-template-columns:repeat(2,1fr); gap:1rem;">
     <div class="card">${heatmapSVG}</div>
-    <div class="card"><h3>Row 3 · Card B</h3></div>
+    <div class="card">${histSVG}</div>
   </div>
 
   <!-- Row 4 · 80 % · single wide card -->
@@ -193,6 +199,8 @@ import {stackedChart} from "./components/stackedChart.js";
 import {makePeptideScale, colourAA} from "./components/palettes.js";
 import { peptideHeatmap } from "./components/peptideHeatmap.js";
 import {areaChart} from "./components/areaChart.js";
+import {sequenceCompareChart} from "./components/sequenceCompareChart.js";
+import {histogramChart} from "./components/histogramChart.js";
 import * as d3 from "npm:d3";
 ```
 
@@ -584,22 +592,26 @@ function alignPeptideToRef(peptide, refAlign) {
   return { start_raw: idxRaw + 1, start_aln: startAln, aligned };
 }
 
-/* Peptide Alignment Table */
+/* Peptide Alignment Table  – now exposes BOTH lengths */
 const peptidesAligned = peptidesClean.map(d => {
   const ref  = alignRefMap.get(d.protein);
+
   const { start_raw, start_aln, aligned } = ref
         ? alignPeptideToRef(d.peptide, ref)
         : { start_raw: null, start_aln: null, aligned: null };
 
   return {
     ...d,
-    length           : d.peptide.length,
-    start_raw        : start_raw,
-    start            : start_aln,
-    peptide_aligned  : aligned,
-    aligned_length   : aligned ? aligned.length : null
+    /* NEW FIELD NAMES */
+    length_raw       : d.peptide.length,               // ← ungapped length
+    length           : aligned ? aligned.length : null,/* ← aligned length */
+    start_raw        : start_raw,                      // optional info
+    start            : start_aln,                      // aligned coord
+    peptide_aligned  : aligned,                        // string incl. gaps
+    aligned_length   : aligned ? aligned.length : null // kept for legacy
   };
 });
+
 ```
 
 <!-- Download Buttons -->
@@ -633,6 +645,7 @@ function createIAVDashboard({
   const pepData = peptidesAligned.filter(
     d => d.protein === proteinCommitted
   );
+
   const keys        = [...new Set(pepData.map(d => d[colourAttr]))].sort();
   /* d3.scaleOrdinal needs at least 1 key–colour pair */
   const colourScale = makePeptideScale(keys.length ? keys : ["­­dummy­­"]);
@@ -662,13 +675,27 @@ function createIAVDashboard({
     data       : pepData,
     xScale     : xCurrent,
     rowHeight, gap, sizeFactor, margin, colourScale,
-    onClick    : d => {                 //  ← this stays as-is
-      setSelectedPeptide(d.peptide);
-      setSelectedStart(d.start);
-      setSelectedLength(d.length);
+
+    /* align-aware click handler */
+    onClick    : d => {
+      setSelectedPeptide(d.peptide_aligned); // always the aligned string
+      setSelectedStart  (d.start);
+      setSelectedLength (d.length);          // aligned span
     }
   });
   yOff += pep.height;
+
+  /* 7 ▸ reference vs consensus cells -------------------------- */
+  const seqcmp = sequenceCompareChart(slot(), {
+    refRows   : refRows,
+    consRows  : consensusRows,
+    xScale    : xCurrent,
+    colourMode,
+    sizeFactor,
+    margin,
+    cell      : 24*sizeFactor
+  });
+  yOff += seqcmp.height;
 
   /* 6 ▸ stacked bar chart ------------------------------------- */
   const stack = stackedChart(slot(), {
@@ -685,7 +712,7 @@ function createIAVDashboard({
   });
   yOff += stack.height;
 
-  /* ⭐ 7 ▸ area chart -------------------------------------------- */
+  /* ⭐ 8 ▸ area chart -------------------------------------------- */
   const area = areaChart(slot(), {
     data      : areaData,
     xScale    : xCurrent,
@@ -695,12 +722,47 @@ function createIAVDashboard({
   });
   yOff += area.height;  
 
+  /* 9 ▸ facet overlays (only if we actually have them) ------------- */
+  const facetUpdaters = [];
+
+  if (facetArea.size) {
+    const titleStyle = {
+      "font-family": "sans-serif",
+      "font-size"  : 12*sizeFactor,
+      "font-weight": "bold",
+      "fill"       : "#444"
+    };
+
+    for (const [facetName, rows] of facetArea) {
+      const g = slot();                       // new row
+      /* facet label (no `.attrs` helper needed) */
+      g.append("text")
+        .attr("x",           margin.left)
+        .attr("y",           margin.top - 4*sizeFactor)
+        .attr("font-family", "sans-serif")
+        .attr("font-size",   12*sizeFactor)
+        .attr("font-weight", "bold")
+        .attr("fill",        "#444")
+        .text(facetName);
+
+      const chart = areaChart(g, {
+        data      : rows,
+        xScale    : xCurrent,
+        sizeFactor,
+        margin,
+        height    : 90*sizeFactor
+      });
+      yOff += chart.height;
+      facetUpdaters.push(chart.update);
+    }
+  }
+
   /* 7 ▸ finalise SVG ------------------------------------------ */
   svg.attr("height", yOff)
      .attr("viewBox", `0 0 ${svgWidth} ${yOff}`);
 
   /* 8 ▸ shared zoom (integer ticks preserved) ----------------- */
-  const updaters = [pep.update, stack.update, area.update];
+  const updaters = [pep.update, stack.update, seqcmp.update, area.update, ...facetUpdaters];
   const EPS      = 1e-6;
   const zoom = d3.zoom()
     .scaleExtent([1,15])
@@ -998,6 +1060,52 @@ const areaData = Array.from(
     };
   }
 ).sort((a, b) => d3.ascending(a.position, b.position));
+
+/* ─── reference (aligned) sequence rows ───────────────────── */
+const refAligned = fastaAligned.find(d => d.protein === proteinCommitted )
+                     ?.aligned_sequence ?? "";               // empty string if none
+const refRows = refAligned.split("")
+  .map((aa,i)=>({ position:i+1, aminoacid:aa }));
+
+/* ─── consensus rows (respecting the All / Unique toggle) ─── */
+const consensusRows = Array.from(
+  d3.rollups(
+    aaFrequencies,
+    v => v.reduce((m,r)=> r.value_selected>m.value_selected? r : m),
+    d => d.position
+  ),
+  ([pos, r]) => ({ position:+pos, aminoacid:r.aminoacid })
+).sort((a,b)=>d3.ascending(a.position,b.position));
+
+/* facetArea :  Map<facetKey → [{position,value,aminoacid}]> */
+const facetArea = new Map();
+
+
+if (positionFacetStats !== null) {
+  const rows = await positionFacetStats.toArray();
+
+  /* choose the right value column once */
+  const valueField = (seqSet === "Unique sequences" ? "value_unique" : "value");
+
+  for (const [facetKey, groupRows] of d3.group(rows, d => d.facet)) {
+    const areaRows = Array.from(
+      d3.group(groupRows, d => d.position),
+      ([position, posRows]) => {
+        const top = posRows.reduce(
+          (m, x) => (x[valueField] > m[valueField] ? x : m)
+        );
+        return {
+          position : +position,
+          value    : Number(top[valueField]),
+          aminoacid: top.aminoacid
+        };
+      }
+    ).sort((a,b)=>d3.ascending(a.position,b.position));
+
+    facetArea.set(facetKey ?? "Unknown", areaRows);   // null → "Unknown"
+  }
+}
+
 ```
 
 ```js
@@ -1123,45 +1231,64 @@ counts_u AS (
 ),
 total_u AS ( SELECT SUM(cnt_unique) AS total_unique FROM counts_u ),
 
-/* Merge Lists */
+/* ─── 5. merge frequencies (may be empty for the click) ──────────── */
 combined AS (
   SELECT
-    COALESCE(ca.peptide, cu.peptide)                      AS peptide,
+    COALESCE(ca.peptide, cu.peptide)                  AS peptide,
 
     /* all sequences */
-    CAST(COALESCE(ca.cnt_all,0)  AS INT)                  AS frequency_all,
-    CAST(ta.total_all           AS INT)                   AS total_all,
+    CAST(COALESCE(ca.cnt_all,0)  AS INT)              AS frequency_all,
+    CAST(ta.total_all           AS INT)               AS total_all,
     CASE WHEN ta.total_all = 0
          THEN 0.0
          ELSE COALESCE(ca.cnt_all,0) * 1.0 / ta.total_all
-    END                                                   AS proportion_all,
+    END                                               AS proportion_all,
 
     /* unique sequences */
-    CAST(COALESCE(cu.cnt_unique,0) AS INT)                AS frequency_unique,
-    CAST(tu.total_unique          AS INT)                 AS total_unique,
+    CAST(COALESCE(cu.cnt_unique,0) AS INT)            AS frequency_unique,
+    CAST(tu.total_unique          AS INT)             AS total_unique,
     CASE WHEN tu.total_unique = 0
          THEN 0.0
          ELSE COALESCE(cu.cnt_unique,0) * 1.0 / tu.total_unique
-    END                                                   AS proportion_unique
+    END                                               AS proportion_unique
   FROM        counts_all  AS ca
   FULL  JOIN  counts_u    AS cu USING (peptide)
   CROSS JOIN  total_all   AS ta
   CROSS JOIN  total_u     AS tu
+),
+
+/* ─── 6. guaranteed filler row for the clicked peptide ───────────── */
+selected_filler AS (
+  SELECT
+    params.sel_peptide                     AS peptide,
+    0                                      AS frequency_all,
+    CAST(ta.total_all      AS INT)         AS total_all,        -- ← CAST!
+    0.0                                    AS proportion_all,
+    0                                      AS frequency_unique,
+    CAST(tu.total_unique   AS INT)         AS total_unique,     -- ← CAST!
+    0.0                                    AS proportion_unique
+  FROM params, total_all AS ta, total_u AS tu
 )
 
-/* Final Table */
-SELECT *
-FROM   combined                           -- everything except the click
-CROSS  JOIN params
-WHERE  peptide <> params.sel_peptide
-
-UNION ALL                                -- clicked peptide at the end
+ /* ─── 7. final ordered result ------------------------------------- */
 SELECT *
 FROM   combined
-RIGHT  JOIN params
-       ON combined.peptide = params.sel_peptide
+WHERE  peptide <> (SELECT sel_peptide FROM params)   -- others first
 
-ORDER BY proportion_all DESC;
+UNION ALL
+/* existing row for the click (if it exists) */
+SELECT *
+FROM   combined
+WHERE  peptide = (SELECT sel_peptide FROM params)
+
+UNION ALL
+/* synthetic zero-frequency row if the click was unseen */
+SELECT *
+FROM   selected_filler
+WHERE  NOT EXISTS (
+  SELECT 1 FROM combined
+  WHERE  peptide = (SELECT sel_peptide FROM params)
+);
 `;
 ```
 
@@ -1204,113 +1331,432 @@ const heatmapSVG = peptideHeatmap({
 ```
 
 
-<!-- Delete Later -->
 ```js
-const filteredData = db.sql`
+/* -------- facetChoices  ────────────────────────────────────────────
+   Re-evaluates automatically whenever any committed filter changes.
+   A facet option appears only when the user has at least ONE value
+   selected for that attribute.                                        */
+const facetChoices = (() => {
+  const list = ["None"];                 // always available
+
+  if (genotypesCommitted.length) list.push("Genotype");
+  if (hostsCommitted.length)     list.push("Host");
+  if (countriesCommitted.length) list.push("Country");
+
+  return list;
+})();
+```
+```js
+
+/* -------- radio input  ─────────────────────────────────────────────
+   Re-created every time `facetChoices` changes, so the UI never
+   shows options that would facet the *entire* data set.                */
+const facetSelectInput = Inputs.radio(
+  facetChoices,
+  {
+    label : "Facet by:",
+    value : facetChoices[0]              // whichever is first (“None”)
+  }
+);
+const facetSelect = Generators.input(facetSelectInput);
+
+
+```
+
+```js
+/* ------------------------------------------------------------------ *
+ *  positionFacetStats  – runs ONLY when the user has chosen a facet  *
+ *  ----------------------------------------------------------------- *
+ *  facetSelect   : "None" | "Genotype" | "Host" | "Country"
+ *  ────────────────────────────────────────────────────────────────── */
+const positionFacetStats = (
+
+  /* 0️⃣  Guard – skip the query when no faceting is requested */
+  facetSelect === "None"
+    ? null                                   // nothing to do
+    : db.sql`
+      WITH
+      /* -------- choose the facet column once ---------------------- */
+      proteins_faceted AS (
+        SELECT
+          ${
+            facetSelect === "Genotype"
+              ? sql`genotype`
+              : facetSelect === "Host"
+                ? sql`host`
+                : sql`country`
+          }  AS facet,
+          *
+        FROM proteins
+      ),
+
+      /* -------- apply the SAME filter clauses as positionStats ---- */
+      filtered AS (
+        SELECT *
+        FROM   proteins_faceted
+        WHERE  protein = ${proteinCommitted}
+
+          /* Genotype filter */
+          AND ${
+            genotypesCommitted.length
+              ? sql`genotype IN (${ genotypesCommitted })`
+              : sql`TRUE`
+          }
+
+          /* Host filter */
+          AND ${
+            hostsCommitted.length
+              ? sql`host IN (${ hostsCommitted })`
+              : sql`TRUE`
+          }
+
+          /* Host-category check-boxes */
+          AND ${
+            hostCategoryCommitted.includes('Human') &&
+            !hostCategoryCommitted.includes('Non-human')
+              ? sql`host = 'Homo sapiens'`
+              : (!hostCategoryCommitted.includes('Human') &&
+                 hostCategoryCommitted.includes('Non-human'))
+                  ? sql`host <> 'Homo sapiens'`
+                  : sql`TRUE`
+          }
+
+          /* Country filter */
+          AND ${
+            countriesCommitted.length
+              ? sql`country IN (${ countriesCommitted })`
+              : sql`TRUE`
+          }
+
+          /* Collection-date window */
+          AND ${
+            collectionDatesCommitted.from || collectionDatesCommitted.to
+              ? sql`
+                  TRY_CAST(
+                    CASE
+                      WHEN collection_date IS NULL OR collection_date = '' THEN NULL
+                      WHEN LENGTH(collection_date)=4  THEN collection_date || '-01-01'
+                      WHEN LENGTH(collection_date)=7  THEN collection_date || '-01'
+                      ELSE collection_date
+                    END AS DATE
+                  )
+                  ${
+                    collectionDatesCommitted.from && collectionDatesCommitted.to
+                      ? sql`BETWEEN CAST(${ collectionDatesCommitted.from } AS DATE)
+                               AND   CAST(${ collectionDatesCommitted.to   } AS DATE)`
+                      : collectionDatesCommitted.from
+                          ? sql`>= CAST(${ collectionDatesCommitted.from } AS DATE)`
+                          : sql`<= CAST(${ collectionDatesCommitted.to   } AS DATE)`
+                  }
+                `
+              : sql`TRUE`
+          }
+
+          /* Release-date window */
+          AND ${
+            releaseDatesCommitted.from || releaseDatesCommitted.to
+              ? sql`
+                  TRY_CAST(
+                    CASE
+                      WHEN release_date IS NULL OR release_date = '' THEN NULL
+                      WHEN LENGTH(release_date)=4 THEN release_date || '-01-01'
+                      WHEN LENGTH(release_date)=7 THEN release_date || '-01'
+                      ELSE release_date
+                    END AS DATE
+                  )
+                  ${
+                    releaseDatesCommitted.from && releaseDatesCommitted.to
+                      ? sql`BETWEEN CAST(${ releaseDatesCommitted.from } AS DATE)
+                               AND   CAST(${ releaseDatesCommitted.to   } AS DATE)`
+                      : releaseDatesCommitted.from
+                          ? sql`>= CAST(${ releaseDatesCommitted.from } AS DATE)`
+                          : sql`<= CAST(${ releaseDatesCommitted.to   } AS DATE)`
+                  }
+                `
+              : sql`TRUE`
+          }
+      ),
+
+      /* ─────────────── 3-A. ALL-sequence tallies ─────────────────── */
+      parsed_a AS (
+        SELECT facet, sequence, LENGTH(sequence) AS len
+        FROM   filtered
+      ),
+      pos_a AS (
+        SELECT facet, p.sequence, gs.position
+        FROM   parsed_a AS p
+        CROSS  JOIN generate_series(1, p.len) AS gs(position)
+      ),
+      chars_a AS (
+        SELECT facet, position,
+               SUBSTRING(sequence, position, 1) AS aminoacid
+        FROM   pos_a
+      ),
+      counts_a AS (
+        SELECT facet, position, aminoacid, COUNT(*) AS cnt_all
+        FROM   chars_a
+        GROUP  BY facet, position, aminoacid
+      ),
+      totals_a AS (
+        SELECT facet, position, SUM(cnt_all) AS total_all
+        FROM   counts_a
+        GROUP  BY facet, position
+      ),
+
+      /* ─────────────── 3-B. UNIQUE-sequence tallies ──────────────── */
+      filtered_u AS ( SELECT DISTINCT facet, sequence FROM filtered ),
+      parsed_u AS (
+        SELECT facet, sequence, LENGTH(sequence) AS len
+        FROM   filtered_u
+      ),
+      pos_u AS (
+        SELECT facet, p.sequence, gs.position
+        FROM   parsed_u AS p
+        CROSS  JOIN generate_series(1, p.len) AS gs(position)
+      ),
+      chars_u AS (
+        SELECT facet, position,
+               SUBSTRING(sequence, position, 1) AS aminoacid
+        FROM   pos_u
+      ),
+      counts_u AS (
+        SELECT facet, position, aminoacid, COUNT(*) AS cnt_unique
+        FROM   chars_u
+        GROUP  BY facet, position, aminoacid
+      ),
+      totals_u AS (
+        SELECT facet, position, SUM(cnt_unique) AS total_unique
+        FROM   counts_u
+        GROUP  BY facet, position
+      ),
+
+      /* ─────────────── 4. Merge & final projection ──────────────── */
+      combined AS (
+        SELECT
+          COALESCE(ca.facet, cu.facet)         AS facet,
+          COALESCE(ca.position, cu.position)   AS position,
+          COALESCE(ca.aminoacid, cu.aminoacid) AS aminoacid,
+
+          /* all-sequence metrics */
+          CAST(COALESCE(ca.cnt_all,0)  AS INT) AS frequency_all,
+          CAST(ta.total_all            AS INT) AS total_all,
+          CASE WHEN ta.total_all = 0
+               THEN 0.0
+               ELSE COALESCE(ca.cnt_all,0)*1.0 / ta.total_all
+          END                                  AS value,
+
+          /* unique-sequence metrics */
+          CAST(COALESCE(cu.cnt_unique,0) AS INT) AS frequency_unique,
+          CAST(tu.total_unique           AS INT) AS total_unique,
+          CASE WHEN tu.total_unique = 0
+               THEN 0.0
+               ELSE COALESCE(cu.cnt_unique,0)*1.0 / tu.total_unique
+          END                                  AS value_unique
+        FROM        counts_a  AS ca
+        FULL JOIN   counts_u  AS cu
+          USING (facet, position, aminoacid)
+        LEFT JOIN   totals_a  AS ta
+          USING (facet, position)
+        LEFT JOIN   totals_u  AS tu
+          USING (facet, position)
+      )
+
+      SELECT *
+      FROM   combined
+      ORDER  BY facet, position, aminoacid
+    `
+);
+
+```
+
+```js
+/*****************************************************************
+ * 1.  Prepare an in-memory table of all aligned peptides
+ *****************************************************************/
+const peptideParams = peptidesAligned
+  .filter(d => d.peptide_aligned && d.start)   // only usable rows
+  .map(d => ({
+    protein : d.protein,
+    peptide : d.peptide_aligned,
+    start   : d.start,           // 1-based aligned start
+    len     : d.aligned_length
+  }));  
+```
+
+```js
+const joinSql = (arr, sep = sql`, `) =>
+  arr.reduce((acc, cur, i) => (i === 0 ? cur : sql`${acc}${sep}${cur}`), sql``);
+
+/*****************************************************************
+ * 2 · build VALUES rows for every uploaded peptide
+ *****************************************************************/
+const peptideValues = peptidesAligned
+  .filter(d => d.peptide_aligned && d.start)          // skip unusable rows
+  .map(r =>
+    sql`(${r.protein}, ${r.peptide_aligned},
+         ${r.start}, ${r.aligned_length})`
+  );
+```
+
+```js
+/* ------------------------------------------------------------------ */
+/* peptidePropsAll  – every uploaded peptide, per-protein frequencies */
+/* ------------------------------------------------------------------ */
+const peptidePropsAll = db.sql`
+WITH
+/* ───── 1. inline VALUES table (protein, peptide, start, len) ────── */
+params(protein, peptide, start, len) AS (
+  VALUES ${joinSql(peptideValues)}
+),
+
+/* ───── 2. filtered proteins (all active filters) ────────────────── */
+filtered AS (
+  SELECT *
+  FROM   proteins
+  WHERE  1 = 1
+    AND (${genotypesCommitted.length
+            ? sql`genotype IN (${genotypesCommitted})` : sql`TRUE`})
+    AND (${hostsCommitted.length
+            ? sql`host IN (${hostsCommitted})`         : sql`TRUE`})
+    AND (${hostCategoryCommitted.includes('Human') && !hostCategoryCommitted.includes('Non-human')
+            ? sql`host = 'Homo sapiens'`
+            : (!hostCategoryCommitted.includes('Human') && hostCategoryCommitted.includes('Non-human'))
+                ? sql`host <> 'Homo sapiens'` : sql`TRUE`})
+    AND (${countriesCommitted.length
+            ? sql`country IN (${countriesCommitted})`  : sql`TRUE`})
+    /* collection-date window */
+    AND ${
+      collectionDatesCommitted.from || collectionDatesCommitted.to
+        ? sql`
+            TRY_CAST(
+              CASE
+                WHEN collection_date IS NULL OR collection_date = '' THEN NULL
+                WHEN LENGTH(collection_date)=4  THEN collection_date || '-01-01'
+                WHEN LENGTH(collection_date)=7  THEN collection_date || '-01'
+                ELSE collection_date
+              END AS DATE
+            )
+            ${
+              collectionDatesCommitted.from && collectionDatesCommitted.to
+                ? sql`BETWEEN CAST(${collectionDatesCommitted.from} AS DATE)
+                         AND   CAST(${collectionDatesCommitted.to  } AS DATE)`
+                : collectionDatesCommitted.from
+                    ? sql`>= CAST(${collectionDatesCommitted.from} AS DATE)`
+                    : sql`<= CAST(${collectionDatesCommitted.to   } AS DATE)`
+            }
+          ` : sql`TRUE`
+    }
+    /* release-date window */
+    AND ${
+      releaseDatesCommitted.from || releaseDatesCommitted.to
+        ? sql`
+            TRY_CAST(
+              CASE
+                WHEN release_date IS NULL OR release_date = '' THEN NULL
+                WHEN LENGTH(release_date)=4 THEN release_date || '-01-01'
+                WHEN LENGTH(release_date)=7 THEN release_date || '-01'
+                ELSE release_date
+              END AS DATE
+            )
+            ${
+              releaseDatesCommitted.from && releaseDatesCommitted.to
+                ? sql`BETWEEN CAST(${releaseDatesCommitted.from} AS DATE)
+                         AND   CAST(${releaseDatesCommitted.to  } AS DATE)`
+                : releaseDatesCommitted.from
+                    ? sql`>= CAST(${releaseDatesCommitted.from} AS DATE)`
+                    : sql`<= CAST(${releaseDatesCommitted.to   } AS DATE)`
+            }
+          ` : sql`TRUE`
+    }
+),
+
+/* ───── 3. all-sequence tallies ──────────────────────────────────── */
+ex_all AS (
+  SELECT p.protein,
+         p.peptide,
+         COUNT(*) AS cnt_all
+  FROM   filtered f
+  JOIN   params   p
+    ON   f.protein = p.protein
+   AND   SUBSTR(f.sequence,
+                CAST(p.start AS BIGINT),
+                CAST(p.len   AS BIGINT)) = p.peptide
+  GROUP BY p.protein, p.peptide
+),
+tot_all AS (
+  SELECT protein, COUNT(*) AS total_all
+  FROM   filtered
+  GROUP  BY protein
+),
+
+/* ───── 4. unique-sequence tallies ──────────────────────────────── */
+filtered_u AS (
+  SELECT DISTINCT protein, sequence
+  FROM   filtered
+),
+ex_u AS (
+  SELECT p.protein,
+         p.peptide,
+         COUNT(*) AS cnt_unique
+  FROM   filtered_u fu
+  JOIN   params     p
+    ON   fu.protein = p.protein
+   AND   SUBSTR(fu.sequence,
+                CAST(p.start AS BIGINT),
+                CAST(p.len   AS BIGINT)) = p.peptide
+  GROUP BY p.protein, p.peptide
+),
+tot_u AS (
+  SELECT protein, COUNT(*) AS total_unique
+  FROM   filtered_u
+  GROUP  BY protein
+),
+
+/* ───── 5. merge back to full peptide list ─────────────────────── */
+combined AS (
+  SELECT
+    p.protein,
+    p.peptide,
+
+    /* all sequences */
+    CAST(COALESCE(a.cnt_all,0)  AS INT) AS frequency_all,
+    CAST(ta.total_all           AS INT) AS total_all,
+    CASE WHEN ta.total_all = 0
+         THEN 0.0
+         ELSE COALESCE(a.cnt_all,0)*1.0/ta.total_all
+    END                                 AS proportion_all,
+
+    /* unique sequences */
+    CAST(COALESCE(u.cnt_unique,0) AS INT) AS frequency_unique,
+    CAST(tu.total_unique          AS INT) AS total_unique,
+    CASE WHEN tu.total_unique = 0
+         THEN 0.0
+         ELSE COALESCE(u.cnt_unique,0)*1.0/tu.total_unique
+    END                                 AS proportion_unique
+  FROM   params        p
+  LEFT   JOIN ex_all   a  USING (protein, peptide)
+  LEFT   JOIN tot_all  ta USING (protein)
+  LEFT   JOIN ex_u     u  USING (protein, peptide)
+  LEFT   JOIN tot_u    tu USING (protein)
+)
+
+/* ───── 6. final ordered result ───────────────────────────────── */
 SELECT *
-FROM   proteins
-WHERE  protein = ${ proteinCommitted }
-
-AND ${
-  genotypesCommitted.length
-    ? sql`genotype IN (${ genotypesCommitted })`
-    : sql`TRUE`
-}
-
-AND ${
-  hostsCommitted.length
-    ? sql`host IN (${ hostsCommitted })`
-    : sql`TRUE`
-}
-
-AND ${
-  hostCategoryCommitted.includes("Human") &&
-  !hostCategoryCommitted.includes("Non-human")
-    ? sql`host = 'Homo sapiens'`
-    : (!hostCategoryCommitted.includes("Human") &&
-        hostCategoryCommitted.includes("Non-human"))
-        ? sql`host <> 'Homo sapiens'`
-        : sql`TRUE`
-}
-
-AND ${
-  countriesCommitted.length
-    ? sql`country IN (${ countriesCommitted })`
-    : sql`TRUE`
-}
-
-AND ${
-  collectionDatesCommitted.from || collectionDatesCommitted.to
-    ? sql`
-        TRY_CAST(
-          CASE
-            WHEN collection_date IS NULL OR collection_date = '' THEN NULL
-            WHEN LENGTH(collection_date)=4  THEN collection_date || '-01-01'
-            WHEN LENGTH(collection_date)=7  THEN collection_date || '-01'
-            ELSE collection_date
-          END AS DATE
-        )
-        ${
-          collectionDatesCommitted.from && collectionDatesCommitted.to
-            ? sql`BETWEEN CAST(${ collectionDatesCommitted.from } AS DATE)
-                     AND   CAST(${ collectionDatesCommitted.to   } AS DATE)`
-            : collectionDatesCommitted.from
-                ? sql`>= CAST(${ collectionDatesCommitted.from } AS DATE)`
-                : sql`<= CAST(${ collectionDatesCommitted.to   } AS DATE)`
-        }
-      `
-    : sql`TRUE`
-}
-
-AND ${
-  releaseDatesCommitted.from || releaseDatesCommitted.to
-    ? sql`
-        TRY_CAST(
-          CASE
-            WHEN release_date IS NULL OR release_date = '' THEN NULL
-            WHEN LENGTH(release_date)=4 THEN release_date || '-01-01'
-            WHEN LENGTH(release_date)=7 THEN release_date || '-01'
-            ELSE release_date
-          END AS DATE
-        )
-        ${
-          releaseDatesCommitted.from && releaseDatesCommitted.to
-            ? sql`BETWEEN CAST(${ releaseDatesCommitted.from } AS DATE)
-                     AND   CAST(${ releaseDatesCommitted.to   } AS DATE)`
-            : releaseDatesCommitted.from
-                ? sql`>= CAST(${ releaseDatesCommitted.from } AS DATE)`
-                : sql`<= CAST(${ releaseDatesCommitted.to   } AS DATE)`
-        }
-      `
-    : sql`TRUE`
-}
-LIMIT 25
+FROM   combined
+ORDER  BY protein, proportion_all DESC;
 `;
-```
 
-
-${colourAttrInput}
-
-${colourModeInput}
-
-${seqSetInput}
-
-${downloadFastaBtn}
-
-${downloadPeptideBtn}
-
-```js
-Inputs.table(filteredData)
 ```
 
 ```js
-Inputs.table(positionStats)
+// pull into JS whenever you need it
+const allPeptideRows = await peptidePropsAll.toArray();
 ```
 
 ```js
-Inputs.table(peptidesAligned)
-```
+const histSVG = histogramChart({
+  data      : await peptidePropsAll.toArray(),
+  useUnique : seqSet === "Unique sequences"   // honour the radio button
+});
 
-```js
-Inputs.table(peptideProps)
 ```
