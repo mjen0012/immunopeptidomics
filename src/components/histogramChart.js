@@ -1,23 +1,23 @@
 /*****************************************************************
- *  histogramChart()  →  SVGElement        ·  v2
+ *  histogramChart()  →  HTMLElement        ·  v8
  *  --------------------------------------------------------------
- *  Improvements
- *    • bins now keep the original row objects, so the tooltip
- *      can accurately tally counts *per protein*.
- *    • tooltip lists every protein present in the bin, ordered
- *      high → low.
+ *  Fixes
+ *    1. White horizontal stripe removed by setting stroke = none.
+ *    2. Label x-position now uses the same left-offset used for
+ *       the bar, so the first bar is centred correctly.
  *****************************************************************/
 import * as d3 from "npm:d3";
 
 export function histogramChart({
   data,
   useUnique  = false,
-  binStep    = 0.05,                       // 5-percentage-point bins
+  binStep    = 0.05,
   sizeFactor = 1.2,
   margin     = { top:20, right:20, bottom:40, left:50 },
   colour     = "#006DAE",
-  width      = 600,
-  height     = 300
+  height0    = 300,
+  barGap     = 2,
+  firstGap   = 8
 } = {}) {
 
   /* ── guard ─────────────────────────────────────────────── */
@@ -28,67 +28,36 @@ export function histogramChart({
     return span;
   }
 
-  /* ── pick the right proportion column ──────────────────── */
   const propKey = useUnique ? "proportion_unique" : "proportion_all";
-
-  /* keep objects with value + protein so bins know the source */
   const rows = data
-    .map(d => ({
-      value  : +d[propKey],
-      protein: d.protein ?? "Unknown"
-    }))
-    .filter(r => Number.isFinite(r.value));
+    .map(d => ({ value:+d[propKey], protein:d.protein ?? "Unknown" }))
+    .filter(r => Number.isFinite(r.value) && r.value >= 0 && r.value <= 1);
 
-  /* ── histogram bins (0…1) ──────────────────────────────── */
+  /* ── bins (max edge = 1.00) ────────────────────────────── */
+  const thresholds = d3.range(0, 1, binStep);
   const bins = d3.bin()
-    .value(r => r.value)                   // ← accessor
+    .value(d => d.value)
     .domain([0,1])
-    .thresholds(d3.range(0, 1 + 1e-9, binStep))
+    .thresholds(thresholds)
     (rows);
 
-  /* ── scales ─────────────────────────────────────────────── */
-  const x = d3.scaleLinear([0,1],
-            [margin.left, width - margin.right]);
-
+  const x = d3.scaleLinear([0,1]);
   const y = d3.scaleLinear(
               [0, d3.max(bins, b => b.length)],
-              [height - margin.bottom, margin.top])
-              .nice();
+              [height0 - margin.bottom, margin.top]
+            ).nice();
 
-  /* ── SVG shell ──────────────────────────────────────────── */
   const svg = d3.create("svg")
-    .attr("width", width)
-    .attr("height", height)
+    .attr("viewBox", `0 0 600 ${height0}`)
     .attr("font-family", "sans-serif")
     .attr("font-size", 10*sizeFactor);
 
-  /* ── bars ──────────────────────────────────────────────── */
   const barG = svg.append("g");
+  const txtG = svg.append("g");
+  const xAxisG = svg.append("g");
+  const yAxisG = svg.append("g")
+      .attr("transform", `translate(${margin.left},0)`);
 
-  barG.selectAll("rect")
-    .data(bins)
-    .enter().append("rect")
-      .attr("x", d => x(d.x0) + 1)
-      .attr("y", d => y(d.length))
-      .attr("width", d => Math.max(0, x(d.x1) - x(d.x0) - 2))
-      .attr("height", d => y(0) - y(d.length))
-      .attr("fill", colour)
-      .attr("stroke", "#fff");
-
-  /* ── axes ──────────────────────────────────────────────── */
-  svg.append("g")
-     .attr("transform", `translate(0,${height - margin.bottom})`)
-     .call(
-       d3.axisBottom(x)
-         .tickFormat(d3.format(".0%"))
-         .ticks(10)
-     );
-
-  svg.append("g")
-     .attr("transform", `translate(${margin.left},0)`)
-     .call(d3.axisLeft(y).ticks(5));
-
-  /* ── tooltip ───────────────────────────────────────────── */
   const tip = d3.select(document.body).append("div")
     .style("position","absolute")
     .style("pointer-events","none")
@@ -99,35 +68,118 @@ export function histogramChart({
     .style("font","12px sans-serif")
     .style("opacity",0);
 
-  barG.selectAll("rect")
-    .on("mouseover", (e, bin) => {
-      /* header */
-      const pct = v => (v*100).toFixed(1) + "%";
-      let html  =
-        `<strong>Range:</strong> ${pct(bin.x0)} – ${pct(bin.x1)}<br/>` +
-        `<strong>Total:</strong> ${bin.length}<br/><br/>`;
+  /* rounded-top rectangle helper */
+  const barPath = (w,h)=>
+    `M0,0h${w}v${h}h-${w}Z
+     M0,0a6,6 0 0 1 6,-6h${Math.max(0,w-12)}
+     a6,6 0 0 1 6,6`;
 
-      /* per-protein breakdown (desc) */
-      d3.rollups(
-          bin,                             // rows in this bin
-          v => v.length,                   // count per protein
-          r => r.protein                   // key accessor
-        )
-        .sort((a,b)=>d3.descending(a[1], b[1]))     // high → low
-        .forEach(([prot,cnt])=>{
-          html += `${prot}: <strong>${cnt}</strong><br/>`;
-        });
+  /* ═════════════  responsive layout  ═════════════ */
+  function layout(wPx){
+    x.range([margin.left, wPx - margin.right]);
+    svg.attr("viewBox", `0 0 ${wPx} ${height0}`);
 
-      tip.html(html)
-         .style("left", `${e.pageX+10}px`)
-         .style("top",  `${e.pageY+10}px`)
-         .style("opacity",1);
-    })
-    .on("mousemove", e =>
-       tip.style("left", `${e.pageX+10}px`)
-          .style("top",  `${e.pageY+10}px`)
-    )
-    .on("mouseout", () => tip.style("opacity",0));
+    const binsVis = bins.filter(b => b.length);   // non-empty
 
-  return svg.node();
+    /* ——— bars ——— */
+    const bars = barG.selectAll("path")
+      .data(binsVis, d => d.x0);
+
+    bars.exit().remove();
+
+    bars.enter().append("path")
+        .attr("fill", colour)
+        .attr("stroke","none")                  // ← no white stripe
+        .merge(bars)
+        .each(function(bin){
+          const first  = bin.x0 === 0;
+          const left   = x(bin.x0) + (first ? firstGap : barGap/2);
+          const width  = Math.max(1,
+                          x(bin.x1)-x(bin.x0)-(first?firstGap:barGap));
+          const height = y(0) - y(bin.length);
+          d3.select(this)
+            .attr("d", barPath(width,height))
+            .attr("transform", `translate(${left},${y(bin.length)})`);
+        })
+        /* tooltip handlers */
+        .on("mouseover", (e, bin) => {
+          const pct = v => (v*100).toFixed(1)+"%";
+          let html =
+            `<strong>Range:</strong> ${pct(bin.x0)} – ${pct(bin.x1)}<br/>`+
+            `<strong>Total:</strong> ${bin.length}<br/><br/>`;
+          d3.rollups(bin, v=>v.length, d=>d.protein)
+            .sort((a,b)=>d3.descending(a[1],b[1]))
+            .forEach(([p,c])=> html+=`${p}: <strong>${c}</strong><br/>`);
+          tip.html(html)
+             .style("left", `${e.pageX+10}px`)
+             .style("top",  `${e.pageY+10}px`)
+             .style("opacity",1);
+        })
+        .on("mousemove", e =>
+          tip.style("left",`${e.pageX+10}px`)
+             .style("top", `${e.pageY+10}px`))
+        .on("mouseout", ()=> tip.style("opacity",0));
+
+    /* ——— count labels ——— */
+    const lbl = txtG.selectAll("text")
+      .data(binsVis, d => d.x0);
+
+    lbl.exit().remove();
+
+    lbl.enter().append("text")
+        .attr("fill","#424242")
+        .attr("font-family","'Roboto Mono', monospace")
+        .attr("font-size",11*sizeFactor)
+        .attr("text-anchor","middle")
+      .merge(lbl)
+        .attr("x", bin=>{
+          const first = bin.x0===0;
+          const left  = x(bin.x0)+(first?firstGap:barGap/2);
+          const width = Math.max(1,
+                         x(bin.x1)-x(bin.x0)-(first?firstGap:barGap));
+          return left + width/2;
+        })
+        .attr("y", bin=> y(bin.length)-8)
+        .text(bin=>bin.length);
+
+    /* ——— axes ——— */
+    xAxisG.attr("transform",`translate(0,${height0-margin.bottom})`)
+      .call(
+        d3.axisBottom(x)
+           .tickFormat(d3.format(".0%"))
+           .ticks(Math.min(10,wPx/60))
+      )
+      .call(g=>{
+        g.selectAll("path,line")
+            .attr("stroke","#424242")
+            .attr("stroke-width",2);
+        g.selectAll("text")
+            .attr("fill","#424242")
+            .attr("font-family","'Roboto Mono', monospace")
+            .attr("font-size",11*sizeFactor);
+      });
+
+    yAxisG.call(d3.axisLeft(y).ticks(5))
+      .call(g=>{
+        g.selectAll("path,line")
+            .attr("stroke","#424242")
+            .attr("stroke-width",2);
+        g.selectAll("text")
+            .attr("fill","#424242")
+            .attr("font-family","'Roboto Mono', monospace")
+            .attr("font-size",11*sizeFactor);
+      });
+  }
+
+  /* ── wrapper + ResizeObserver ───────────────────────────── */
+  const wrapper = document.createElement("div");
+  wrapper.style.width = "100%";
+  wrapper.appendChild(svg.node());
+
+  const ro = new ResizeObserver(e=> layout(e[0].contentRect.width));
+  ro.observe(wrapper);
+
+  /* first draw */
+  layout(wrapper.getBoundingClientRect().width);
+  return wrapper;
 }

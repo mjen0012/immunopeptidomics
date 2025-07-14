@@ -171,7 +171,7 @@ banner.className = "banner__bg";
   <!-- Row 3 · 80 % · two equal cards -->
   <div style="display:grid; grid-template-columns:repeat(2,1fr); gap:1rem;">
     <div class="card">${heatmapSVG}</div>
-    <div class="card">${histSVG}</div>
+    <div class="card">${histEl}</div>
   </div>
 
   <!-- Row 4 · 80 % · single wide card -->
@@ -1754,9 +1754,8 @@ const allPeptideRows = await peptidePropsAll.toArray();
 ```
 
 ```js
-const histSVG = histogramChart({
+const histEl = histogramChart({
   data      : await peptidePropsAll.toArray(),
-  useUnique : seqSet === "Unique sequences"   // honour the radio button
-});
-
+  useUnique : seqSet === "Unique sequences"
+})
 ```
