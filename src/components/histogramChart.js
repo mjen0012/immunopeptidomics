@@ -17,7 +17,7 @@ export function histogramChart({
   colour     = "#006DAE",
   height0    = 300,
   barGap     = 2,
-  firstGap   = 8
+  firstGap   = 3
 } = {}) {
 
   /* ── guard ─────────────────────────────────────────────── */
@@ -152,22 +152,22 @@ export function histogramChart({
       .call(g=>{
         g.selectAll("path,line")
             .attr("stroke","#424242")
-            .attr("stroke-width",2);
+            .attr("stroke-width",1.5);
         g.selectAll("text")
             .attr("fill","#424242")
-            .attr("font-family","'Roboto Mono', monospace")
-            .attr("font-size",11*sizeFactor);
+            .attr("font-family","'Roboto Mono', sans-serif")
+            .attr("font-size",9*sizeFactor);
       });
 
     yAxisG.call(d3.axisLeft(y).ticks(5))
       .call(g=>{
         g.selectAll("path,line")
             .attr("stroke","#424242")
-            .attr("stroke-width",2);
+            .attr("stroke-width",1.5);
         g.selectAll("text")
             .attr("fill","#424242")
-            .attr("font-family","'Roboto Mono', monospace")
-            .attr("font-size",11*sizeFactor);
+            .attr("font-family","'Roboto Mono', sans-serif")
+            .attr("font-size",9*sizeFactor);
       });
   }
 

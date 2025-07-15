@@ -1,12 +1,9 @@
-/* ────────────────────────────────────────────────────────────────
-   src/components/dropSelect.js  •  v2
-   ----------------------------------------------------------------
-   Tweaks
-   1. Rounded corners 6 px
-   2. Fixed size 166 px × 36 px
-   3. Label stacked above the box, left-aligned
------------------------------------------------------------------*/
-
+/* ────────────────────────────────────────────────────────────
+   src/components/dropSelect.js  ·  v3  (fluid width)
+   ------------------------------------------------------------
+   • <select> expands to 100 % of its parent (min-width 120 px).
+   • No API changes.
+──────────────────────────────────────────────────────────────*/
 export function dropSelect(
   items = [],
   {
@@ -24,12 +21,13 @@ export function dropSelect(
   root.className   = "drop-root";
   select.className = "drop-select";
 
+  /* label */
   if (labelEl) {
-    labelEl.className = "drop-label";
+    labelEl.className   = "drop-label";
     labelEl.textContent = label;
-    labelEl.htmlFor = "__drop_" + Math.random().toString(36).slice(2);
-    select.id = labelEl.htmlFor;
-    root.appendChild(labelEl);   // label above
+    labelEl.htmlFor     = "__drop_" + Math.random().toString(36).slice(2);
+    select.id           = labelEl.htmlFor;
+    root.appendChild(labelEl);
   }
 
   /* populate */
@@ -44,19 +42,18 @@ export function dropSelect(
   /* initial value */
   select.value = items[0].id;
   root.value   = select.value;
-
   select.addEventListener("change", () => {
     root.value = select.value;
     root.dispatchEvent(new CustomEvent("input"));
   });
 
-  /* scoped CSS */
+  /* styles */
   const style = document.createElement("style");
   style.textContent = `
-.drop-root   { font-family:${fontFamily}; width:166px; }
+.drop-root   { font-family:${fontFamily}; width:100%; min-width:120px; box-sizing:border-box; }
 .drop-select {
-  width:240px; height:36px;
-  padding:0 .5em;   
+  width:100%; height:36px;
+  padding:0 .5em;
   font:inherit;
   border:1px solid #bbb;
   border-radius:6px;
@@ -67,9 +64,9 @@ export function dropSelect(
 `;
   root.appendChild(style);
 
-  /* public helper */
+  /* helper */
   root.clear = () => {
-    select.value = items[0].id;   // back to first option
+    select.value = items[0].id;
     root.value   = select.value;
     select.dispatchEvent(new Event("change", {bubbles:true}));
   };

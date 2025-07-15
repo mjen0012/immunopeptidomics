@@ -1,12 +1,12 @@
-/* ────────────────────────────────────────────────────────────────
-   src/components/comboSelect.js  •  v6
+/* ───────────────────────────────────────────────────────────────
+   src/components/comboSelect.js  ·  v8  (responsive + bug-fixes)
    ----------------------------------------------------------------
-   • Pill colour #006DAE, white ×
-   • Search box 166×36, radius 6
-   • Dropdown 166×auto, now anchored directly under search box
-   • Pills wrap within 166-px column
-   • List stays open after each selection
------------------------------------------------------------------*/
+   • Accepts either ["A","B"]  or  [{id:"A",label:"…"}] arrays.
+   • Dropdown position recalculated on *every* update so it
+     never sticks at top:0 when first rendered.
+   • Pointer events fixed (clicks no longer immediately hide list).
+   • Fully fluid width with 120-px floor, like v7.
+────────────────────────────────────────────────────────────────*/
 
 export function comboSelect(
   items = [],
@@ -19,19 +19,26 @@ export function comboSelect(
     listHeight   = 180
   } = {}
 ) {
+  /* ─── allow both string & object inputs ─────────────────── */
+  const asLabel = d => (typeof d === "string" ? d : d.label ?? d.id);
+  const asId    = d => (typeof d === "string" ? d      : d.id    );
+  const allIds  = items.map(asId);
+
   /* ─ state ─ */
   const selected = new Set();
   let   filtered = items.slice();
 
   /* ─ elements ─ */
-  const root   = document.createElement("div");
-  const input  = document.createElement("input");
-  const list   = document.createElement("ul");
-  const pills  = document.createElement("div");
+  const root    = document.createElement("div");
+  const input   = document.createElement("input");
+  const list    = document.createElement("ul");
+  const pills   = document.createElement("div");
   const labelEl = label ? document.createElement("label") : null;
 
-  root.className = "combo-root";
+  root.className      = "combo-root";
   root.style.position = "relative";
+  root.style.minWidth = "120px";
+  root.style.width    = "100%";
 
   /* label */
   if (labelEl) {
@@ -48,40 +55,53 @@ export function comboSelect(
   input.placeholder = placeholder;
   root.appendChild(input);
 
+  // **NEW** force it to span 100% of the parent
+  input.style.width      = "100%";
+  input.style.boxSizing  = "border-box";
+
   /* dropdown list */
-  list.className    = "combo-list";
+  list.className  = "combo-list";
+  list.style.display = "none";
   root.appendChild(list);
 
-  /* pill row */
-  pills.className   = "combo-pills";
+  /* pill container */
+  pills.className = "combo-pills";
   root.appendChild(pills);
 
-  /* helpers to show / hide */
+  /* ─ helper: keep dropdown anchored ─ */
   const positionList = () => {
-    list.style.top = (input.offsetTop + input.offsetHeight) + "px";
+    const { top, height } = input.getBoundingClientRect();
+    const parentTop      = root.getBoundingClientRect().top;
+    list.style.top = `${top - parentTop + height}px`;
   };
+
+  /* ─ show / hide ─ */
   const showList = () => {
     if (filtered.length) {
-      positionList();
       list.style.display = "block";
+      positionList();
     }
   };
   const hideList = () => { list.style.display = "none"; };
 
-  /* ─ helpers ─ */
+  /* ─ refresh pills & list ─ */
   const refreshPills = () => {
     pills.innerHTML = "";
-    selected.forEach(val => {
+    selected.forEach(id => {
       const pill = Object.assign(document.createElement("span"), {
         className : "combo-pill",
-        textContent: val
+        textContent: asLabel(items[allIds.indexOf(id)])
       });
-      const btn = Object.assign(document.createElement("button"), {
+      const btn  = Object.assign(document.createElement("button"), {
         className : "combo-x",
-        ariaLabel : `Remove ${val}`,
-        textContent: "×",
-        onclick    : e => { e.stopPropagation(); selected.delete(val); update(); }
+        ariaLabel : `Remove ${id}`,
+        textContent: "×"
       });
+      btn.onclick = e => {
+        e.stopPropagation();
+        selected.delete(id);
+        update();
+      };
       pill.appendChild(btn);
       pills.appendChild(pill);
     });
@@ -89,52 +109,64 @@ export function comboSelect(
 
   const refreshList = () => {
     list.innerHTML = "";
-    for (const val of filtered) {
+    for (const d of filtered) {
+      const id  = asId(d);
+      const txt = asLabel(d);
       const li = Object.assign(document.createElement("li"), {
-        className : "combo-item" + (selected.has(val) ? " is-selected" : ""),
-        textContent: val,
-        onclick    : () => toggleSelect(val)
+        className : "combo-item" + (selected.has(id) ? " is-selected" : ""),
+        textContent: txt
       });
+      li.onclick = e => { e.stopPropagation(); toggleSelect(id); };
       list.appendChild(li);
     }
-    positionList();                       // keep flush even after resize
+    positionList();
   };
 
-  const toggleSelect = val => {
-    selected.has(val) ? selected.delete(val) : selected.add(val);
+  const toggleSelect = id => {
+    selected.has(id) ? selected.delete(id) : selected.add(id);
     input.value = "";
-    update();                              // list remains visible
+    update();
     input.focus();
   };
 
   /* ─ update cycle ─ */
   function update() {
     const q = input.value.trim().toLowerCase();
-    filtered = q ? items.filter(d => d.toLowerCase().includes(q)) : items.slice();
+    filtered = q
+      ? items.filter(d => asLabel(d).toLowerCase().includes(q))
+      : items.slice();
+
     refreshPills();
     refreshList();
     if (document.activeElement === input) showList();
+
     root.value = Array.from(selected);
     root.dispatchEvent(new CustomEvent("input"));
   }
 
-  /* ─ event wiring ─ */
+  /* ─ events ─ */
   input.addEventListener("input", update);
   input.addEventListener("keydown", e => {
-    if (e.key === "Enter" && filtered.length) { toggleSelect(filtered[0]); e.preventDefault(); }
+    if (e.key === "Enter" && filtered.length) {
+      toggleSelect(asId(filtered[0]));
+      e.preventDefault();
+    }
   });
   input.addEventListener("focus", showList);
-  document.addEventListener("click", evt => { if (!root.contains(evt.target)) hideList(); });
 
-  /* initial paint */
+  /* keep list visible on click inside; hide otherwise */
+  root.addEventListener("click", e => e.stopPropagation());
+  document.addEventListener("click", hideList);
+
+  /* first paint */
   update();
 
   /* ─ styles ─ */
   const style = document.createElement("style");
   style.textContent = `
-.combo-root { font-family:${fontFamily}; width:166px; }
+.combo-root   { font-family:${fontFamily}; width:100%; box-sizing:border-box; }
 .combo-search {
-  width:166px; height:36px;
+  width:100%; height:36px;
   padding:0 .5em;
   font:inherit;
   border:1px solid #bbb; border-radius:6px;
@@ -142,16 +174,16 @@ export function comboSelect(
 }
 .combo-list {
   margin:0; padding:0; list-style:none;
-  width:240px; max-height:${listHeight}px; overflow-y:auto;
+  width:100%; max-height:${listHeight}px; overflow-y:auto;
   border:1px solid #ccc; border-radius:6px; background:#fff;
-  position:absolute; left:0; box-sizing:border-box;
-  z-index:10; display:none;
+  position:absolute; left:0; right:0;
+  z-index:10; display:none; box-sizing:border-box;
 }
 .combo-item { padding:.3em .5em; cursor:pointer; }
-.combo-item:hover { background:#f0f0f0; }
+.combo-item:hover       { background:#f0f0f0; }
 .combo-item.is-selected { background:#e8f4ff; }
 .combo-pills {
-  width:240px;
+  width:100%;
   display:flex; gap:4px; flex-wrap:wrap;
   margin-top:6px;
 }
@@ -168,7 +200,8 @@ export function comboSelect(
 `;
   root.appendChild(style);
 
-  root.clear = () => { selected.clear(); input.value = ""; update(); };
+  /* public helpers */
+  root.clear = () => { selected.clear(); input.value=""; update(); };
 
   return root;
 }

@@ -1,14 +1,10 @@
-/* ────────────────────────────────────────────────────────────────
-   src/components/dateSelect.js  •  v2
-   ----------------------------------------------------------------
-   • Each <input type=date> is 166×36, radius 6
-   • Vertical layout:
-        Collection date
-        [from box]
-        –          (en-dash)
-        [to   box]
------------------------------------------------------------------*/
-
+/* ────────────────────────────────────────────────────────────
+   src/components/dateSelect.js  ·  v3  (fluid width)
+   ------------------------------------------------------------
+   • “From” and “To” <input type=date> are 100 % wide,
+     min-width 120 px, radius 6 px.
+   • Entire widget expands / shrinks with its grid cell.
+──────────────────────────────────────────────────────────────*/
 export function dateSelect({
   label        = "Date range",
   fontFamily   = "'Roboto', sans-serif",
@@ -16,22 +12,23 @@ export function dateSelect({
   textColor    = "#000",
   radius       = 6
 } = {}) {
+
   /* elements */
-  const root  = document.createElement("div");
-  const wrap  = document.createElement("div");     // vertical stack
+  const root      = document.createElement("div");
+  const wrap      = document.createElement("div");
   const inputFrom = document.createElement("input");
   const inputTo   = document.createElement("input");
   const dash      = document.createElement("span");
   const labelEl   = document.createElement("label");
 
   /* label */
-  labelEl.className   = "date-label";
+  labelEl.className = "date-label";
   labelEl.textContent = label;
   root.appendChild(labelEl);
 
   /* inputs */
   [inputFrom, inputTo].forEach(inp => {
-    inp.type  = "date";
+    inp.type = "date";
     inp.className = "date-input";
   });
   dash.className = "date-dash";
@@ -42,7 +39,7 @@ export function dateSelect({
   wrap.append(inputFrom, dash, inputTo);
   root.appendChild(wrap);
 
-  /* reactive value */
+  /* reactive */
   const update = () => {
     root.value = {
       from: inputFrom.value || null,
@@ -52,15 +49,15 @@ export function dateSelect({
   };
   inputFrom.addEventListener("change", update);
   inputTo  .addEventListener("change", update);
-  update();                       // initial
+  update();
 
-  /* scoped CSS */
+  /* styles */
   const style = document.createElement("style");
   style.textContent = `
 .date-label { font-family:${fontFamily}; display:block; margin-bottom:4px; }
 .date-wrap  { display:flex; flex-direction:column; align-items:flex-start; gap:4px; }
 .date-input {
-  width:240px; height:36px;
+  width:100%; min-width:120px; height:36px;
   padding:0 .5em;
   font:inherit;
   border:1px solid #bbb;
@@ -72,11 +69,9 @@ export function dateSelect({
 `;
   root.appendChild(style);
 
-  root.clear = () => {
-    inputFrom.value = "";
-    inputTo.value   = "";
-    update();
-  };
+  root.style.width    = "100%";
+  root.style.boxSizing = "border-box";
+  root.clear = () => { inputFrom.value = ""; inputTo.value = ""; update(); };
 
   return root;
 }
