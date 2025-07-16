@@ -243,13 +243,6 @@ const resultsTable = await (async () => {
 })();
 ```
 
-```js
-Inputs.table(resultsTable)
-```
-
-```js
-${resultsTable}
-```
 
 
 
