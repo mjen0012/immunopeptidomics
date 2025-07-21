@@ -124,65 +124,53 @@ async function submitPipeline(alleles, peptides) {
 
 ```js
 /*************************************************************************
- * Results runner – re‑runs ONLY when the button is clicked
- *  1. The line   applyTrigger;   is the sole reactive dependency.
- *  2. We guard against the first undefined value (page load) so the
- *     pipeline is never triggered until the button emits its first
- *     real value on a user click.
+ * Results runner – re‑runs ONLY when the button is clicked
  *************************************************************************/
-applyTrigger;                       // ← sole dependency (button clicks)
+applyTrigger;                               // sole reactive dependency
 
-if (!applyTrigger) {
-  // Page just loaded or button hasn't been clicked yet.
+if (!applyTrigger) {                        // page load or no click yet
   setBanner("Idle — click Run to start.");
-  null;                              // cell returns nothing / keeps old table
+  resultsTable.value                        // return current table (placeholder)
 } else {
-  /* ── take snapshots at the moment of the click ─────────────── */
+  /* snapshots at click‑time */
   const allelesSnap  = [...selectedAlleles];
   const peptidesSnap = await parsePeptides(peptideFile);
 
-  /* ── safety guards ─────────────────────────────────────────── */
   if (!allelesSnap.length) {
     setBanner("No allele selected.");
-    return html`<p><em>Please select at least one allele.</em></p>`;
-  }
-  if (!peptidesSnap.length) {
+    resultsTable.value = html`<p><em>Please select at least one allele.</em></p>`;
+    resultsTable.value
+  } else if (!peptidesSnap.length) {
     setBanner("No peptides uploaded.");
-    return html`<p><em>Please upload a peptide CSV.</em></p>`;
-  }
+    resultsTable.value = html`<p><em>Please upload a peptide CSV.</em></p>`;
+    resultsTable.value
+  } else {
+    /* submit → poll */
+    setBanner("Submitting to IEDB…");
+    const ticket = await submitPipeline(allelesSnap, peptidesSnap);
+    const id     = ticket.results_uri.split("/").pop();
+    const sleep  = ms => new Promise(r => setTimeout(r, ms));
 
-  /* ── submit ➜ poll ➜ table ─────────────────────────────────── */
-  setBanner("Submitting to IEDB…");
-  const ticket = await submitPipeline(allelesSnap, peptidesSnap);
-
-  const id  = ticket.results_uri.split("/").pop();
-  const nap = ms => new Promise(r => setTimeout(r, ms));
-
-  let block;
-  for (let i = 0; i < 90; ++i) {
-    setBanner(`Polling ${i + 1}/90…`);
-    const r = await fetch(`/api/iedb-result?id=${id}`);
-    if (!r.ok) throw new Error(`Poll failed (${r.status})`);
-    const j = await r.json();
-    if (j.status === "done") {
-      block = j.data?.results?.find(t => t.type === "peptide_table");
-      if (!block) throw new Error("peptide_table missing");
-      break;
+    let block;
+    for (let i = 0; i < 90; ++i) {
+      setBanner(`Polling ${i + 1}/90…`);
+      const r = await fetch(`/api/iedb-result?id=${id}`);
+      if (!r.ok) throw new Error(`Poll failed (${r.status})`);
+      const j = await r.json();
+      if (j.status === "done") {
+        block = j.data?.results?.find(t => t.type === "peptide_table");
+        break;
+      }
+      await sleep(1000);
     }
-    await nap(1000);
-  }
-  if (!block) throw new Error("Timed out waiting for peptide table");
+    if (!block) throw new Error("Timed out waiting for peptide table");
 
-  /* ── build & return table ───────────────────────────────────── */
-  const keys = block.table_columns.map(c => c.display_name || c.name);
-  lastRows.value = block.table_data.map(r =>
-    Object.fromEntries(r.map((v, i) => [keys[i], v]))
-  );
+    /* build table */
+    const keys = block.table_columns.map(c => c.display_name || c.name);
+    lastRows.value = block.table_data.map(r =>
+      Object.fromEntries(r.map((v,i)=>[keys[i],v]))
+    );
 
-  setBanner(`Loaded ${lastRows.length} predictions.`);
-  const resultsTable = Inputs.table(lastRows, { rows: 25, height: 420 });
-  resultsTable.value           // exported value for Markdown
-}
 
 ```
 
@@ -191,7 +179,7 @@ if (!applyTrigger) {
 const downloadCSV = (() => {
   const btn = Inputs.button("Download CSV");
   btn.onclick = () => {
-    if (!lastRows.length) {
+    if (!lastRows.value.length) {
       alert("Run prediction first."); return;
     }
     const cols = Object.keys(lastRows.value[0]);
