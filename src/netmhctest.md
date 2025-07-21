@@ -170,10 +170,7 @@ if (!applyTrigger) {                        // page load or no click yet
     lastRows.value = block.table_data.map(r =>
       Object.fromEntries(r.map((v,i)=>[keys[i],v]))
     );
-
-
 ```
-
 
 ```js
 const downloadCSV = (() => {
@@ -197,20 +194,15 @@ const downloadCSV = (() => {
   };
   return btn;
 })();
-
 ```
 
 
-${statusBanner}
 
 ### Inputs
+${statusBanner}
 ${alleleCtrl}
 ${peptideinput}
 ${runButton}
-
-
----
-
 ### Results
 ${resultsTable}
 ${downloadCSV}
