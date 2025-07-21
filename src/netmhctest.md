@@ -100,7 +100,6 @@ const allelesCommitted = commit(alleleCtrl);   // updates only on click
 ```js
 /* place these BEFORE any Markdown references */
 const lastRows     = Mutable([]);                              // array
-const resultsTable = Mutable(html`<p><em>No results yet.</em></p>`);  // node
 ```
 
 ```js
