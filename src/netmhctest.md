@@ -134,28 +134,72 @@ async function fetchPeptideTable() {
 ```
 
 ```js
+/* --- trigger this cell on each click --- */
+applyTrigger;                     // <- keep this single line at top
+
+/* buildResults() does: submit → poll → setBanner → return table */
+const resultsTable = await buildResults();
+resultsTable                                  // export for Markdown
+
+```
+
+```js
+/* will hold the last rows parsed by buildResults() */
+let lastRows = [];
+
 async function buildResults() {
   try {
-    const tbl = await fetchPeptideTable();
+    const tbl  = await fetchPeptideTable();
     const keys = tbl.table_columns.map(c => c.display_name || c.name);
     const rows = tbl.table_data.map(r =>
       Object.fromEntries(r.map((v,i)=>[keys[i],v]))
     );
+    lastRows = rows;                          // <-- store for download
     setBanner(`Loaded ${rows.length} predictions.`);
     return Inputs.table(rows, {rows:25, height:420});
   } catch (err) {
     console.error(err);
     setBanner(`Error: ${err.message}`);
+    lastRows = [];                            // reset on failure
     return html`<p><em>${err.message}</em></p>`;
   }
 }
+
 ```
+
+```js
+const downloadCSV = (() => {
+  const btn = Inputs.button("Download CSV");
+  btn.onclick = () => {
+    if (!lastRows.length) {
+      alert("Run prediction first."); return;
+    }
+    const cols = Object.keys(lastRows[0]);
+    const csv  = [
+      cols.join(","),
+      ...lastRows.map(r => cols.map(c => r[c]).join(","))
+    ].join("\n");
+
+    const blob = new Blob([csv], {type:"text/csv"});
+    const url  = URL.createObjectURL(blob);
+    Object.assign(document.createElement("a"), {
+      href: url, download: "iedb_predictions.csv"
+    }).click();
+    URL.revokeObjectURL(url);
+  };
+  return btn;
+})();
+
+```
+
+
+${statusBanner}
 
 ### Inputs
 ${alleleCtrl}
 ${peptideinput}
 ${runButton}
-${statusBanner}
+
 
 ---
 
