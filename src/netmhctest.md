@@ -46,7 +46,7 @@ const peptideUpload = view(uploadButton({
   accept: ".csv",
   required: false
 }));
-const peptideFile = peptideUpload.value;   // File | null
+const peptideFile = Generators.input(peptideinput);
 
 ```
 
