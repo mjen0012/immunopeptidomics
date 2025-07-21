@@ -141,6 +141,10 @@ async function submitPipeline(alleles, peptides) {
 ```
 
 ```js
+const resultsTable = Mutable(html``);   // just an empty <span> to start
+```
+
+```js
 /*************************************************************************
  * Results runner – re‑runs ONLY when the button is clicked
  *************************************************************************/
@@ -191,7 +195,7 @@ if (!applyTrigger) {                        // page load or no click yet
     );
 
     setBanner(`Loaded ${lastRows.value.length} predictions.`);
-    resultsTable.value = Inputs.table(lastRows.value, {rows:25, height:420});
+    resultsTable.value = view(Inputs.table(lastRows.value, {rows:25, height:420}));
     resultsTable.value;                     // final expression
   }
 }
