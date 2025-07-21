@@ -100,6 +100,7 @@ const allelesCommitted = commit(alleleCtrl);   // updates only on click
 ```js
 /* place these BEFORE any Markdown references */
 const lastRows     = Mutable([]);                              // array
+const resultsTable = Mutable(html`<p><em>No results yet.</em></p>`);  // node
 ```
 
 ```js
@@ -137,10 +138,6 @@ async function submitPipeline(alleles, peptides) {
   return json;                     // {results_uri, …}
 }
 
-```
-
-```js
-const resultsTable = Mutable(html``);   // just an empty <span> to start
 ```
 
 ```js
@@ -194,8 +191,19 @@ if (!applyTrigger) {                        // page load or no click yet
     );
 
     setBanner(`Loaded ${lastRows.value.length} predictions.`);
-    resultsTable.value = view(Inputs.table(lastRows.value, {rows:25, height:420}));
-    resultsTable.value;                     // final expression
+   /* --- build a plain HTML <table> so it renders inside html`` --- */
+   const headerCells = keys.map(k => html`<th style="padding:4px;">${k}</th>`);
+   const bodyRows = lastRows.value.map(row =>
+     html`<tr>${keys.map(k => html`<td style="padding:4px;">${row[k]}</td>`)}</tr>`
+   );
+
+   resultsTable.value = html`
+     <table border="1" cellpadding="0" cellspacing="0" style="border-collapse:collapse;">
+       <thead><tr>${headerCells}</tr></thead>
+       <tbody>${bodyRows}</tbody>
+     </table>`;
+
+   resultsTable.value;               // final expression
   }
 }
 
@@ -243,7 +251,7 @@ ${runButton}
 
 ```js
 html`
-${resultsTable.value}
+${resultsTable}
 ${downloadCSV}
 `
 ```
