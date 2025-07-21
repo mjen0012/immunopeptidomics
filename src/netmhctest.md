@@ -36,18 +36,16 @@ const alleleCtrl = comboSelect(allHLA, {
   multiple   : true,
   fontFamily : "'Roboto', sans-serif"
 });
-const alleleInput = view(alleleCtrl);    // show on page
-
+const alleleInput = Generators.input(alleleCtrl);    // show on page
 ```
 
 ```js
-const peptideUpload = view(uploadButton({
+const peptideUpload = uploadButton({
   label : "Upload peptide CSV",
   accept: ".csv",
   required: false
-}));
+});
 const peptideFile = Generators.input(peptideUpload);
-
 ```
 
 ```js
