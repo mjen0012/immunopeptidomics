@@ -80,6 +80,24 @@ const applyTrigger = Generators.input(runButton);
 ```
 
 ```js
+function commit(element) {
+  return Generators.observe((change) => {
+    const update = () => change(element.value);
+    update();  // initialize with the element’s current value
+    runButton.addEventListener("input", update);     // tie to the button
+    return () => runButton.removeEventListener("input", update);
+  });
+}
+
+```
+
+```js
+const allelesCommitted = commit(alleleCtrl);   // updates only on click
+
+```
+
+
+```js
 /* place these BEFORE any Markdown references */
 const lastRows     = Mutable([]);                              // array
 const resultsTable = Mutable(html`<p><em>No results yet.</em></p>`);  // node
@@ -133,7 +151,7 @@ if (!applyTrigger) {                        // page load or no click yet
   resultsTable.value;                       // show placeholder table
 } else {
   /* snapshots at click‑time */
-  const allelesSnap  = [...selectedAlleles];
+  const allelesSnap  = [...allelesCommitted];   // snapshot of committed alleles
   const peptidesSnap = await parsePeptides(peptideFile);
 
   /* guards */
