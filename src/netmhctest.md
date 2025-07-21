@@ -99,8 +99,8 @@ const allelesCommitted = commit(alleleCtrl);   // updates only on click
 
 ```js
 /* place these BEFORE any Markdown references */
-const lastRows     = Mutable([]);                              // array
-const resultsTable = Mutable(html`<p><em>No results yet.</em></p>`);  // node
+const lastRows     = Mutable([]);   // (you already have this)
+const resultsArray = Mutable([]);   // <-- new: raw prediction rows
 ```
 
 ```js
@@ -190,20 +190,13 @@ if (!applyTrigger) {                        // page load or no click yet
       Object.fromEntries(r.map((v, i) => [keys[i], v]))
     );
 
+    resultsArray.value = lastRows.value;   // expose the raw array
     setBanner(`Loaded ${lastRows.value.length} predictions.`);
    /* --- build a plain HTML <table> so it renders inside html`` --- */
    const headerCells = keys.map(k => html`<th style="padding:4px;">${k}</th>`);
    const bodyRows = lastRows.value.map(row =>
      html`<tr>${keys.map(k => html`<td style="padding:4px;">${row[k]}</td>`)}</tr>`
    );
-
-   resultsTable.value = html`
-     <table border="1" cellpadding="0" cellspacing="0" style="border-collapse:collapse;">
-       <thead><tr>${headerCells}</tr></thead>
-       <tbody>${bodyRows}</tbody>
-     </table>`;
-
-   resultsTable.value;               // final expression
   }
 }
 
@@ -251,7 +244,18 @@ ${runButton}
 
 ```js
 html`
-${resultsTable}
+${resultsArray.value}
 ${downloadCSV}
 `
+```
+
+
+```js
+display(resultsArray)
+```
+
+```js
+
+Inputs.table(resultsArray)
+
 ```
