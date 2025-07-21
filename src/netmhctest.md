@@ -240,7 +240,7 @@ ${runButton}
 
 ```js
 html`
-${resultsTable}
+${resultsTable.value}
 ${downloadCSV}
 `
 ```
