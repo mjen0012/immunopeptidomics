@@ -51,7 +51,7 @@ const peptideFile = Generators.input(peptideUpload);
 ```
 
 ```js
-Inputs.table(peptideUpload)
+Inputs.table(peptideFile)
 ```
 
 ```js
