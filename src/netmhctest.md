@@ -15,6 +15,8 @@ import {dsvFormat}     from "https://cdn.jsdelivr.net/npm/d3-dsv@3/+esm";
 import {comboSelect} from "./components/comboSelect.js";
 import {uploadButton} from "./components/uploadButton.js";
 
+import {html} from "htl";
+
 ```
 
 ```js
@@ -210,8 +212,6 @@ async function buildResultsRows() {
 
 
 ```js
-/* re‑runs on every click */
-applyTrigger;
 
 const rows = await buildResultsRows();
 const resultsTable = rows.length
@@ -248,8 +248,6 @@ const downloadCSV = (() => {
 
 ```
 
-
-
 ${statusBanner}
 
 ### Inputs
@@ -259,6 +257,10 @@ ${runButton}
 
 ---
 
+
 ### Results
-${predictionRows.value.length ? Inputs.table(predictionRows.value, {rows:25, height:420}) : html`<p><em>No data.</em></p>`}
+${predictionRows.value.length
+    ? Inputs.table(predictionRows.value, {rows:25, height:420})
+    : html`<p><em>No data.</em></p>`}
 ${downloadCSV}
+
