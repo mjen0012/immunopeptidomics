@@ -80,6 +80,12 @@ const applyTrigger = Generators.input(runButton);
 ```
 
 ```js
+/* place these BEFORE any Markdown references */
+const lastRows     = Mutable([]);                              // array
+const resultsTable = Mutable(html`<p><em>No results yet.</em></p>`);  // node
+```
+
+```js
 async function submitPipeline(alleles, peptides) {
   /* guards */
   if (!peptides.length) throw new Error("No peptides uploaded.");
@@ -169,15 +175,14 @@ if (!applyTrigger) {
 
   /* ── build & return table ───────────────────────────────────── */
   const keys = block.table_columns.map(c => c.display_name || c.name);
-  lastRows   = block.table_data.map(r =>
+  lastRows.value = block.table_data.map(r =>
     Object.fromEntries(r.map((v, i) => [keys[i], v]))
   );
 
   setBanner(`Loaded ${lastRows.length} predictions.`);
   const resultsTable = Inputs.table(lastRows, { rows: 25, height: 420 });
-  resultsTable            // exported value for Markdown
+  resultsTable.value           // exported value for Markdown
 }
-
 
 ```
 
@@ -189,10 +194,10 @@ const downloadCSV = (() => {
     if (!lastRows.length) {
       alert("Run prediction first."); return;
     }
-    const cols = Object.keys(lastRows[0]);
+    const cols = Object.keys(lastRows.value[0]);
     const csv  = [
       cols.join(","),
-      ...lastRows.map(r => cols.map(c => r[c]).join(","))
+      ...lastRows.value.map(r => cols.map(c => r[c]).join(","))
     ].join("\n");
 
     const blob = new Blob([csv], {type:"text/csv"});
