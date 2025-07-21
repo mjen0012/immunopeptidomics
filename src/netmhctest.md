@@ -7,6 +7,8 @@ toc: false
 
 ```js
 import * as Inputs from "@observablehq/inputs";
+import {Mutable} from "observablehq:stdlib";
+
 import {csvParse}      from "https://cdn.jsdelivr.net/npm/d3-dsv@3/+esm";
 import {dsvFormat}     from "https://cdn.jsdelivr.net/npm/d3-dsv@3/+esm";
 
@@ -147,7 +149,7 @@ async function fetchPeptideTable() {
 ```
 
 ```js
-mutable predictionRows = [];     // holds the latest rows for both table & CSV
+const predictionRows = Mutable([]);   // .value holds the arra
 
 ```
 
@@ -160,12 +162,12 @@ async function buildResultsRows() {
       Object.fromEntries(r.map((v,i)=>[keys[i],v]))
     );
     setBanner(`Loaded ${rows.length} predictions.`);
-    mutable predictionRows = rows;                      // store for others
+    predictionRows.value = rows;                      // store for others
     return rows;
   } catch (err) {
     console.error(err);
     setBanner(`Error: ${err.message}`);
-    mutable predictionRows = [];                        // reset on failure
+    predictionRows.value = [];                       // reset on failure
     return [];
   }
 }
@@ -175,12 +177,12 @@ async function buildResultsRows() {
 
 
 ```js
-/* re‑runs on each click, builds Input table */
-applyTrigger;                                    // dependency line
+/* re‑runs on every click */
+applyTrigger;
 
 const rows = await buildResultsRows();
 const resultsTable = rows.length
-  ? Inputs.table(rows, {rows:25, height:420})    // always Inputs.table
+  ? Inputs.table(rows, {rows:25, height:420})
   : html`<p><em>No data.</em></p>`;
 resultsTable
 
@@ -190,7 +192,7 @@ resultsTable
 const downloadCSV = (() => {
   const btn = Inputs.button("Download CSV");
   btn.onclick = () => {
-    const rows = predictionRows;                 // current global rows
+    const rows = predictionRows.value;                 // current global rows
     if (!rows.length) {
       alert("Run prediction first."); return;
     }
@@ -214,13 +216,9 @@ const downloadCSV = (() => {
 ```
 
 ${statusBanner}
-
-
-### Inputs
 ${alleleCtrl}
 ${peptideinput}
 ${runButton}
-${statusBanner}
 
 ---
 
