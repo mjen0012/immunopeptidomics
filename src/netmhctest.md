@@ -51,6 +51,10 @@ const peptideFile = peptideUpload.value;   // File | null
 ```
 
 ```js
+Inputs.table(peptideUpload)
+```
+
+```js
 async function loadPeptides() {
   if (!peptideFile) return [];
   const rows = csvParse(await peptideFile.text());
