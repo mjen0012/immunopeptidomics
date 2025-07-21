@@ -44,8 +44,20 @@ const peptideinput = uploadButton({
 const peptideFile = Generators.input(peptideinput);     // <-- reactive File|null
 ```
 
+```js
+async function parsePeptides(file) {
+  if (!file) return [];
+  const text = await file.text();
+  const [hdr, ...lines] = text.trim().split(/\r?\n/);
+  const cols = hdr.split(",").map(s => s.trim().toLowerCase());
+  const idx  = cols.indexOf("peptide");
+  if (idx < 0) return [];
+  return lines
+    .map(l => l.split(",")[idx]?.trim()?.toUpperCase())
+    .filter(Boolean);
+}
 
-
+```
 
 ```js
 async function loadPeptides() {
@@ -68,18 +80,14 @@ const applyTrigger = Generators.input(runButton);
 ```
 
 ```js
-async function submitPipeline() {
-  /* gather inputs */
-  const peptides = await loadPeptides();
+async function submitPipeline(alleles, peptides) {
+  /* guards */
   if (!peptides.length) throw new Error("No peptides uploaded.");
+  if (!alleles.length)  throw new Error("Select at least one allele.");
 
-  const alleles = selectedAlleles?.filter(Boolean) ?? [];
-  if (!alleles.length) throw new Error("Select at least one allele.");
-
-  /* FASTA block */
+  /* FASTA */
   const fasta = peptides.map((p,i)=>`>pep${i+1}\n${p}`).join("\n");
 
-  /* payload: exact peptides => peptide_length_range:null */
   const body = {
     run_stage_range: [1,1],
     stages: [{
@@ -88,35 +96,41 @@ async function submitPipeline() {
       tool_group  : "mhci",
       input_sequence_text: fasta,
       input_parameters: {
-        alleles: alleles.join(","),             // comma string
-        peptide_length_range: null,             // exact peptides
+        alleles: alleles.join(","),   // exact list, comma‑sep
+        peptide_length_range: null,   // exact peptides
         predictors: [{type:"binding", method:"netmhcpan_el"}]
       }
     }]
   };
 
   const resp = await fetch("/api/iedb-pipeline", {
-    method : "POST",
+    method: "POST",
     headers: {"content-type":"application/json"},
-    body   : JSON.stringify(body)
+    body:   JSON.stringify(body)
   });
   const json = await resp.json();
-  if (!resp.ok)
-    throw new Error(json.errors?.join("; ") || resp.statusText);
-  if (!json.results_uri)
-    throw new Error("IEDB did not return results_uri.");
-  return json; // {result_id, results_uri, ...}
+  if (!resp.ok)  throw new Error(json.errors?.join("; ") || resp.statusText);
+  if (!json.results_uri) throw new Error("IEDB did not return results_uri.");
+  return json;                     // {results_uri, …}
 }
+
 ```
 
 ```js
-async function fetchPeptideTable() {
+/*****  Results runner — re‑runs ONLY on click *****/
+applyTrigger;                // ← the sole reactive dependency
+
+const allelesSnap  = [...selectedAlleles];   // freeze current selection
+const fileSnap     = peptideFile;            // current File
+const peptidesSnap = await parsePeptides(fileSnap);
+
+async function fetchTableOnce() {
   setBanner("Submitting to IEDB…");
-  const ticket = await submitPipeline();
+  const ticket = await submitPipeline(allelesSnap, peptidesSnap);
   const id     = ticket.results_uri.split("/").pop();
   const sleep  = ms => new Promise(r => setTimeout(r, ms));
 
-  for (let i=0; i<90; ++i) {
+  for (let i = 0; i < 90; ++i) {
     setBanner(`Polling ${i+1}/90…`);
     const r = await fetch(`/api/iedb-result?id=${id}`);
     if (!r.ok) throw new Error(`Poll failed (${r.status})`);
@@ -124,22 +138,25 @@ async function fetchPeptideTable() {
     if (j.status === "done") {
       const block = j.data?.results?.find(t => t.type === "peptide_table");
       if (!block) throw new Error("peptide_table missing");
-      setBanner("Peptide table received.");
       return block;
     }
     await sleep(1000);
   }
-  throw new Error("Timed out waiting for peptide table.");
+  throw new Error("Timed out");
 }
-```
 
-```js
-/* --- trigger this cell on each click --- */
-applyTrigger;                     // <- keep this single line at top
+let lastRows = [];
 
-/* buildResults() does: submit → poll → setBanner → return table */
-const resultsTable = await buildResults();
-resultsTable                                  // export for Markdown
+const tblBlock = await fetchTableOnce();
+const keys = tblBlock.table_columns.map(c => c.display_name || c.name);
+lastRows   = tblBlock.table_data.map(r =>
+  Object.fromEntries(r.map((v,i)=>[keys[i],v]))
+);
+
+setBanner(`Loaded ${lastRows.length} predictions.`);
+const resultsTable = Inputs.table(lastRows, {rows:25, height:420});
+resultsTable          // ← export for Markdown
+                               // export for Markdown
 
 ```
 
