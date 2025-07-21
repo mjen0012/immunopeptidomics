@@ -117,46 +117,67 @@ async function submitPipeline(alleles, peptides) {
 ```
 
 ```js
-/*****  Results runner — re‑runs ONLY on click *****/
-applyTrigger;                // ← the sole reactive dependency
+/*************************************************************************
+ * Results runner – re‑runs ONLY when the button is clicked
+ *  1. The line   applyTrigger;   is the sole reactive dependency.
+ *  2. We guard against the first undefined value (page load) so the
+ *     pipeline is never triggered until the button emits its first
+ *     real value on a user click.
+ *************************************************************************/
+applyTrigger;                       // ← sole dependency (button clicks)
 
-const allelesSnap  = [...selectedAlleles];   // freeze current selection
-const fileSnap     = peptideFile;            // current File
-const peptidesSnap = await parsePeptides(fileSnap);
+if (!applyTrigger) {
+  // Page just loaded or button hasn't been clicked yet.
+  setBanner("Idle — click Run to start.");
+  null;                              // cell returns nothing / keeps old table
+} else {
+  /* ── take snapshots at the moment of the click ─────────────── */
+  const allelesSnap  = [...selectedAlleles];
+  const peptidesSnap = await parsePeptides(peptideFile);
 
-async function fetchTableOnce() {
+  /* ── safety guards ─────────────────────────────────────────── */
+  if (!allelesSnap.length) {
+    setBanner("No allele selected.");
+    return html`<p><em>Please select at least one allele.</em></p>`;
+  }
+  if (!peptidesSnap.length) {
+    setBanner("No peptides uploaded.");
+    return html`<p><em>Please upload a peptide CSV.</em></p>`;
+  }
+
+  /* ── submit ➜ poll ➜ table ─────────────────────────────────── */
   setBanner("Submitting to IEDB…");
   const ticket = await submitPipeline(allelesSnap, peptidesSnap);
-  const id     = ticket.results_uri.split("/").pop();
-  const sleep  = ms => new Promise(r => setTimeout(r, ms));
 
+  const id  = ticket.results_uri.split("/").pop();
+  const nap = ms => new Promise(r => setTimeout(r, ms));
+
+  let block;
   for (let i = 0; i < 90; ++i) {
-    setBanner(`Polling ${i+1}/90…`);
+    setBanner(`Polling ${i + 1}/90…`);
     const r = await fetch(`/api/iedb-result?id=${id}`);
     if (!r.ok) throw new Error(`Poll failed (${r.status})`);
     const j = await r.json();
     if (j.status === "done") {
-      const block = j.data?.results?.find(t => t.type === "peptide_table");
+      block = j.data?.results?.find(t => t.type === "peptide_table");
       if (!block) throw new Error("peptide_table missing");
-      return block;
+      break;
     }
-    await sleep(1000);
+    await nap(1000);
   }
-  throw new Error("Timed out");
+  if (!block) throw new Error("Timed out waiting for peptide table");
+
+  /* ── build & return table ───────────────────────────────────── */
+  const keys = block.table_columns.map(c => c.display_name || c.name);
+  lastRows   = block.table_data.map(r =>
+    Object.fromEntries(r.map((v, i) => [keys[i], v]))
+  );
+
+  setBanner(`Loaded ${lastRows.length} predictions.`);
+  const resultsTable = Inputs.table(lastRows, { rows: 25, height: 420 });
+  resultsTable            // exported value for Markdown
 }
 
-let lastRows = [];
-
-const tblBlock = await fetchTableOnce();
-const keys = tblBlock.table_columns.map(c => c.display_name || c.name);
-lastRows   = tblBlock.table_data.map(r =>
-  Object.fromEntries(r.map((v,i)=>[keys[i],v]))
-);
-
-setBanner(`Loaded ${lastRows.length} predictions.`);
-const resultsTable = Inputs.table(lastRows, {rows:25, height:420});
-resultsTable          // ← export for Markdown
-                               // export for Markdown
 
 ```
 
