@@ -160,29 +160,6 @@ resultsTable          // ← export for Markdown
 
 ```
 
-```js
-/* will hold the last rows parsed by buildResults() */
-let lastRows = [];
-
-async function buildResults() {
-  try {
-    const tbl  = await fetchPeptideTable();
-    const keys = tbl.table_columns.map(c => c.display_name || c.name);
-    const rows = tbl.table_data.map(r =>
-      Object.fromEntries(r.map((v,i)=>[keys[i],v]))
-    );
-    lastRows = rows;                          // <-- store for download
-    setBanner(`Loaded ${rows.length} predictions.`);
-    return Inputs.table(rows, {rows:25, height:420});
-  } catch (err) {
-    console.error(err);
-    setBanner(`Error: ${err.message}`);
-    lastRows = [];                            // reset on failure
-    return html`<p><em>${err.message}</em></p>`;
-  }
-}
-
-```
 
 ```js
 const downloadCSV = (() => {
