@@ -72,7 +72,7 @@ async function loadPeptides() {
 
 ```js
 const runButton = view(Inputs.button("Run NetMHCpan EL 4.1"));
-
+const applyTrigger = Generators.input(runButton);
 
 ```
 
