@@ -7,23 +7,16 @@ toc: false
 
 ```js
 import * as Inputs from "@observablehq/inputs";
-import {Mutable} from "observablehq:stdlib";
-
 import {csvParse}      from "https://cdn.jsdelivr.net/npm/d3-dsv@3/+esm";
 import {dsvFormat}     from "https://cdn.jsdelivr.net/npm/d3-dsv@3/+esm";
 
 import {comboSelect} from "./components/comboSelect.js";
 import {uploadButton} from "./components/uploadButton.js";
-
-import {html} from "htl";
-
 ```
 
 ```js
 const statusBanner = html`<div style="margin:0.5rem 0; font-style:italic;"></div>`;
 function setBanner(msg) { statusBanner.textContent = msg; }
-
-
 ```
 
 ```js
@@ -39,8 +32,6 @@ const alleleCtrl = comboSelect(allHLA, {
   fontFamily : "'Roboto', sans-serif"
 });
 const selectedAlleles = Generators.input(alleleCtrl);  // reactive array
-
-
 ```
 
 ```js
@@ -51,7 +42,6 @@ const peptideinput = uploadButton({
   required: false
 });
 const peptideFile = Generators.input(peptideinput);     // <-- reactive File|null
-
 ```
 
 
@@ -70,32 +60,12 @@ async function loadPeptides() {
     .map(l => l.split(",")[idx]?.trim()?.toUpperCase())
     .filter(Boolean);
 }
-
-
 ```
 
 ```js
-/* --- RUN BUTTON --- */
-const runButton = Inputs.button("Run NetMHCpan EL 4.1");
-
-/* attach click handler once */
-runButton.onclick = async () => {
-  try {
-    setBanner("Submitting to IEDB…");
-    const rows = await buildResultsRows();        // calls submit → poll
-    if (!rows.length) setBanner("IEDB returned an empty table.");
-  } catch (err) {
-    console.error(err);
-    setBanner(`Error: ${err.message}`);
-  }
-};
-
-/* render button */
-runButton
-
+const runButton = Inputs.button("Run NetMHCpan EL 4.1");
+const applyTrigger = Generators.input(runButton);
 ```
-
-
 
 ```js
 async function submitPipeline() {
@@ -137,130 +107,58 @@ async function submitPipeline() {
     throw new Error("IEDB did not return results_uri.");
   return json; // {result_id, results_uri, ...}
 }
-
-
 ```
 
 ```js
-/* ---------- helper inside fetchPeptideTable.js cell ---------- */
-async function pollResult(id, {interval = 3000, maxPoll = 30} = {}) {
-  const sleep = ms => new Promise(r => setTimeout(r, ms));
+async function fetchPeptideTable() {
+  setBanner("Submitting to IEDB…");
+  const ticket = await submitPipeline();
+  const id     = ticket.results_uri.split("/").pop();
+  const sleep  = ms => new Promise(r => setTimeout(r, ms));
 
-  for (let i = 0; i < maxPoll; ++i) {
-    setBanner(`Polling ${i + 1}/${maxPoll}…`);
-
+  for (let i=0; i<90; ++i) {
+    setBanner(`Polling ${i+1}/90…`);
     const r = await fetch(`/api/iedb-result?id=${id}`);
     if (!r.ok) throw new Error(`Poll failed (${r.status})`);
-
     const j = await r.json();
-    if (j.status === "done") return j;        // 🎉 finished
-
-    // bail early on error
-    if (j.status && j.status !== "pending") {
-      throw new Error(`IEDB returned status: ${j.status}`);
+    if (j.status === "done") {
+      const block = j.data?.results?.find(t => t.type === "peptide_table");
+      if (!block) throw new Error("peptide_table missing");
+      setBanner("Peptide table received.");
+      return block;
     }
-
-    // OPTIONAL: If a peptide_table already exists, break early
-    if (j.data?.results?.some(t => t.type === "peptide_table")) return j;
-
-    await sleep(interval);
+    await sleep(1000);
   }
-  throw new Error(`Timed out after ${(interval * maxPoll) / 1000} s`);
+  throw new Error("Timed out waiting for peptide table.");
 }
-
-async function fetchPeptideTable() {
-  const ticket = await submitPipeline();
-  const id = ticket.results_uri.split("/").pop();
-
-  const j = await pollResult(id, {interval: 2000, maxPoll: 45}); // ≈90 s max
-
-  const block = j.data?.results?.find(t => t.type === "peptide_table");
-  if (!block) throw new Error("peptide_table missing");
-  setBanner("Peptide table received.");
-  return block;
-}
-
-
 ```
 
 ```js
-const predictionRows = Mutable([]);   // .value holds the arra
-
-```
-
-```js
-async function buildResultsRows() {
+async function buildResults() {
   try {
-    const tbl  = await fetchPeptideTable();             // submit → poll
+    const tbl = await fetchPeptideTable();
     const keys = tbl.table_columns.map(c => c.display_name || c.name);
     const rows = tbl.table_data.map(r =>
       Object.fromEntries(r.map((v,i)=>[keys[i],v]))
     );
     setBanner(`Loaded ${rows.length} predictions.`);
-    predictionRows.value = rows;                      // store for others
-    return rows;
+    return Inputs.table(rows, {rows:25, height:420});
   } catch (err) {
     console.error(err);
     setBanner(`Error: ${err.message}`);
-    predictionRows.value = [];                       // reset on failure
-    return [];
+    return html`<p><em>${err.message}</em></p>`;
   }
 }
-
-
 ```
-
-
-```js
-
-const rows = await buildResultsRows();
-const resultsTable = rows.length
-  ? Inputs.table(rows, {rows:25, height:420})
-  : html`<p><em>No data.</em></p>`;
-resultsTable
-
-```
-
-```js
-const downloadCSV = (() => {
-  const btn = Inputs.button("Download CSV");
-  btn.onclick = () => {
-    const rows = predictionRows.value;                 // current global rows
-    if (!rows.length) {
-      alert("Run prediction first."); return;
-    }
-    const cols = Object.keys(rows[0]);
-    const csv  = [
-      cols.join(","),
-      ...rows.map(r => cols.map(c => r[c]).join(","))
-    ].join("\n");
-
-    const blob = new Blob([csv], {type:"text/csv"});
-    const url  = URL.createObjectURL(blob);
-    Object.assign(document.createElement("a"), {
-      href: url, download: "iedb_predictions.csv"
-    }).click();
-    URL.revokeObjectURL(url);
-  };
-  return btn;
-})();
-
-
-```
-
-${statusBanner}
 
 ### Inputs
 ${alleleCtrl}
 ${peptideinput}
 ${runButton}
+${statusBanner}
 
 ---
 
-
 ### Results
-${predictionRows.value.length
-    ? Inputs.table(predictionRows.value, {rows:25, height:420})
-    : html`<p><em>No data.</em></p>`}
+${resultsTable}
 ${downloadCSV}
-
