@@ -73,8 +73,24 @@ async function loadPeptides() {
 ```
 
 ```js
-const runButton = Inputs.button("Run NetMHCpan EL 4.1");
-const applyTrigger = Generators.input(runButton);
+/* --- RUN BUTTON --- */
+const runButton = Inputs.button("Run NetMHCpan EL 4.1");
+
+/* attach click handler once */
+runButton.onclick = async () => {
+  try {
+    setBanner("Submitting to IEDB…");
+    const rows = await buildResultsRows();        // calls submit → poll
+    if (!rows.length) setBanner("IEDB returned an empty table.");
+  } catch (err) {
+    console.error(err);
+    setBanner(`Error: ${err.message}`);
+  }
+};
+
+/* render button */
+runButton
+
 ```
 
 
@@ -124,27 +140,44 @@ async function submitPipeline() {
 ```
 
 ```js
-async function fetchPeptideTable() {
-  setBanner("Submitting to IEDB…");
-  const ticket = await submitPipeline();
-  const id     = ticket.results_uri.split("/").pop();
-  const sleep  = ms => new Promise(r => setTimeout(r, ms));
+/* ---------- helper inside fetchPeptideTable.js cell ---------- */
+async function pollResult(id, {interval = 3000, maxPoll = 30} = {}) {
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
 
-  for (let i=0; i<90; ++i) {
-    setBanner(`Polling ${i+1}/90…`);
+  for (let i = 0; i < maxPoll; ++i) {
+    setBanner(`Polling ${i + 1}/${maxPoll}…`);
+
     const r = await fetch(`/api/iedb-result?id=${id}`);
     if (!r.ok) throw new Error(`Poll failed (${r.status})`);
+
     const j = await r.json();
-    if (j.status === "done") {
-      const block = j.data?.results?.find(t => t.type === "peptide_table");
-      if (!block) throw new Error("peptide_table missing");
-      setBanner("Peptide table received.");
-      return block;
+    if (j.status === "done") return j;        // 🎉 finished
+
+    // bail early on error
+    if (j.status && j.status !== "pending") {
+      throw new Error(`IEDB returned status: ${j.status}`);
     }
-    await sleep(1000);
+
+    // OPTIONAL: If a peptide_table already exists, break early
+    if (j.data?.results?.some(t => t.type === "peptide_table")) return j;
+
+    await sleep(interval);
   }
-  throw new Error("Timed out waiting for peptide table.");
+  throw new Error(`Timed out after ${(interval * maxPoll) / 1000} s`);
 }
+
+async function fetchPeptideTable() {
+  const ticket = await submitPipeline();
+  const id = ticket.results_uri.split("/").pop();
+
+  const j = await pollResult(id, {interval: 2000, maxPoll: 45}); // ≈90 s max
+
+  const block = j.data?.results?.find(t => t.type === "peptide_table");
+  if (!block) throw new Error("peptide_table missing");
+  setBanner("Peptide table received.");
+  return block;
+}
+
 
 ```
 
@@ -215,7 +248,11 @@ const downloadCSV = (() => {
 
 ```
 
+
+
 ${statusBanner}
+
+### Inputs
 ${alleleCtrl}
 ${peptideinput}
 ${runButton}
@@ -223,5 +260,5 @@ ${runButton}
 ---
 
 ### Results
-${resultsTable}
+${predictionRows.value.length ? Inputs.table(predictionRows.value, {rows:25, height:420}) : html`<p><em>No data.</em></p>`}
 ${downloadCSV}
