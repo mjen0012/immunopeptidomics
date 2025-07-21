@@ -130,20 +130,21 @@ applyTrigger;                               // sole reactive dependency
 
 if (!applyTrigger) {                        // page load or no click yet
   setBanner("Idle — click Run to start.");
-  resultsTable.value                        // return current table (placeholder)
+  resultsTable.value;                       // show placeholder table
 } else {
   /* snapshots at click‑time */
   const allelesSnap  = [...selectedAlleles];
   const peptidesSnap = await parsePeptides(peptideFile);
 
+  /* guards */
   if (!allelesSnap.length) {
     setBanner("No allele selected.");
     resultsTable.value = html`<p><em>Please select at least one allele.</em></p>`;
-    resultsTable.value
+    resultsTable.value;
   } else if (!peptidesSnap.length) {
     setBanner("No peptides uploaded.");
     resultsTable.value = html`<p><em>Please upload a peptide CSV.</em></p>`;
-    resultsTable.value
+    resultsTable.value;
   } else {
     /* submit → poll */
     setBanner("Submitting to IEDB…");
@@ -168,8 +169,15 @@ if (!applyTrigger) {                        // page load or no click yet
     /* build table */
     const keys = block.table_columns.map(c => c.display_name || c.name);
     lastRows.value = block.table_data.map(r =>
-      Object.fromEntries(r.map((v,i)=>[keys[i],v]))
+      Object.fromEntries(r.map((v, i) => [keys[i], v]))
     );
+
+    setBanner(`Loaded ${lastRows.value.length} predictions.`);
+    resultsTable.value = Inputs.table(lastRows.value, {rows:25, height:420});
+    resultsTable.value;                     // final expression
+  }
+}
+
 ```
 
 ```js
@@ -208,6 +216,8 @@ ${peptideinput}
 ${runButton}
 `
 ```
+
+---
 ### Results
 
 ```js
