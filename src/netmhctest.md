@@ -75,15 +75,7 @@ const runButton = Inputs.button("Run NetMHCpan EL 4.1");
 const applyTrigger = Generators.input(runButton);
 ```
 
-```js
 
-/* --- trigger this cell on each click --- */
-applyTrigger;                     // <- keep this single line at top
-
-/* buildResults() does: submit → poll → setBanner → return table */
-const resultsTable = await buildResults();
-resultsTable    
-```
 
 ```js
 async function submitPipeline() {
@@ -155,27 +147,42 @@ async function fetchPeptideTable() {
 ```
 
 ```js
-/* will hold the last rows parsed by buildResults() */
-let lastRows = [];
+mutable predictionRows = [];     // holds the latest rows for both table & CSV
 
-async function buildResults() {
+```
+
+```js
+async function buildResultsRows() {
   try {
-    const tbl  = await fetchPeptideTable();
+    const tbl  = await fetchPeptideTable();             // submit → poll
     const keys = tbl.table_columns.map(c => c.display_name || c.name);
     const rows = tbl.table_data.map(r =>
       Object.fromEntries(r.map((v,i)=>[keys[i],v]))
     );
-    lastRows = rows;                          // <-- store for download
     setBanner(`Loaded ${rows.length} predictions.`);
-    return Inputs.table(rows, {rows:25, height:420});
+    mutable predictionRows = rows;                      // store for others
+    return rows;
   } catch (err) {
     console.error(err);
     setBanner(`Error: ${err.message}`);
-    lastRows = [];                            // reset on failure
-    return html`<p><em>${err.message}</em></p>`;
+    mutable predictionRows = [];                        // reset on failure
+    return [];
   }
 }
 
+
+```
+
+
+```js
+/* re‑runs on each click, builds Input table */
+applyTrigger;                                    // dependency line
+
+const rows = await buildResultsRows();
+const resultsTable = rows.length
+  ? Inputs.table(rows, {rows:25, height:420})    // always Inputs.table
+  : html`<p><em>No data.</em></p>`;
+resultsTable
 
 ```
 
@@ -183,13 +190,14 @@ async function buildResults() {
 const downloadCSV = (() => {
   const btn = Inputs.button("Download CSV");
   btn.onclick = () => {
-    if (!lastRows.length) {
+    const rows = predictionRows;                 // current global rows
+    if (!rows.length) {
       alert("Run prediction first."); return;
     }
-    const cols = Object.keys(lastRows[0]);
+    const cols = Object.keys(rows[0]);
     const csv  = [
       cols.join(","),
-      ...lastRows.map(r => cols.map(c => r[c]).join(","))
+      ...rows.map(r => cols.map(c => r[c]).join(","))
     ].join("\n");
 
     const blob = new Blob([csv], {type:"text/csv"});
@@ -201,6 +209,7 @@ const downloadCSV = (() => {
   };
   return btn;
 })();
+
 
 ```
 
