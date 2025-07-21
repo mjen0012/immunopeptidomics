@@ -17,101 +17,106 @@ import {uploadButton} from "./components/uploadButton.js";
 
 ```js
 const statusBanner = html`<div style="margin:0.5rem 0; font-style:italic;"></div>`;
-function setBanner(msg) {
-  statusBanner.textContent = msg;
-}
+function setBanner(msg) { statusBanner.textContent = msg; }
+
 
 ```
 
 ```js
-/* Read HLAlistClassI.csv → ["HLA‑A*01:01", …] */
 const allHLA = (await FileAttachment("data/HLAlistClassI.csv").csv())
   .map(d => d["Class I"].trim())
   .sort();
 
-/* Multi‑select control */
+/* multi */
 const alleleCtrl = comboSelect(allHLA, {
-  label      : "MHC‑I alleles",
+  label      : "MHC-I alleles",
   placeholder: "Type allele…",
   multiple   : true,
   fontFamily : "'Roboto', sans-serif"
 });
-const alleleInput = Generators.input(alleleCtrl);    // show on page
+const selectedAlleles = Generators.input(alleleCtrl);  // reactive array
+
+
 ```
 
 ```js
-const peptideUpload = uploadButton({
-  label : "Upload peptide CSV",
-  accept: ".csv",
+/* Peptide upload */
+const peptideinput = uploadButton({
+  label   : "Upload Peptides",
+  accept  : ".csv",
   required: false
 });
-const peptideFile = Generators.input(peptideUpload);
+const peptideFile = Generators.input(peptideinput);     // <-- reactive File|null
+
 ```
 
-```js
-Inputs.table(peptideFile)
-```
+
+
 
 ```js
 async function loadPeptides() {
   if (!peptideFile) return [];
-  const rows = csvParse(await peptideFile.text());
-  return rows
-    .map(d => d.peptide?.trim()?.toUpperCase())
+  const txt  = await peptideFile.text();
+  // simple CSV parse: assume "peptide" header present; lightweight regex split
+  const [hdrLine, ...lines] = txt.trim().split(/\r?\n/);
+  const hdrs = hdrLine.split(",").map(h => h.trim().toLowerCase());
+  const idx  = hdrs.indexOf("peptide");
+  if (idx < 0) return [];
+  return lines
+    .map(l => l.split(",")[idx]?.trim()?.toUpperCase())
     .filter(Boolean);
 }
+
 
 ```
 
 ```js
-const runButton = view(Inputs.button("Run NetMHCpan EL 4.1"));
+const runButton = view(Inputs.button("Run NetMHCpan EL 4.1"));
+
 
 ```
 
 ```js
 async function submitPipeline() {
-  /* wait until user clicks — Framework re‑runs this cell on every click */
-  runButton;                       // dependency line
-
-  /* 📦 gather inputs */
+  /* gather inputs */
   const peptides = await loadPeptides();
   if (!peptides.length) throw new Error("No peptides uploaded.");
 
-  const alleles = (alleleCtrl.value ?? []).filter(Boolean);
+  const alleles = selectedAlleles?.filter(Boolean) ?? [];
   if (!alleles.length) throw new Error("Select at least one allele.");
 
-  const fasta = peptides.map((p, i) => `>pep${i + 1}\n${p}`).join("\n");
+  /* FASTA block */
+  const fasta = peptides.map((p,i)=>`>pep${i+1}\n${p}`).join("\n");
 
-  /* build payload — exact peptides → peptide_length_range:null */
+  /* payload: exact peptides => peptide_length_range:null */
   const body = {
-    run_stage_range: [1, 1],
+    run_stage_range: [1,1],
     stages: [{
       stage_number: 1,
       stage_type  : "prediction",
       tool_group  : "mhci",
       input_sequence_text: fasta,
       input_parameters: {
-        alleles: alleles.join(","),           // comma‑separated
-        peptide_length_range: null,           // exact peptides (spec)
-        predictors: [{ type:"binding", method:"netmhcpan_el" }]
+        alleles: alleles.join(","),             // comma string
+        peptide_length_range: null,             // exact peptides
+        predictors: [{type:"binding", method:"netmhcpan_el"}]
       }
     }]
   };
 
-  /* POST via Vercel proxy */
-  const resp  = await fetch("/api/iedb-pipeline", {
+  const resp = await fetch("/api/iedb-pipeline", {
     method : "POST",
-    headers: { "content-type": "application/json" },
+    headers: {"content-type":"application/json"},
     body   : JSON.stringify(body)
   });
   const json = await resp.json();
-  if (!resp.ok) throw new Error(json.errors?.join("; ") || resp.statusText);
-
+  if (!resp.ok)
+    throw new Error(json.errors?.join("; ") || resp.statusText);
   if (!json.results_uri)
-    throw new Error("IEDB did not return results_uri");
-
-  return json;   // { result_id, results_uri, … }
+    throw new Error("IEDB did not return results_uri.");
+  return json; // {result_id, results_uri, ...}
 }
+
 
 ```
 
@@ -119,77 +124,54 @@ async function submitPipeline() {
 async function fetchPeptideTable() {
   setBanner("Submitting to IEDB…");
   const ticket = await submitPipeline();
+  const id     = ticket.results_uri.split("/").pop();
+  const sleep  = ms => new Promise(r => setTimeout(r, ms));
 
-  const id    = ticket.results_uri.split("/").pop();
-  const sleep = ms => new Promise(r => setTimeout(r, ms));
-
-  for (let i = 0; i < 90; ++i) {           // up to 90 s
-    setBanner(`Polling ${i + 1}/90…`);
+  for (let i=0; i<90; ++i) {
+    setBanner(`Polling ${i+1}/90…`);
     const r = await fetch(`/api/iedb-result?id=${id}`);
-
     if (!r.ok) throw new Error(`Poll failed (${r.status})`);
-
     const j = await r.json();
     if (j.status === "done") {
-      const peptideBlock = j.data?.results?.find(t => t.type === "peptide_table");
-      if (!peptideBlock) throw new Error("peptide_table missing");
+      const block = j.data?.results?.find(t => t.type === "peptide_table");
+      if (!block) throw new Error("peptide_table missing");
       setBanner("Peptide table received.");
-      return peptideBlock;
+      return block;
     }
     await sleep(1000);
   }
-  throw new Error("Timed out (90 s)");
+  throw new Error("Timed out waiting for peptide table.");
 }
 
 ```
 
 ```js
-async function buildTable() {
-  const tbl = await fetchPeptideTable();
-  const keys = tbl.table_columns.map(c => c.display_name || c.name);
-  const rows = tbl.table_data.map(r =>
-    Object.fromEntries(r.map((v, i) => [keys[i], v]))
-  );
-
-  setBanner(`Loaded ${rows.length} predictions.`);
-  return Inputs.table(rows, { rows: 25, height: 420 });
-}
-
-const resultsTable = await buildTable();      // triggers on button click
-
-```
-
-```js
-const downloadCSV = (() => {
-  const btn = Inputs.button("Download CSV");
-
-  btn.onclick = async () => {
-    const tbl = await fetchPeptideTable();      // cached if already run
-    if (!tbl) return alert("Run prediction first.");
-
+async function buildResults() {
+  try {
+    const tbl = await fetchPeptideTable();
     const keys = tbl.table_columns.map(c => c.display_name || c.name);
     const rows = tbl.table_data.map(r =>
-      Object.fromEntries(r.map((v, i) => [keys[i], v]))
+      Object.fromEntries(r.map((v,i)=>[keys[i],v]))
     );
-
-    const csv  = [
-      keys.join(","),
-      ...rows.map(r => keys.map(k => r[k]).join(","))
-    ].join("\n");
-
-    const blob = new Blob([csv], {type:"text/csv"});
-    const url  = URL.createObjectURL(blob);
-    Object.assign(document.createElement("a"), {
-      href: url, download: "iedb_predictions.csv"
-    }).click();
-    URL.revokeObjectURL(url);
-  };
-  return btn;
-})();
+    setBanner(`Loaded ${rows.length} predictions.`);
+    return Inputs.table(rows, {rows:25, height:420});
+  } catch (err) {
+    console.error(err);
+    setBanner(`Error: ${err.message}`);
+    return html`<p><em>${err.message}</em></p>`;
+  }
+}
 
 ```
 
-```js
-display(downloadCSV)
+### Inputs
+${alleleCtrl}
+${peptideinput}
+${runButton}
+${statusBanner}
 
-```
+---
+
+### Results
+${resultsTable}
+${downloadCSV}
