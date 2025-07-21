@@ -199,10 +199,20 @@ const downloadCSV = (() => {
 
 
 ### Inputs
+
+```js
+html`
 ${statusBanner}
 ${alleleCtrl}
 ${peptideinput}
 ${runButton}
+`
+```
 ### Results
+
+```js
+html`
 ${resultsTable}
 ${downloadCSV}
+`
+```
