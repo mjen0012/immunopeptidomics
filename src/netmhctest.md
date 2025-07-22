@@ -20,18 +20,33 @@ function setBanner(msg) { statusBanner.textContent = msg; }
 ```
 
 ```js
-const allHLA = (await FileAttachment("data/HLAlistClassI.csv").csv())
-  .map(d => d["Class I"].trim())
-  .sort();
+const hlaCSV = await FileAttachment("data/HLAlistClassI.csv").csv();
+const allHLA1 = hlaCSV.map(d => d["Class I"]?.trim()).filter(Boolean);
+const allHLA2 = hlaCSV.map(d => d["Class II"]?.trim()).filter(Boolean);
 
-/* multi */
-const alleleCtrl = comboSelect(allHLA, {
-  label      : "MHC-I alleles",
-  placeholder: "Type allele…",
-  multiple   : true,
-  fontFamily : "'Roboto', sans-serif"
+/* Class I multi‑select */
+const alleleCtrl1 = comboSelect(allHLA1, {
+  label: "Class I alleles (MHCI)",
+  multiple: true, placeholder: "Type class‑I allele…",
+  fontFamily: "'Roboto', sans-serif"
 });
-const selectedAlleles = Generators.input(alleleCtrl);  // reactive array
+const selectedI = Generators.input(alleleCtrl1);
+
+/* Class II multi‑select */
+const alleleCtrl2 = comboSelect(allHLA2, {
+  label: "Class II alleles (MHCII)",
+  multiple: true, placeholder: "Type class‑II allele…",
+  fontFamily: "'Roboto', sans-serif"
+});
+const selectedII = Generators.input(alleleCtrl2);
+
+```
+
+```js
+const committedI  = commit(alleleCtrl1);   // updates only on click
+const committedII = commit(alleleCtrl2);   // updates only on click
+
+
 ```
 
 ```js
@@ -91,10 +106,7 @@ function commit(element) {
 
 ```
 
-```js
-const allelesCommitted = commit(alleleCtrl);   // updates only on click
 
-```
 
 
 ```js
@@ -105,30 +117,70 @@ const excludedPeptides = Mutable([]);          // list of length‑invalid pepti
 ```
 
 ```js
-async function submitPipeline(alleles, peptides) {
-  /* guards */
-  if (!peptides.length) throw new Error("No peptides uploaded.");
-  if (!alleles.length)  throw new Error("Select at least one allele.");
+function buildStages({allelesI, allelesII, fastaI, fastaII}) {
+  const stages = [];
+  let stageNo  = 1;
 
-  /* FASTA */
-  const fasta = peptides.map((p,i)=>`>pep${i+1}\n${p}`).join("\n");
-
-  const body = {
-    run_stage_range: [1,1],
-    stages: [{
-      stage_number: 1,
+  if (allelesI.length) {
+    stages.push({
+      stage_number: stageNo++,
       stage_type  : "prediction",
       tool_group  : "mhci",
-      input_sequence_text: fasta,
+      input_sequence_text: fastaI,
       input_parameters: {
-        alleles: alleles.join(","),   // exact list, comma‑sep
-        peptide_length_range: null,   // exact peptides
-        predictors: [                       // ⬅️ new: BOTH predictors
-          { type: "binding", method: "netmhcpan_el" },  // EL scoring
-          { type: "binding", method: "netmhcpan_ba" }   // BA (IC50) scoring
+        alleles: allelesI.join(","),
+        peptide_length_range: null,
+        predictors: [
+          {type:"binding", method:"netmhcpan_el"},
+          {type:"binding", method:"netmhcpan_ba"}
         ]
       }
-    }]
+    });
+  }
+
+  if (allelesII.length) {
+    stages.push({
+      stage_number: stageNo++,
+      stage_type  : "prediction",
+      tool_group  : "mhcii",
+      input_sequence_text: fastaII,
+      input_parameters: {
+        alleles: allelesII.join(","),
+        peptide_length_range: null,
+        predictors: [
+          {type:"binding", method:"netmhciipan_el"},
+          {type:"binding", method:"netmhciipan_ba"}
+        ]
+      }
+    });
+  }
+  return stages;
+}
+
+async function submitPipeline(allelesI, allelesII, peptides) {
+  if (!peptides.length) throw new Error("No peptides uploaded.");
+  if (!allelesI.length && !allelesII.length)
+    throw new Error("Select at least one class‑I or class‑II allele.");
+
+  /* length filters */
+  const pepI  = peptides.filter(p => p.length >= 8  && p.length <= 14);
+  const pepII = peptides.filter(p => p.length >= 11 && p.length <= 30);
+  excludedI.value  = peptides.filter(p => p.length < 8  || p.length > 14);
+  excludedII.value = peptides.filter(p => p.length < 11 || p.length > 30);
+
+  if (!pepI.length && !pepII.length)
+    throw new Error("All peptides outside valid length ranges.");
+
+  const body = {
+    run_stage_range: [1, buildStages({
+      allelesI, allelesII, fastaI:"", fastaII:""
+    }).length],
+    stages: buildStages({
+      allelesI,
+      allelesII,
+      fastaI : pepI .map((p,i)=>`>pep${i+1}\n${p}`).join("\n"),
+      fastaII: pepII.map((p,i)=>`>pep${i+1}\n${p}`).join("\n")
+    })
   };
 
   const resp = await fetch("/api/iedb-pipeline", {
@@ -156,7 +208,8 @@ if (!applyTrigger) {                        // page load / no click yet
   html`<span></span>`;
 } else {
   /* snapshots at click‑time */
-  const allelesSnap  = [...allelesCommitted];
+  const allelesSnapI  = [...committedI];
+  const allelesSnapII = [...committedII];
   const allPeps      = await parsePeptides(peptideFile);
  
   // length filter: NetMHCpan EL/BA accepts 8‑14 aa
@@ -166,7 +219,7 @@ if (!applyTrigger) {                        // page load / no click yet
   excludedPeptides.value = allPeps.filter(p => p.length < IN_RANGE_MIN || p.length > IN_RANGE_MAX);
 
   /* guards */
-  if (!allelesSnap.length) {
+  if (!allelesSnapI.length && !allelesSnapII.length) {
     setBanner("No allele selected.");
     resultsArray.value = [];
     html`<span></span>`;
@@ -177,7 +230,8 @@ if (!applyTrigger) {                        // page load / no click yet
   } else {
     /* submit → poll */
     setBanner("Submitting to IEDB…");
-    const ticket = await submitPipeline(allelesSnap, peptidesSnap);
+    const ticket = await submitPipeline(
+      allelesSnapI, allelesSnapII, peptidesSnap);
     const id     = ticket.results_uri.split("/").pop();
     const sleep  = ms => new Promise(r => setTimeout(r, ms));
 
@@ -256,7 +310,8 @@ ${downloadCSV}
 ```
 
 ```js
-display(excludedPeptides)
+display(excludedI)
+display(excludedII)
 ```
 
 
