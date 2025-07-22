@@ -122,7 +122,10 @@ async function submitPipeline(alleles, peptides) {
       input_parameters: {
         alleles: alleles.join(","),   // exact list, comma‑sep
         peptide_length_range: null,   // exact peptides
-        predictors: [{type:"binding", method:"netmhcpan_el"}]
+        predictors: [                       // ⬅️ new: BOTH predictors
+          { type: "binding", method: "netmhcpan_el" },  // EL scoring
+          { type: "binding", method: "netmhcpan_ba" }   // BA (IC50) scoring
+        ]
       }
     }]
   };
