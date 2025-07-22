@@ -241,7 +241,6 @@ ${runButton}
 
 ```js
 html`
-${resultsArray.value}
 ${downloadCSV}
 `
 ```
@@ -249,10 +248,4 @@ ${downloadCSV}
 
 ```js
 display(resultsArray)
-```
-
-```js
-
-Inputs.table(resultsArray)
-
 ```
