@@ -294,7 +294,8 @@ const downloadCSV = (() => {
 ```js
 html`
 ${statusBanner}
-${alleleCtrl}
+${alleleCtrl1}
+${alleleCtrl2}
 ${peptideinput}
 ${runButton}
 `
@@ -310,8 +311,8 @@ ${downloadCSV}
 ```
 
 ```js
-display(excludedI)
-display(excludedII)
+display(excludedI.value)
+display(excludedII.value)
 ```
 
 
