@@ -166,44 +166,6 @@ function buildBodyII(alleles, fasta) {
     }]
   };
 }
-
-async function submitPipeline(allelesI, allelesII, peptides) {
-  if (!peptides.length) throw new Error("No peptides uploaded.");
-  if (!allelesI.length && !allelesII.length)
-    throw new Error("Select at least one class‑I or class‑II allele.");
-
-  /* length filters */
-  const pepI  = peptides.filter(p => p.length >= 8  && p.length <= 14);
-  const pepII = peptides.filter(p => p.length >= 11 && p.length <= 30);
-  excludedI.value  = peptides.filter(p => p.length < 8  || p.length > 14);
-  excludedII.value = peptides.filter(p => p.length < 11 || p.length > 30);
-
-  if (!pepI.length && !pepII.length)
-    throw new Error("All peptides outside valid length ranges.");
-
-  const body = {
-    run_stage_range: [1, buildStages({
-      allelesI, allelesII, fastaI:"", fastaII:""
-    }).length],
-    stages: buildStages({
-      allelesI,
-      allelesII,
-      fastaI : pepI .map((p,i)=>`>pep${i+1}\n${p}`).join("\n"),
-      fastaII: pepII.map((p,i)=>`>pep${i+1}\n${p}`).join("\n")
-    })
-  };
-
-  const resp = await fetch("/api/iedb-pipeline", {
-    method: "POST",
-    headers: {"content-type":"application/json"},
-    body:   JSON.stringify(body)
-  });
-  const json = await resp.json();
-  if (!resp.ok)  throw new Error(json.errors?.join("; ") || resp.statusText);
-  if (!json.results_uri) throw new Error("IEDB did not return results_uri.");
-  return json;                     // {results_uri, …}
-}
-
 ```
 
 ```js
