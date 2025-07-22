@@ -211,13 +211,7 @@ if (!applyTrigger) {                        // page load / no click yet
   /* snapshots at click‑time */
   const allelesSnapI  = [...committedI];
   const allelesSnapII = [...committedII];
-  const allPeps      = await parsePeptides(peptideFile);
- 
-  // length filter: NetMHCpan EL/BA accepts 8‑14 aa
-  const IN_RANGE_MIN = 8;
-  const IN_RANGE_MAX = 14;
-  const peptidesSnap = allPeps.filter(p => p.length >= IN_RANGE_MIN && p.length <= IN_RANGE_MAX);
-  excludedPeptides.value = allPeps.filter(p => p.length < IN_RANGE_MIN || p.length > IN_RANGE_MAX);
+  const peptidesSnap = await parsePeptides(peptideFile);  // no local filter
 
   /* guards */
   if (!allelesSnapI.length && !allelesSnapII.length) {
