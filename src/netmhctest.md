@@ -252,27 +252,40 @@ trigII;                                         // dependency
 ```
 
 ```js
-const downloadCSV = (() => {
-  const btn = Inputs.button("Download CSV");
+/* ------------------------------------------------------------------
+   Utility to create a CSV‑download button for any Mutable rows array
+-------------------------------------------------------------------*/
+function makeDownloadButton(label, rowsMut, filename) {
+  const btn = Inputs.button(label);
   btn.onclick = () => {
-    if (!lastRows.value.length) {
-      alert("Run prediction first."); return;
+    const rows = rowsMut.value;
+    if (!rows.length) {
+      alert(`No ${label.toLowerCase()} available yet.`); return;
     }
-    const cols = Object.keys(lastRows.value[0]);
+    const cols = Object.keys(rows[0]);
     const csv  = [
-      cols.join(","),
-      ...lastRows.value.map(r => cols.map(c => r[c]).join(","))
+      cols.join(","),                      // header
+      ...rows.map(r => cols.map(c => r[c]).join(","))
     ].join("\n");
-
     const blob = new Blob([csv], {type:"text/csv"});
     const url  = URL.createObjectURL(blob);
     Object.assign(document.createElement("a"), {
-      href: url, download: "iedb_predictions.csv"
+      href: url, download: filename
     }).click();
     URL.revokeObjectURL(url);
   };
   return btn;
-})();
+}
+
+/* ------------------------------------------------------------------
+   Two specific buttons
+-------------------------------------------------------------------*/
+const downloadCSVI  = makeDownloadButton("Download Class‑I CSV",
+                                         resultsArrayI,  "mhcI_predictions.csv");
+
+const downloadCSVII = makeDownloadButton("Download Class‑II CSV",
+                                         resultsArrayII, "mhcII_predictions.csv");
+
 ```
 
 
@@ -295,7 +308,8 @@ ${runBtnII}
 
 ```js
 html`
-${downloadCSV}
+${downloadCSVI}
+${downloadCSVII}
 `
 ```
 
