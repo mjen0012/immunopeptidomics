@@ -42,12 +42,7 @@ const selectedII = Generators.input(alleleCtrl2);
 
 ```
 
-```js
-const committedI  = commit(alleleCtrl1);   // updates only on click
-const committedII = commit(alleleCtrl2);   // updates only on click
 
-
-```
 
 ```js
 /* Peptide upload */
@@ -90,72 +85,86 @@ async function loadPeptides() {
 ```
 
 ```js
-const runButton = Inputs.button("Run NetMHCpan EL 4.1");
-const applyTrigger = Generators.input(runButton);
+const runBtnI  = Inputs.button("Run Class I (EL + BA)");
+const runBtnII = Inputs.button("Run Class II (EL + BA)");
+
+const trigI  = Generators.input(runBtnI);
+const trigII = Generators.input(runBtnII);
+
 ```
 
 ```js
-function commit(element) {
-  return Generators.observe((change) => {
+/* commit helper parameterised by trigger */
+function commitTo(btn, element) {
+  return Generators.observe(change => {
     const update = () => change(element.value);
-    update();  // initialize with the element’s current value
-    runButton.addEventListener("input", update);     // tie to the button
-    return () => runButton.removeEventListener("input", update);
+    update();
+    btn.addEventListener("input", update);
+    return () => btn.removeEventListener("input", update);
   });
 }
 
 ```
 
+```js
+const committedI  = commitTo(runBtnI , alleleCtrl1);
+const committedII = commitTo(runBtnII, alleleCtrl2);
 
+
+```
 
 
 ```js
 /* place these BEFORE any Markdown references */
 const lastRows     = Mutable([]);   // (you already have this)
-const resultsArray = Mutable([]);   // <-- new: raw prediction rows
-const excludedI     = Mutable([]);  // peptides shorter than 8 or longer than 14
-const excludedII    = Mutable([]);
+
+const resultsArrayI = Mutable([]);
+const resultsArrayII = Mutable([]);
+
+const excludedI = Mutable([]);   // pep length <8 or >14
+const excludedII = Mutable([]);  // pep length <11 or >30
+
 ```
 
 ```js
-function buildStages({allelesI, allelesII, fastaI, fastaII}) {
-  const stages = [];
-  let stageNo  = 1;
-
-  if (allelesI.length) {
-    stages.push({
-      stage_number: stageNo++,
+function buildBodyI(alleles, fasta) {
+  return {
+    run_stage_range: [1,1],
+    stages: [{
+      stage_number: 1,
       stage_type  : "prediction",
       tool_group  : "mhci",
-      input_sequence_text: fastaI,
+      input_sequence_text: fasta,
       input_parameters: {
-        alleles: allelesI.join(","),
+        alleles: alleles.join(","),
         peptide_length_range: null,
         predictors: [
           {type:"binding", method:"netmhcpan_el"},
           {type:"binding", method:"netmhcpan_ba"}
         ]
       }
-    });
-  }
+    }]
+  };
+}
 
-  if (allelesII.length) {
-    stages.push({
-      stage_number: stageNo++,
+function buildBodyII(alleles, fasta) {
+  return {
+    run_stage_range: [1,1],
+    stages: [{
+      stage_number: 1,
       stage_type  : "prediction",
       tool_group  : "mhcii",
-      input_sequence_text: fastaII,
+      input_sequence_text: fasta,
       input_parameters: {
-        alleles: allelesII.join(","),
+        alleles: alleles.join(","),
         peptide_length_range: null,
         predictors: [
           {type:"binding", method:"netmhciipan_el"},
           {type:"binding", method:"netmhciipan_ba"}
         ]
       }
-    });
-  }
-  return stages;
+    }]
+  };
 }
 
 async function submitPipeline(allelesI, allelesII, peptides) {
@@ -198,63 +207,85 @@ async function submitPipeline(allelesI, allelesII, peptides) {
 ```
 
 ```js
-/*************************************************************************
- * Results runner – re‑runs ONLY when the button is clicked
- *************************************************************************/
-applyTrigger;                               // sole reactive dependency
-
-if (!applyTrigger) {                        // page load / no click yet
-  setBanner("Idle — click Run to start.");
-  // nothing visible from this cell yet
-  html`<span></span>`;
-} else {
-  /* snapshots at click‑time */
-  const allelesSnapI  = [...committedI];
-  const allelesSnapII = [...committedII];
-  const peptidesSnap = await parsePeptides(peptideFile);  // no local filter
-
-  /* guards */
-  if (!allelesSnapI.length && !allelesSnapII.length) {
-    setBanner("No allele selected.");
-    resultsArray.value = [];
-    html`<span></span>`;
-  } else if (!peptidesSnap.length) {
-    setBanner("All peptides were out of length range (8‑14).");
-    resultsArray.value = [];
-    html`<span></span>`;
-  } else {
-    /* submit → poll */
-    setBanner("Submitting to IEDB…");
-    const ticket = await submitPipeline(
-      allelesSnapI, allelesSnapII, peptidesSnap);
-    const id     = ticket.results_uri.split("/").pop();
-    const sleep  = ms => new Promise(r => setTimeout(r, ms));
-
-    let block;
-    for (let i = 0; i < 90; ++i) {
-      setBanner(`Polling ${i + 1}/90…`);
-      const r = await fetch(`/api/iedb-result?id=${id}`);
-      if (!r.ok) throw new Error(`Poll failed (${r.status})`);
-      const j = await r.json();
-      if (j.status === "done") {
-        block = j.data?.results?.find(t => t.type === "peptide_table");
-        break;
-      }
-      await sleep(1000);
-    }
-    if (!block) throw new Error("Timed out waiting for peptide table");
-
-    /* store rows */
-    const keys = block.table_columns.map(c => c.display_name || c.name);
-    lastRows.value = block.table_data.map(r =>
-      Object.fromEntries(r.map((v,i)=>[keys[i],v]))
-    );
-    resultsArray.value = lastRows.value;
-
-    setBanner(`Loaded ${lastRows.value.length} predictions.`);
-    html`<span></span>`            // cell returns a trivial node
-  }
+async function submit(body) {
+  const r = await fetch("/api/iedb-pipeline", {
+    method:"POST", headers:{"content-type":"application/json"},
+    body: JSON.stringify(body)
+  });
+  const j = await r.json();
+  if (!r.ok) throw new Error(j.errors?.join("; ") || r.statusText);
+  return j.results_uri.split("/").pop();   // return result_id
 }
+
+async function poll(resultId, timeout=90_000) {
+  const start = Date.now();
+  while (Date.now() - start < timeout) {
+    const r  = await fetch(`/api/iedb-result?id=${resultId}`);
+    const j  = await r.json();
+    if (j.status === "done")
+      return j.data?.results?.find(t => t.type === "peptide_table");
+    await new Promise(res => setTimeout(res, 1000));
+  }
+  throw new Error("Timed out");
+}
+
+function rowsFromTable(tbl) {
+  const keys = tbl.table_columns.map(c => c.display_name || c.name);
+  return tbl.table_data.map(r =>
+    Object.fromEntries(r.map((v,i)=>[keys[i],v]))
+  );
+}
+
+```
+
+```js
+trigI;                                          // dependency
+
+(async () => {
+  setBanner("Class I: starting…");
+
+  const alleles = [...committedI];
+  const peptidesAll = await parsePeptides(peptideFile);
+  const peptidesOK  = peptidesAll.filter(p => p.length>=8 && p.length<=14);
+  excludedI.value   = peptidesAll.filter(p => p.length<8 || p.length>14);
+
+  if (!alleles.length)      return setBanner("Class I: no alleles selected.");
+  if (!peptidesOK.length)   return setBanner("Class I: no peptides in 8‑14 range.");
+
+  const fasta = peptidesOK.map((p,i)=>`>p${i+1}\n${p}`).join("\n");
+  const id    = await submit(buildBodyI(alleles, fasta));
+
+  setBanner("Class I: polling…");
+  const tbl   = await poll(id);
+  resultsArrayI.value = rowsFromTable(tbl);
+  setBanner(`Class I done — ${resultsArrayI.value.length} rows.`);
+})();
+
+
+```
+
+```js
+trigII;                                         // dependency
+
+(async () => {
+  setBanner("Class II: starting…");
+
+  const alleles = [...committedII];
+  const peptidesAll = await parsePeptides(peptideFile);
+  const peptidesOK  = peptidesAll.filter(p => p.length>=11 && p.length<=30);
+  excludedII.value  = peptidesAll.filter(p => p.length<11 || p.length>30);
+
+  if (!alleles.length)     return setBanner("Class II: no alleles selected.");
+  if (!peptidesOK.length)  return setBanner("Class II: no peptides in 11‑30 range.");
+
+  const fasta = peptidesOK.map((p,i)=>`>p${i+1}\n${p}`).join("\n");
+  const id    = await submit(buildBodyII(alleles, fasta));
+
+  setBanner("Class II: polling…");
+  const tbl   = await poll(id);
+  resultsArrayII.value = rowsFromTable(tbl);
+  setBanner(`Class II done — ${resultsArrayII.value.length} rows.`);
+})();
 
 ```
 
@@ -292,7 +323,8 @@ ${statusBanner}
 ${alleleCtrl1}
 ${alleleCtrl2}
 ${peptideinput}
-${runButton}
+${runBtnI}
+${runBtnII}
 `
 ```
 
@@ -306,11 +338,12 @@ ${downloadCSV}
 ```
 
 ```js
-display(excludedI.value)
-display(excludedII.value)
+display(excludedI)
+display(excludedII)
 ```
 
 
 ```js
-display(resultsArray)
+display(resultsArrayI)
+display(resultsArrayI)
 ```
