@@ -113,7 +113,8 @@ function commit(element) {
 /* place these BEFORE any Markdown references */
 const lastRows     = Mutable([]);   // (you already have this)
 const resultsArray = Mutable([]);   // <-- new: raw prediction rows
-const excludedPeptides = Mutable([]);          // list of length‑invalid peptides
+const excludedI     = Mutable([]);  // peptides shorter than 8 or longer than 14
+const excludedII    = Mutable([]);
 ```
 
 ```js
