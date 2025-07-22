@@ -101,6 +101,7 @@ const allelesCommitted = commit(alleleCtrl);   // updates only on click
 /* place these BEFORE any Markdown references */
 const lastRows     = Mutable([]);   // (you already have this)
 const resultsArray = Mutable([]);   // <-- new: raw prediction rows
+const excludedPeptides = Mutable([]);          // list of length‑invalid peptides
 ```
 
 ```js
@@ -156,7 +157,13 @@ if (!applyTrigger) {                        // page load / no click yet
 } else {
   /* snapshots at click‑time */
   const allelesSnap  = [...allelesCommitted];
-  const peptidesSnap = await parsePeptides(peptideFile);
+  const allPeps      = await parsePeptides(peptideFile);
+ 
+  // length filter: NetMHCpan EL/BA accepts 8‑14 aa
+  const IN_RANGE_MIN = 8;
+  const IN_RANGE_MAX = 14;
+  const peptidesSnap = allPeps.filter(p => p.length >= IN_RANGE_MIN && p.length <= IN_RANGE_MAX);
+  excludedPeptides.value = allPeps.filter(p => p.length < IN_RANGE_MIN || p.length > IN_RANGE_MAX);
 
   /* guards */
   if (!allelesSnap.length) {
@@ -164,7 +171,7 @@ if (!applyTrigger) {                        // page load / no click yet
     resultsArray.value = [];
     html`<span></span>`;
   } else if (!peptidesSnap.length) {
-    setBanner("No peptides uploaded.");
+    setBanner("All peptides were out of length range (8‑14).");
     resultsArray.value = [];
     html`<span></span>`;
   } else {
@@ -246,6 +253,10 @@ ${runButton}
 html`
 ${downloadCSV}
 `
+```
+
+```js
+display(excludedPeptides)
 ```
 
 
