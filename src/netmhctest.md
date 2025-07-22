@@ -307,5 +307,5 @@ display(excludedII)
 
 ```js
 display(resultsArrayI)
-display(resultsArrayI)
+display(resultsArrayII)
 ```
