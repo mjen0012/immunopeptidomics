@@ -146,23 +146,24 @@ async function submitPipeline(alleles, peptides) {
  *************************************************************************/
 applyTrigger;                               // sole reactive dependency
 
-if (!applyTrigger) {                        // page load or no click yet
+if (!applyTrigger) {                        // page load / no click yet
   setBanner("Idle — click Run to start.");
-  resultsTable.value;                       // show placeholder table
+  // nothing visible from this cell yet
+  html`<span></span>`;
 } else {
   /* snapshots at click‑time */
-  const allelesSnap  = [...allelesCommitted];   // snapshot of committed alleles
+  const allelesSnap  = [...allelesCommitted];
   const peptidesSnap = await parsePeptides(peptideFile);
 
   /* guards */
   if (!allelesSnap.length) {
     setBanner("No allele selected.");
-    resultsTable.value = html`<p><em>Please select at least one allele.</em></p>`;
-    resultsTable.value;
+    resultsArray.value = [];
+    html`<span></span>`;
   } else if (!peptidesSnap.length) {
     setBanner("No peptides uploaded.");
-    resultsTable.value = html`<p><em>Please upload a peptide CSV.</em></p>`;
-    resultsTable.value;
+    resultsArray.value = [];
+    html`<span></span>`;
   } else {
     /* submit → poll */
     setBanner("Submitting to IEDB…");
@@ -184,19 +185,15 @@ if (!applyTrigger) {                        // page load or no click yet
     }
     if (!block) throw new Error("Timed out waiting for peptide table");
 
-    /* build table */
+    /* store rows */
     const keys = block.table_columns.map(c => c.display_name || c.name);
     lastRows.value = block.table_data.map(r =>
-      Object.fromEntries(r.map((v, i) => [keys[i], v]))
+      Object.fromEntries(r.map((v,i)=>[keys[i],v]))
     );
+    resultsArray.value = lastRows.value;
 
-    resultsArray.value = lastRows.value;   // expose the raw array
     setBanner(`Loaded ${lastRows.value.length} predictions.`);
-   /* --- build a plain HTML <table> so it renders inside html`` --- */
-   const headerCells = keys.map(k => html`<th style="padding:4px;">${k}</th>`);
-   const bodyRows = lastRows.value.map(row =>
-     html`<tr>${keys.map(k => html`<td style="padding:4px;">${row[k]}</td>`)}</tr>`
-   );
+    html`<span></span>`            // cell returns a trivial node
   }
 }
 
