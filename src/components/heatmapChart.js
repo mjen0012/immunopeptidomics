@@ -251,7 +251,7 @@ export function heatmapChart({
       const g   = svg.append("defs").append("linearGradient").attr("id", gid);
       g.append("stop").attr("offset","0%").attr("stop-color", colourScale(0));
       g.append("stop").attr("offset","100%").attr("stop-color", colourScale(2));
-      addSegment(0, `url(#${gid})`, "0 – 2 %");
+      addSegment(0, `url(#${gid})`, "0 – 3 %");
     }
 
     /* segment 2 — 2‑50 % : white → red --------------------------- */
@@ -260,7 +260,7 @@ export function heatmapChart({
       const g   = svg.append("defs").append("linearGradient").attr("id", gid);
       g.append("stop").attr("offset","0%").attr("stop-color", colourScale(2));
       g.append("stop").attr("offset","100%").attr("stop-color", colourScale(50));
-      addSegment(segW, `url(#${gid})`, "2 – 50 %");
+      addSegment(segW, `url(#${gid})`, "3 – 50 %");
     }
 
     /* segment 3 — 50‑100 % : solid red --------------------------- */
