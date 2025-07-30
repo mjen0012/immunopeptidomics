@@ -1851,15 +1851,6 @@ function heatmapVersion() {
   return globalThis.__heatmapVersion.value;
 }
 
-/* If you still need a console helper, expose *another* name that
-   can’t be confused with the real Mutable or the function. */
-const consoleRef = {};
-Object.defineProperty(consoleRef, "value", {
-  get()  { return globalThis.__heatmapVersion.value; },
-  set(v) { globalThis.__heatmapVersion.value = v;    }
-});
-globalThis.heatmapVersionRef = consoleRef;     // ← purely for manual poking
-globalThis.getHeatmapVersion     = heatmapVersion;
 ```
 
 
