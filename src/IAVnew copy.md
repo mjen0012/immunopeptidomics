@@ -1811,13 +1811,16 @@ const histEl = histogramChart({
 
 
 ```js
-/* ----------------------------------------------------------------
-   Reactive bump‑counter for the heat‑map
----------------------------------------------------------------- */
-if (!globalThis.__heatmapVersion)
-  globalThis.__heatmapVersion = Mutable(0);   // must exist *before* any async
+/* ───────────────── heat‑map version counter (global) ──────────── */
+if (!globalThis.__heatmapVersion) {
+  // first load → real Mutable(0)
+  globalThis.__heatmapVersion = Mutable(0);
+}
 
-const heatmapVersion = globalThis.__heatmapVersion;    // convenience
+/* always return the LIVE Mutable object, never a stale copy */
+function heatmapVersion() {
+  return globalThis.__heatmapVersion;   // call .value when you need the number
+}
 
 ```
 
@@ -1895,11 +1898,12 @@ const consensusSeq = consensusRows
 /* memo’ed computation of heatmapRaw for a given consensus */
 function heatmapRaw() {
   return memo(
-    { tag: "heatmapRaw",
+    {
+      tag         : "heatmapRaw",
       consensusSeq,
-      ver: heatmapVersion.value            // <— live!
+      ver         : heatmapVersion().value      // ← live numeric value
     },
-    () => {
+    () => { 
       /* ---------- 0 ▸ current consensus windows ------------------ */
       const nonGapIdx = [];
       for (let i = 0; i < consensusSeq.length; ++i)
@@ -2181,9 +2185,9 @@ async function fetchAndMerge(windows){
 
 /* ------------- invalidator ------------------------------------ */
 function invalidateHeatmap() {
-  /* no creation here – it already exists and is a real Mutable */
-  globalThis.__heatmapVersion.value =
-    globalThis.__heatmapVersion.value + 1;
+  const v = heatmapVersion();        // the Mutable
+  v.value = v.value + 1;             // bump ☑️
+  console.log("heatmapVersion bump →", v.value);
 }
 
 
@@ -2224,17 +2228,9 @@ const missingPeptides = heatmapRaw()       //  ←  CALL the function!
 ```
 
 ```js
-console.log("HIT_CACHE size →", HIT_CACHE.size);
-console.log("Remaining todo →",
-  heatmapData2.filter(d=>!d.present)
-              .filter(w=>!HIT_CACHE.has(makeKey(w.allele,w.pep_len,w.peptide)))
-              .length);
-```
-
-```js
-console.log("heatmapVersion bump →", heatmapVersion.value);
-console.log("heatmapData2 rows   →", heatmapData2.length,
-            "| still missing →",
-            heatmapData2.filter(d=>!d.present).length);
-console.log("IN_FLIGHT size      →", IN_FLIGHT.size);
+console.log(
+  "version value   :", heatmapVersion().value,
+  "| IN_FLIGHT     :", IN_FLIGHT.size,
+  "| missing after :", heatmapRaw().filter(d=>!d.present).length
+);
 ```
