@@ -1885,7 +1885,8 @@ const consensusSeq = consensusRows
 const heatmapRaw = memo(
   { tag:"heatmapRaw",
     consensusSeq,
-    ver: globalThis.__heatmapVersion?.value ?? 0 },
+    ver: globalThis.__heatmapVersion.value          // << still works
+  },
   () => {
     // ----- indices of non-gaps
     const nonGapIdx = [];
@@ -2129,12 +2130,23 @@ async function fetchAndMerge(windows){
 ```
 
 ```js
-/* manual invalidator — bump a version number once */
-function invalidateHeatmap(){
-  if (!globalThis.__heatmapVersion)
-    globalThis.__heatmapVersion = Mutable(0);
-  globalThis.__heatmapVersion.value += 1;
+/* ---------------------------------------------------------------
+   One‑time reactive version counter – must be created synchronously
+---------------------------------------------------------------- */
+if (!globalThis.__heatmapVersion) {
+  globalThis.__heatmapVersion = Mutable(0);   // <-- valid observer
 }
+
+/* shorthand if you like */
+const heatmapVersion = globalThis.__heatmapVersion;   // optional
+
+/* ------------- invalidator ------------------------------------ */
+function invalidateHeatmap() {
+  /* no creation here – it already exists and is a real Mutable */
+  globalThis.__heatmapVersion.value =
+    globalThis.__heatmapVersion.value + 1;
+}
+
 
 
 ```
