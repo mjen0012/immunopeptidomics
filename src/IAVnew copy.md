@@ -1810,17 +1810,28 @@ const histEl = histogramChart({
 ```
 
 
+
+
+
+
 ```js
-/* ───────────────── heat‑map version counter (global) ──────────── */
+/* ───── global Mutable + helpers ──────────────────────────────── */
 if (!globalThis.__heatmapVersion) {
-  // first load → real Mutable(0)
-  globalThis.__heatmapVersion = Mutable(0);
+  globalThis.__heatmapVersion = Mutable(0);     // first load
 }
 
-/* always return the LIVE Mutable object, never a stale copy */
-function heatmapVersion() {
-  return globalThis.__heatmapVersion;   // call .value when you need the number
+/* expose TWO helpers so every place ‑ old or new ‑ keeps working */
+function heatmapVersionMutable () {
+  return globalThis.__heatmapVersion;           // returns the Mutable
 }
+
+function heatmapVersion () {
+  return globalThis.__heatmapVersion.value;     // returns the NUMBER
+}
+
+/* make them visible from the browser console as well */
+globalThis.heatmapVersionMutable = heatmapVersionMutable;
+globalThis.heatmapVersion        = heatmapVersion;
 
 ```
 
@@ -1901,7 +1912,7 @@ function heatmapRaw() {
     {
       tag         : "heatmapRaw",
       consensusSeq,
-      ver         : heatmapVersion().value      // ← live numeric value
+      ver         : heatmapVersion()     // ← live numeric value
     },
     () => { 
       /* ---------- 0 ▸ current consensus windows ------------------ */
@@ -2184,10 +2195,10 @@ async function fetchAndMerge(windows){
 ```js
 
 /* ------------- invalidator ------------------------------------ */
-function invalidateHeatmap() {
-  const v = heatmapVersion();        // the Mutable
-  v.value = v.value + 1;             // bump ☑️
-  console.log("heatmapVersion bump →", v.value);
+function invalidateHeatmap () {
+  const m = heatmapVersionMutable();   // the global Mutable
+  m.value = m.value + 1;               // bump
+  console.log("heatmapVersion bump →", m.value);
 }
 
 
@@ -2229,7 +2240,7 @@ const missingPeptides = heatmapRaw()       //  ←  CALL the function!
 
 ```js
 console.log(
-  "version value   :", heatmapVersion().value,
+  "version value   :", heatmapVersion(),
   "| IN_FLIGHT     :", IN_FLIGHT.size,
   "| missing after :", heatmapRaw().filter(d=>!d.present).length
 );
