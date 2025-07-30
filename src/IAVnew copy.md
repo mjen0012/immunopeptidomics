@@ -2066,16 +2066,17 @@ ${lenInput}
 
 ```js
 /* ---------- list of missing (present === false) windows ---------- */
-const missingPeptides = heatmapData2
+const missingPeptides = heatmapRaw()       //  ←  CALL the function!
   .filter(d => !d.present)
   .map(d =>
     `• ${d.allele}  |  ${d.pep_len}-mer  |  pos ${d.start}-${d.end_pos}  |  ${d.peptide}`
-  );            // → Array<string>
+  );    
 ```
 
 ```js
 /* cell AFTER you build `heatmapRaw` but BEFORE the chart */
-const missingWindows = heatmapRaw.filter(d => !d.present);
+const missingWindows = heatmapRaw()        //  ←  CALL the function!
+  .filter(d => !d.present);
 
 const todo = heatmapData2                // <-- only what the user sees
   .filter(d => !d.present)
@@ -2212,7 +2213,7 @@ function buildBodyI(alleles, fasta){
 ```
 
 ```js
-const missingPeptides = heatmapRaw
+const missingPeptides = heatmapRaw()       //  ←  CALL the function!
   .filter(d => !d.present)
   .map(d =>
     `• ${d.allele.padEnd(12)} | ${String(d.pep_len).padStart(2)}‑mer | ` +
