@@ -2225,14 +2225,28 @@ async function fetchAndMerge(windows) {
 ```
 
 ```js
-
-/* ------------- invalidator ------------------------------------ */
-function invalidateHeatmap() {
-  debugObservers("before bump", /* purgeBad = */ false);   // ← add
-  heatmapVersionMutable().value += 1;
-  debugObservers("after  bump");
-  console.log("heatmapVersion bump →", heatmapVersion());
+function dumpObservers(tag) {
+  const m = heatmapVersionMutable();
+  if (!m._o) { console.warn(`${tag}: Mutable has no _o`); return; }
+  console.group(`${tag} — ${m._o.size} observers`);
+  let i = 0;
+  for (const obs of m._o.keys()) {
+    const t = typeof obs;
+    console.log(`#${++i}`, t, obs);
+  }
+  console.groupEnd();
 }
+
+function invalidateHeatmap () {
+  try {
+    heatmapVersionMutable().value += 1;      // ← crash happens here
+  } catch (err) {
+    console.error("💥 Mutable bump failed:", err);
+    dumpObservers("after-crash");            // <-- NEW: dump the guilty set
+    throw err;                               // keep the red stack trace
+  }
+}
+
 
 
 
