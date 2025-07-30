@@ -1838,10 +1838,8 @@ Object.defineProperty(proxy, "value", {
   get()  { return globalThis.__heatmapVersion.value; },
   set(v) { globalThis.__heatmapVersion.value = v;    }
 });
-globalThis.heatmapVersion        = proxy;              // old API
-globalThis.heatmapVersionMutable = heatmapVersionMutable; // new API
-globalThis.getHeatmapVersion     = heatmapVersion;        // convenience
-
+globalThis.heatmapVersionRef     = proxy;      // ‑‑ or rename/delete
+globalThis.getHeatmapVersion     = heatmapVersion;
 ```
 
 
@@ -2055,7 +2053,7 @@ const heatmapData2 = heatmapRaw()
     allele, pos, pct, peptide, aa, present
   }));
 
-console.log("heatmapVersion now:", heatmapVersion.value);
+console.log("heatmapVersion now:", heatmapVersion());
 console.log("heatmapData2 rows :", heatmapData2.length,
             "| missing :", heatmapData2.filter(d=>!d.present).length);
 console.log("IN_FLIGHT size    :", IN_FLIGHT.size);
