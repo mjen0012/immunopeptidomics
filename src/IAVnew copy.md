@@ -1810,6 +1810,12 @@ const histEl = histogramChart({
 ```
 
 
+```js
+// one‑time at top
+if (!globalThis.__HIT_ROWS__) globalThis.__HIT_ROWS__ = Mutable([]);
+const HIT_ROWS = globalThis.__HIT_ROWS__;
+```
+
 
 ```js
 /* ─── DEBUG helper: inspect observers on the Mutable ──────────── */
@@ -1839,7 +1845,9 @@ function debugObservers(tag, purgeBad = false) {
 ```js
 /* ─── central, single source of truth for the heat‑map version ─── */
 
-globalThis.__heatmapVersion = Mutable(0);
+if (!globalThis.__heatmapVersion) {      // create once, then reuse forever
+  globalThis.__heatmapVersion = Mutable(0);
+}
 
 /* ►  ALWAYS grab the live Mutable  ◄ */
 function heatmapVersionMutable() {               // call .value to read / write
@@ -1926,6 +1934,7 @@ const consensusSeq = consensusRows
 
 /* memo’ed computation of heatmapRaw for a given consensus */
 function heatmapRaw() {
+  const _rows = HIT_ROWS.value; 
   return memo(
     {
       tag         : "heatmapRaw",
@@ -2207,8 +2216,10 @@ async function fetchAndMerge(windows) {
       );
     }
   }
-
-  invalidateHeatmap();                           // refresh chart
+  for (const r of hits) {
+    … cache update …
+  }
+  HIT_ROWS.value = Array.from(HIT_CACHE.values());   // triggers redraw
 }
 
 
@@ -2226,16 +2237,6 @@ function dumpObservers(tag) {
     console.log(`#${++i}`, t, obs);
   }
   console.groupEnd();
-}
-
-function invalidateHeatmap () {
-  try {
-    heatmapVersionMutable().value += 1;      // ← crash happens here
-  } catch (err) {
-    console.error("💥 Mutable bump failed:", err);
-    dumpObservers("after-crash");            // <-- NEW: dump the guilty set
-    throw err;                               // keep the red stack trace
-  }
 }
 
 
