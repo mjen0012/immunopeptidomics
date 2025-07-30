@@ -1848,13 +1848,13 @@ const { HIT_CACHE, ALL_HITS } = await (async () => {
     globalThis.__NETMHC_CACHE__ = new Map();
 
     /* seed with the bundled parquet so the heat‑map has data on load */
-    const seedRows = await db.sql`
+    const seedRows = (await db.sql`
       SELECT allele, peptide,
              length AS pep_len,
              netmhcpan_el_percentile AS pct_el
       FROM   netmhccalc
       WHERE  length BETWEEN 8 AND 14
-    `.toArray();
+    `).toArray();
 
     for (const r of seedRows) {
       globalThis.__NETMHC_CACHE__.set(
