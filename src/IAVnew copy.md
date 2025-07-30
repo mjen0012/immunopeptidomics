@@ -2054,7 +2054,7 @@ const missingPeptides = heatmapData2
 /* cell AFTER you build `heatmapRaw` but BEFORE the chart */
 const missingWindows = heatmapRaw.filter(d => !d.present);
 
-const todo = heatmapRaw
+const todo = heatmapData2                // <-- only what the user sees
   .filter(d => !d.present)
   .filter(w => !HIT_CACHE.has(`${w.allele}|${w.pep_len}|${w.peptide}`))
   .map(w => ({ allele:w.allele, pep_len:w.pep_len, peptide:w.peptide }));
