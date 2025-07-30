@@ -1895,33 +1895,6 @@ const heatmapRaw = memo(
       d => d.allele,
       d => d.pep_len
     );
-    // ----- indices of non-gaps
-    const nonGapIdx = [];
-    for (let i = 0; i < consensusSeq.length; i++)
-      if (consensusSeq[i] !== '-') nonGapIdx.push(i);
-
-    // ----- windows for all lengths
-    const allWindows = LENGTHS.flatMap(len => {
-      const arr = [];
-      for (let s = 0; s <= nonGapIdx.length - len; s++) {
-        const sliceIdx   = nonGapIdx.slice(s, s + len);
-        const startPos   = sliceIdx[0] + 1;
-        const endPos     = sliceIdx[sliceIdx.length - 1] + 1;
-        const pepGapless = sliceIdx.map(i => consensusSeq[i]).join("");
-        const display    = consensusSeq.slice(startPos - 1, endPos);
-        arr.push({ pep_len: len, start: startPos, end_pos: endPos,
-                   peptide: pepGapless, display });
-      }
-      return arr;
-    });
-
-    // ----- hitsMap built once from ALL_HITS
-    const hitsMap = d3.rollup(
-      ALL_HITS,
-      v => new Map(v.map(r => [r.peptide, r])),
-      d => d.allele,
-      d => d.pep_len
-    );
 
     // ----- coverTable
     const coverTable = [];
