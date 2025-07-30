@@ -1968,8 +1968,10 @@ const heatmapRaw = memo(
 // dropdown length (static 8–14)
 const lenInput = singleton("lenInput", () => {
   const lenItems = LENGTHS.map(l => ({ id: l, label: `${l}-mer` }));
-  return dropSelect(lenItems, { label: "Peptide length", fontFamily: "'Roboto', sans-serif" });
-});
+  return dropSelect(lenItems, { label: "Peptide length",
+                                fontFamily: "'Roboto', sans-serif",
+                                value: LENGTHS[0]            // 8‑mer by default
+  });
 const selectedLen = Generators.input(lenInput);
 
 /* ── one‑time list of all alleles ───────────────────────────── */
@@ -1991,7 +1993,9 @@ const selectedAlleles = Generators.input(alleleInput);
 ```
 
 ```js
-const chosenLen     = +selectedLen;            // or +lenCommitted
+const chosenLen = Number.isFinite(+selectedLen)
+                ? +selectedLen
+                : LENGTHS[0];              // same 8‑mer fallback
 const activeAlleles = selectedAlleles;         // or allelesCommitted
 
 const heatmapData2 = heatmapRaw
@@ -2160,3 +2164,4 @@ const missingPeptides = heatmapRaw
 
 
 ```
+
