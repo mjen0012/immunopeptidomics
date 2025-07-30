@@ -1857,7 +1857,8 @@ if (!globalThis.__NETMHC_CACHE__) {
 
   for (const r of seedRows) {
     globalThis.__NETMHC_CACHE__.set(
-      `${r.allele}|${r.pep_len}|${r.peptide}`, r
+      `${r.allele}|${r.pep_len}|${r.peptide}`,   // r.pep_len is numeric
+      { ...r, pep_len: +r.pep_len }              // guarantee Number
     );
   }
 }
@@ -2118,7 +2119,7 @@ async function fetchAndMerge(windows){
       const k = `${r.allele}|${r["peptide length"]}|${r.peptide}`;
       HIT_CACHE.set(k, {
         allele : r.allele,
-        pep_len: r["peptide length"],
+        pep_len : +r["peptide length"],        // make it a Number
         pct_el : +r["netmhcpan_el percentile"],
         peptide: r.peptide
       });
