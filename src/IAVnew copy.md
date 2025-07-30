@@ -1882,13 +1882,36 @@ const consensusSeq = consensusRows
 const heatmapRaw = memo(
   { tag:"heatmapRaw",
     consensusSeq,
-    ver: heatmapVersion.value                 // reactive
+    ver: heatmapVersion.value            // reactive key
   },
   () => {
-    /* 1 ▸ all current hits -------------------------------------- */
-    const hitsArr = Array.from(HIT_CACHE.values());  // ← LIVE DATA
+    /* ---------- 0 ▸ current consensus windows ------------------ */
+    const nonGapIdx = [];
+    for (let i = 0; i < consensusSeq.length; ++i)
+      if (consensusSeq[i] !== "-") nonGapIdx.push(i);
 
-    /* 2 ▸ roll them up exactly as before ------------------------ */
+    const allWindows = LENGTHS.flatMap(len => {
+      const arr = [];
+      for (let s = 0; s <= nonGapIdx.length - len; ++s) {
+        const sliceIdx   = nonGapIdx.slice(s, s + len);
+        const startPos   = sliceIdx[0] + 1;                  // 1‑based
+        const endPos     = sliceIdx[sliceIdx.length - 1] + 1;
+        const pepGapless = sliceIdx.map(i => consensusSeq[i]).join("");
+        const display    = consensusSeq.slice(startPos - 1, endPos);
+        arr.push({
+          pep_len : len,
+          start   : startPos,
+          end_pos : endPos,
+          peptide : pepGapless,
+          display
+        });
+      }
+      return arr;
+    });
+
+    /* ---------- 1 ▸ live NetMHC hits --------------------------- */
+    const hitsArr = Array.from(HIT_CACHE.values());
+
     const hitsMap = d3.rollup(
       hitsArr,
       v => new Map(v.map(r => [r.peptide, r])),
@@ -1896,7 +1919,7 @@ const heatmapRaw = memo(
       d => d.pep_len
     );
 
-    // ----- coverTable
+    /* ---------- 2 ▸ cover table (unchanged) -------------------- */
     const coverTable = [];
     for (const [allele, byLen] of hitsMap) {
       for (const len of LENGTHS) {
@@ -1917,20 +1940,19 @@ const heatmapRaw = memo(
       }
     }
 
-    // ----- explode to pos rows
+    /* ---------- 3 ▸ explode & reduce (unchanged) --------------- */
     const exploded = coverTable.flatMap(w =>
       d3.range(w.start, w.end_pos + 1).map(pos => ({
-        allele : w.allele,
-        pep_len: w.pep_len,
+        allele  : w.allele,
+        pep_len : w.pep_len,
         pos,
-        pct    : w.pct,
-        peptide: w.peptide,
-        aa     : w.peptide[pos - w.start] ?? "-",
-        present: w.present
+        pct     : w.pct,
+        peptide : w.peptide,
+        aa      : w.peptide[pos - w.start] ?? "-",
+        present : w.present
       }))
     );
 
-    // ----- roll up to best per (len, allele, pos)
     return d3.rollups(
       exploded,
       v => {
@@ -1941,9 +1963,9 @@ const heatmapRaw = memo(
       d => d.allele,
       d => d.pos
     ).flatMap(([pep_len, byAllele]) =>
-      byAllele.flatMap(([allele, byPos]) =>
-        byPos.map(([pos, row]) => row)
-      )
+        byAllele.flatMap(([allele, byPos]) =>
+          byPos.map(([pos, row]) => row)
+        )
     );
   }
 );
