@@ -1840,30 +1840,35 @@ function rowsFromTable(tbl) {
 ```
 
 ```js
-if (HIT_CACHE.size === 0) {
-  const seedRows = (await db.sql`
-    SELECT allele, peptide,
-           length              AS pep_len,
-           netmhcpan_el_percentile AS pct_el
-    FROM   netmhccalc
-    WHERE  length BETWEEN 8 AND 14
-  `).toArray();
+/* ------------------------------------------------------------------
+   One‑time NetMHC hit cache (persists across reloads)
+   ------------------------------------------------------------------*/
+const { HIT_CACHE, ALL_HITS } = await (async () => {
+  if (!globalThis.__NETMHC_CACHE__) {
+    globalThis.__NETMHC_CACHE__ = new Map();
 
-  for (const r of seedRows) {
-    HIT_CACHE.set(`${r.allele}|${r.pep_len}|${r.peptide}`, r);
+    /* seed with the bundled parquet so the heat‑map has data on load */
+    const seedRows = await db.sql`
+      SELECT allele, peptide,
+             length AS pep_len,
+             netmhcpan_el_percentile AS pct_el
+      FROM   netmhccalc
+      WHERE  length BETWEEN 8 AND 14
+    `.toArray();
+
+    for (const r of seedRows) {
+      globalThis.__NETMHC_CACHE__.set(
+        `${r.allele}|${r.pep_len}|${r.peptide}`, r
+      );
+    }
   }
-}
-```
 
-```js
-/* global hit‑cache (survives reloads) --------------------------- */
-if (!globalThis.__NETMHC_CACHE__)
-  globalThis.__NETMHC_CACHE__ = new Map();           // key → row
+  return {
+    HIT_CACHE : globalThis.__NETMHC_CACHE__,
+    ALL_HITS  : Array.from(globalThis.__NETMHC_CACHE__.values())
+  };
+})();
 
-const HIT_CACHE = globalThis.__NETMHC_CACHE__;
-
-/* flat view that every downstream cell uses */
-const ALL_HITS = Array.from(HIT_CACHE.values());
 ```
 
 ```js
@@ -1965,13 +1970,15 @@ const heatmapRaw = memo(
 ```
 
 ```js
-// dropdown length (static 8–14)
 const lenInput = singleton("lenInput", () => {
   const lenItems = LENGTHS.map(l => ({ id: l, label: `${l}-mer` }));
-  return dropSelect(lenItems, { label: "Peptide length",
-                                fontFamily: "'Roboto', sans-serif",
-                                value: LENGTHS[0]            // 8‑mer by default
+  return dropSelect(lenItems, {
+    label      : "Peptide length",
+    fontFamily : "'Roboto', sans-serif",
+   value      : LENGTHS[0]            // 8‑mer default so chosenLen ≠ NaN
   });
+});
+
 const selectedLen = Generators.input(lenInput);
 
 /* ── one‑time list of all alleles ───────────────────────────── */
