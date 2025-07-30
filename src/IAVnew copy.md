@@ -2174,15 +2174,6 @@ async function fetchAndMerge(windows){
 ```
 
 ```js
-/* ---------------------------------------------------------------
-   One‑time reactive version counter – must be created synchronously
----------------------------------------------------------------- */
-if (!globalThis.__heatmapVersion) {
-  globalThis.__heatmapVersion = Mutable(0);   // <-- valid observer
-}
-
-/* shorthand if you like */
-const heatmapVersion = globalThis.__heatmapVersion;   // optional
 
 /* ------------- invalidator ------------------------------------ */
 function invalidateHeatmap() {
