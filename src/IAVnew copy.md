@@ -1893,97 +1893,98 @@ const consensusSeq = consensusRows
   .join("");
 
 /* memo’ed computation of heatmapRaw for a given consensus */
-const heatmapRaw = memo(
-  { tag:"heatmapRaw",
-    consensusSeq,
-    ver: heatmapVersion.value            // reactive key
-  },
-  () => {
-    /* ---------- 0 ▸ current consensus windows ------------------ */
-    const nonGapIdx = [];
-    for (let i = 0; i < consensusSeq.length; ++i)
-      if (consensusSeq[i] !== "-") nonGapIdx.push(i);
+function heatmapRaw() {
+  return memo(
+    { tag: "heatmapRaw",
+      consensusSeq,
+      ver: heatmapVersion.value            // <— live!
+    },
+    () => {
+      /* ---------- 0 ▸ current consensus windows ------------------ */
+      const nonGapIdx = [];
+      for (let i = 0; i < consensusSeq.length; ++i)
+        if (consensusSeq[i] !== "-") nonGapIdx.push(i);
 
-    const allWindows = LENGTHS.flatMap(len => {
-      const arr = [];
-      for (let s = 0; s <= nonGapIdx.length - len; ++s) {
-        const sliceIdx   = nonGapIdx.slice(s, s + len);
-        const startPos   = sliceIdx[0] + 1;                  // 1‑based
-        const endPos     = sliceIdx[sliceIdx.length - 1] + 1;
-        const pepGapless = sliceIdx.map(i => consensusSeq[i]).join("");
-        const display    = consensusSeq.slice(startPos - 1, endPos);
-        arr.push({
-          pep_len : len,
-          start   : startPos,
-          end_pos : endPos,
-          peptide : pepGapless,
-          display
-        });
-      }
-      return arr;
-    });
-
-    /* ---------- 1 ▸ live NetMHC hits --------------------------- */
-    const hitsArr = Array.from(HIT_CACHE.values());
-
-    const hitsMap = d3.rollup(
-      hitsArr,
-      v => new Map(v.map(r => [r.peptide, r])),
-      d => d.allele,
-      d => d.pep_len
-    );
-
-    /* ---------- 2 ▸ cover table (unchanged) -------------------- */
-    const coverTable = [];
-    for (const [allele, byLen] of hitsMap) {
-      for (const len of LENGTHS) {
-        const pepMap = byLen.get(len) ?? new Map();
-        for (const w of allWindows) if (w.pep_len === len) {
-          const h = pepMap.get(w.peptide);
-          coverTable.push({
-            allele,
+      const allWindows = LENGTHS.flatMap(len => {
+        const arr = [];
+        for (let s = 0; s <= nonGapIdx.length - len; ++s) {
+          const sliceIdx   = nonGapIdx.slice(s, s + len);
+          const startPos   = sliceIdx[0] + 1;                  // 1‑based
+          const endPos     = sliceIdx[sliceIdx.length - 1] + 1;
+          const pepGapless = sliceIdx.map(i => consensusSeq[i]).join("");
+          const display    = consensusSeq.slice(startPos - 1, endPos);
+          arr.push({
             pep_len : len,
-            start   : w.start,
-            end_pos : w.end_pos,
-            peptide : w.peptide,
-            display : w.display,
-            pct     : h?.pct_el ?? null,
-            present : !!h
+            start   : startPos,
+            end_pos : endPos,
+            peptide : pepGapless,
+            display
           });
         }
+        return arr;
+      });
+
+      /* ---------- 1 ▸ live NetMHC hits --------------------------- */
+      const hitsArr = Array.from(HIT_CACHE.values());
+
+      const hitsMap = d3.rollup(
+        hitsArr,
+        v => new Map(v.map(r => [r.peptide, r])),
+        d => d.allele,
+        d => d.pep_len
+      );
+
+      /* ---------- 2 ▸ cover table (unchanged) -------------------- */
+      const coverTable = [];
+      for (const [allele, byLen] of hitsMap) {
+        for (const len of LENGTHS) {
+          const pepMap = byLen.get(len) ?? new Map();
+          for (const w of allWindows) if (w.pep_len === len) {
+            const h = pepMap.get(w.peptide);
+            coverTable.push({
+              allele,
+              pep_len : len,
+              start   : w.start,
+              end_pos : w.end_pos,
+              peptide : w.peptide,
+              display : w.display,
+              pct     : h?.pct_el ?? null,
+              present : !!h
+            });
+          }
+        }
       }
+
+      /* ---------- 3 ▸ explode & reduce (unchanged) --------------- */
+      const exploded = coverTable.flatMap(w =>
+        d3.range(w.start, w.end_pos + 1).map(pos => ({
+          allele  : w.allele,
+          pep_len : w.pep_len,
+          pos,
+          pct     : w.pct,
+          peptide : w.peptide,
+          aa      : w.peptide[pos - w.start] ?? "-",
+          present : w.present
+        }))
+      );
+
+      return d3.rollups(
+        exploded,
+        v => {
+          const withPct = v.filter(d => d.pct != null);
+          return withPct.length ? d3.least(withPct, d => d.pct) : v[0];
+        },
+        d => d.pep_len,
+        d => d.allele,
+        d => d.pos
+      ).flatMap(([pep_len, byAllele]) =>
+          byAllele.flatMap(([allele, byPos]) =>
+            byPos.map(([pos, row]) => row)
+          )
+      );
     }
-
-    /* ---------- 3 ▸ explode & reduce (unchanged) --------------- */
-    const exploded = coverTable.flatMap(w =>
-      d3.range(w.start, w.end_pos + 1).map(pos => ({
-        allele  : w.allele,
-        pep_len : w.pep_len,
-        pos,
-        pct     : w.pct,
-        peptide : w.peptide,
-        aa      : w.peptide[pos - w.start] ?? "-",
-        present : w.present
-      }))
-    );
-
-    return d3.rollups(
-      exploded,
-      v => {
-        const withPct = v.filter(d => d.pct != null);
-        return withPct.length ? d3.least(withPct, d => d.pct) : v[0];
-      },
-      d => d.pep_len,
-      d => d.allele,
-      d => d.pos
-    ).flatMap(([pep_len, byAllele]) =>
-        byAllele.flatMap(([allele, byPos]) =>
-          byPos.map(([pos, row]) => row)
-        )
-    );
-  }
-);
-
+  );
+}
 ```
 
 ```js
@@ -2022,7 +2023,7 @@ const chosenLen = Number.isFinite(+selectedLen)
                 : LENGTHS[0];              // same 8‑mer fallback
 const activeAlleles = selectedAlleles;         // or allelesCommitted
 
-const heatmapData2 = heatmapRaw
+const heatmapData2 = heatmapRaw()
   .filter(d =>
        d.pep_len === chosenLen
     && activeAlleles.includes(d.allele)
@@ -2031,8 +2032,10 @@ const heatmapData2 = heatmapRaw
     allele, pos, pct, peptide, aa, present
   }));
 
-console.log("heatmapData2 rows →", heatmapData2.length,
-            "| missing →", heatmapData2.filter(d=>!d.present).length);
+console.log("heatmapVersion now:", heatmapVersion.value);
+console.log("heatmapData2 rows :", heatmapData2.length,
+            "| missing :", heatmapData2.filter(d=>!d.present).length);
+console.log("IN_FLIGHT size    :", IN_FLIGHT.size);
 
 const seqLen = consensusRows.length;
 
