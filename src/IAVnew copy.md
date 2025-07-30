@@ -2228,7 +2228,7 @@ async function fetchAndMerge(windows) {
 
 /* ------------- invalidator ------------------------------------ */
 function invalidateHeatmap() {
-  debugObservers("before bump", /* purgeBad = */ true);   // ← add
+  debugObservers("before bump", /* purgeBad = */ false);   // ← add
   heatmapVersionMutable().value += 1;
   debugObservers("after  bump");
   console.log("heatmapVersion bump →", heatmapVersion());
