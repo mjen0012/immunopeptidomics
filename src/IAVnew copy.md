@@ -2116,6 +2116,7 @@ async function fetchAndMerge(windows){
     const hits   = rowsFromTable(table);
 
     for (const r of hits) {
+      const len = +r["peptide length"];  
       const k = `${r.allele}|${r["peptide length"]}|${r.peptide}`;
       HIT_CACHE.set(k, {
         allele : r.allele,
