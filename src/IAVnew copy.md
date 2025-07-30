@@ -1811,7 +1811,29 @@ const histEl = histogramChart({
 
 
 
+```js
+/* ─── DEBUG helper: inspect observers on the Mutable ──────────── */
+function debugObservers(tag, purgeBad = false) {
+  const m   = heatmapVersionMutable();
+  const bad = [];
+  console.groupCollapsed(`⚙️  ${tag} — ${m._o?.size ?? 0} observers`);
+  if (m._o) {
+    for (const obs of m._o.keys()) {
+      const ok = typeof obs === "function";
+      console.log(ok ? "✔️" : "❌", obs);
+      if (!ok) bad.push(obs);
+    }
+    if (purgeBad && bad.length) {
+      bad.forEach(o => m._o.delete(o));
+      console.warn(`🧹  removed ${bad.length} non‑functions`);
+    }
+  } else {
+    console.log("(Mutable has no _o set yet)");
+  }
+  console.groupEnd();
+}
 
+```
 
 
 ```js
@@ -2206,7 +2228,9 @@ async function fetchAndMerge(windows) {
 
 /* ------------- invalidator ------------------------------------ */
 function invalidateHeatmap() {
-  heatmapVersionMutable().value += 1;           // bump
+  debugObservers("before bump", /* purgeBad = */ true);   // ← add
+  heatmapVersionMutable().value += 1;
+  debugObservers("after  bump");
   console.log("heatmapVersion bump →", heatmapVersion());
 }
 
