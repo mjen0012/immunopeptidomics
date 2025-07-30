@@ -2018,6 +2018,9 @@ const heatmapData2 = heatmapRaw
     allele, pos, pct, peptide, aa, present
   }));
 
+console.log("heatmapData2 rows →", heatmapData2.length,
+            "| missing →", heatmapData2.filter(d=>!d.present).length);
+
 const seqLen = consensusRows.length;
 
 ```
@@ -2060,7 +2063,10 @@ const missingWindows = heatmapRaw.filter(d => !d.present);
 
 const todo = heatmapData2                // <-- only what the user sees
   .filter(d => !d.present)
-  .filter(w => !HIT_CACHE.has(makeKey(w.allele, w.pep_len, w.peptide)))
+  .filter(w => {
+     const k = makeKey(w.allele, w.pep_len, w.peptide);
+     return !HIT_CACHE.has(k) && !IN_FLIGHT.has(k);   // ← NEW GUARD
+  })
   .map(w => ({ allele:w.allele, pep_len:w.pep_len, peptide:w.peptide }));
 
 if (todo.length) {
@@ -2111,10 +2117,16 @@ async function poll(resultId, timeout = 90_000){
 function makeKey(allele, len, peptide){
   return `${allele}|${+len}|${peptide}`;     // +len ⇒ numeric
 }
+
+if (!globalThis.__SUBMITTED_NETMHC__)
+  globalThis.__SUBMITTED_NETMHC__ = new Set();
+
+const IN_FLIGHT = globalThis.__SUBMITTED_NETMHC__;
 ```
 
 ```js
 async function fetchAndMerge(windows){
+  windows.forEach(w => IN_FLIGHT.add(makeKey(w.allele, w.pep_len, w.peptide)));
   const groups = d3.group(windows, d => `${d.allele}|${d.pep_len}`);
 
   for (const [key, rows] of groups) {
@@ -2136,10 +2148,14 @@ async function fetchAndMerge(windows){
         pct_el : +r["netmhcpan_el percentile"],
         peptide: r.peptide
       });
-    }
+    };
+    rows.forEach(r =>
+      IN_FLIGHT.delete(makeKey(r.allele, r["peptide length"], r.peptide))
+    );
   }
 
   invalidateHeatmap();        // one‑shot refresh
+  console.log("heatmapVersion →", heatmapVersion.value);
 }
 
 
