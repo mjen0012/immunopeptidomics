@@ -1815,32 +1815,32 @@ const histEl = histogramChart({
 
 
 ```js
-/* ─── A *real* version service that satisfies ALL old & new code ─── */
+/* ─── central, single source of truth for the heat‑map version ─── */
 
 if (!globalThis.__heatmapVersion) {
-  globalThis.__heatmapVersion = Mutable(0);        // first load
+  globalThis.__heatmapVersion = Mutable(0);      // first load only
 }
 
-/* ALWAYS work with the live Mutable */
-export function heatmapVersionMutable () {
-  return globalThis.__heatmapVersion;              // the Mutable object
+/* ►  ALWAYS grab the live Mutable  ◄ */
+function heatmapVersionMutable() {               // call .value to read / write
+  return globalThis.__heatmapVersion;
 }
 
-/* Read‑only convenience – *number* – never undefined                 */
-export function heatmapVersion () {
+/* ►  Read‑only convenience that returns a NUMBER  ◄ */
+function heatmapVersion() {
   return globalThis.__heatmapVersion.value;
 }
 
-/* Back‑compat: anything that still does “heatmapVersion.value” will
-   also work, because we expose a proxy object that forwards .value    */
+/* Console‑friendly proxy so legacy code that still does
+   “heatmapVersion.value” continues to work. */
 const proxy = {};
 Object.defineProperty(proxy, "value", {
-  enumerable : true,
-  get        : () => globalThis.__heatmapVersion.value,
-  set        : v  => { globalThis.__heatmapVersion.value = v; }
+  get()  { return globalThis.__heatmapVersion.value; },
+  set(v) { globalThis.__heatmapVersion.value = v;    }
 });
-globalThis.heatmapVersion = proxy;                 // window.heatmapVersion
-
+globalThis.heatmapVersion        = proxy;              // old API
+globalThis.heatmapVersionMutable = heatmapVersionMutable; // new API
+globalThis.getHeatmapVersion     = heatmapVersion;        // convenience
 
 ```
 
@@ -1921,7 +1921,7 @@ function heatmapRaw() {
     {
       tag         : "heatmapRaw",
       consensusSeq,
-      ver         : heatmapVersion()     // ← live numeric value
+      ver         : heatmapVersion()            // ← CHANGED
     },
     () => { 
       /* ---------- 0 ▸ current consensus windows ------------------ */
@@ -2113,17 +2113,6 @@ if (todo.length) {
   console.log(`NetMHCpan: submitting ${todo.length} new windows…`);
   fetchAndMerge(todo);            // async
 }
-
-
-for (const [key, rows] of groups) {
-  try {
-    …                       // unchanged
-  } catch (err) {
-    console.error("NetMHC‑poll failed:", err);
-  } finally {
-    rows.forEach(r => IN_FLIGHT.delete(makeKey(r.allele, r.pep_len, r.peptide)));
-  }
-}
 ```
 
 
@@ -2175,37 +2164,45 @@ const IN_FLIGHT = globalThis.__SUBMITTED_NETMHC__;
 ```
 
 ```js
-async function fetchAndMerge(windows){
-  windows.forEach(w => IN_FLIGHT.add(makeKey(w.allele, w.pep_len, w.peptide)));
+async function fetchAndMerge(windows) {
+  /* mark as “pending” so we do not re‑submit */
+  windows.forEach(w =>
+    IN_FLIGHT.add(makeKey(w.allele, w.pep_len, w.peptide))
+  );
+
   const groups = d3.group(windows, d => `${d.allele}|${d.pep_len}`);
 
   for (const [key, rows] of groups) {
     const [allele, lenStr] = key.split("|");
-    const len   = +lenStr;
     const fasta = rows.map((r,i)=>`>p${i+1}\n${r.peptide}`).join("\n");
 
-    const body   = buildBodyI([allele], fasta);   // your helper
-    const id     = await submit(body);            // your proxy
-    const table  = await poll(id);
-    const hits   = rowsFromTable(table);
+    try {                                       // ← NEW
+      const id    = await submit(buildBodyI([allele], fasta));
+      const tbl   = await poll(id);
+      const hits  = rowsFromTable(tbl);
 
-    for (const r of hits) {
-      const len = +r["peptide length"];  
-      const k = makeKey(r.allele, r["peptide length"], r.peptide);
-      HIT_CACHE.set(k, {
-        allele : r.allele,
-        pep_len : +r["peptide length"],
-        pct_el : +r["netmhcpan_el percentile"],
-        peptide: r.peptide
-      });
-
-      IN_FLIGHT.delete(k); 
+      for (const r of hits) {
+        const k = makeKey(r.allele, r["peptide length"], r.peptide);
+        HIT_CACHE.set(k, {
+          allele  : r.allele,
+          pep_len : +r["peptide length"],
+          pct_el  : +r["netmhcpan_el percentile"],
+          peptide : r.peptide
+        });
+      }
+    } catch (err) {
+      console.error("NetMHC poll failed:", err); // ← NEW
+    } finally {                                  // ← NEW
+      /* whether success OR failure – allow future retry */
+      rows.forEach(r =>
+        IN_FLIGHT.delete(makeKey(r.allele, r.pep_len, r.peptide))
+      );
     }
   }
 
-  invalidateHeatmap();        // one‑shot refresh
-  console.log("heatmapVersion →", heatmapVersion.value);
+  invalidateHeatmap();                           // refresh chart
 }
+
 
 
 ```
@@ -2213,8 +2210,8 @@ async function fetchAndMerge(windows){
 ```js
 
 /* ------------- invalidator ------------------------------------ */
-function invalidateHeatmap () {
-  heatmapVersionMutable().value += 1;       // bump once
+function invalidateHeatmap() {
+  heatmapVersionMutable().value += 1;           // bump
   console.log("heatmapVersion bump →", heatmapVersion());
 }
 
