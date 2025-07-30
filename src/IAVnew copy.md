@@ -1815,23 +1815,32 @@ const histEl = histogramChart({
 
 
 ```js
-/* ───── global Mutable + helpers ──────────────────────────────── */
+/* ─── A *real* version service that satisfies ALL old & new code ─── */
+
 if (!globalThis.__heatmapVersion) {
-  globalThis.__heatmapVersion = Mutable(0);     // first load
+  globalThis.__heatmapVersion = Mutable(0);        // first load
 }
 
-/* expose TWO helpers so every place ‑ old or new ‑ keeps working */
-function heatmapVersionMutable () {
-  return globalThis.__heatmapVersion;           // returns the Mutable
+/* ALWAYS work with the live Mutable */
+export function heatmapVersionMutable () {
+  return globalThis.__heatmapVersion;              // the Mutable object
 }
 
-function heatmapVersion () {
-  return globalThis.__heatmapVersion.value;     // returns the NUMBER
+/* Read‑only convenience – *number* – never undefined                 */
+export function heatmapVersion () {
+  return globalThis.__heatmapVersion.value;
 }
 
-/* make them visible from the browser console as well */
-globalThis.heatmapVersionMutable = heatmapVersionMutable;
-globalThis.heatmapVersion        = heatmapVersion;
+/* Back‑compat: anything that still does “heatmapVersion.value” will
+   also work, because we expose a proxy object that forwards .value    */
+const proxy = {};
+Object.defineProperty(proxy, "value", {
+  enumerable : true,
+  get        : () => globalThis.__heatmapVersion.value,
+  set        : v  => { globalThis.__heatmapVersion.value = v; }
+});
+globalThis.heatmapVersion = proxy;                 // window.heatmapVersion
+
 
 ```
 
@@ -2093,19 +2102,28 @@ const missingPeptides = heatmapRaw()       //  ←  CALL the function!
 const missingWindows = heatmapRaw()        //  ←  CALL the function!
   .filter(d => !d.present);
 
-const todo = heatmapData2                // <-- only what the user sees
+const todo = heatmapData2
   .filter(d => !d.present)
   .filter(w => {
-     const k = makeKey(w.allele, w.pep_len, w.peptide);
-     return !HIT_CACHE.has(k) && !IN_FLIGHT.has(k);   // ← NEW GUARD
-  })
-  .map(w => ({ allele:w.allele, pep_len:w.pep_len, peptide:w.peptide }));
+    const k = makeKey(w.allele, w.pep_len, w.peptide);
+    return !HIT_CACHE.has(k) && !IN_FLIGHT.has(k);   // good
+  });
 
 if (todo.length) {
   console.log(`NetMHCpan: submitting ${todo.length} new windows…`);
   fetchAndMerge(todo);            // async
 }
 
+
+for (const [key, rows] of groups) {
+  try {
+    …                       // unchanged
+  } catch (err) {
+    console.error("NetMHC‑poll failed:", err);
+  } finally {
+    rows.forEach(r => IN_FLIGHT.delete(makeKey(r.allele, r.pep_len, r.peptide)));
+  }
+}
 ```
 
 
@@ -2196,9 +2214,8 @@ async function fetchAndMerge(windows){
 
 /* ------------- invalidator ------------------------------------ */
 function invalidateHeatmap () {
-  const m = heatmapVersionMutable();   // the global Mutable
-  m.value = m.value + 1;               // bump
-  console.log("heatmapVersion bump →", m.value);
+  heatmapVersionMutable().value += 1;       // bump once
+  console.log("heatmapVersion bump →", heatmapVersion());
 }
 
 
