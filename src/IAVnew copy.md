@@ -1857,8 +1857,8 @@ if (!globalThis.__NETMHC_CACHE__) {
 
   for (const r of seedRows) {
     globalThis.__NETMHC_CACHE__.set(
-      `${r.allele}|${r.pep_len}|${r.peptide}`,   // r.pep_len is numeric
-      { ...r, pep_len: +r.pep_len }              // guarantee Number
+      makeKey(r.allele, r.pep_len, r.peptide),
+      { ...r, pep_len: +r.pep_len }
     );
   }
 }
@@ -2060,7 +2060,7 @@ const missingWindows = heatmapRaw.filter(d => !d.present);
 
 const todo = heatmapData2                // <-- only what the user sees
   .filter(d => !d.present)
-  .filter(w => !HIT_CACHE.has(`${w.allele}|${w.pep_len}|${w.peptide}`))
+  .filter(w => !HIT_CACHE.has(makeKey(w.allele, w.pep_len, w.peptide)))
   .map(w => ({ allele:w.allele, pep_len:w.pep_len, peptide:w.peptide }));
 
 if (todo.length) {
@@ -2069,6 +2069,8 @@ if (todo.length) {
 }
 
 ```
+
+
 
 ```js
 /* --------------------------------------------------------------- */
@@ -2102,6 +2104,16 @@ async function poll(resultId, timeout = 90_000){
 ```
 
 ```js
+/* ---------------------------------------------------------------
+   Canonical key for HIT_CACHE (allele|len|peptide)
+   - len is always coerced to a Number so "9" and 9 collide
+---------------------------------------------------------------- */
+function makeKey(allele, len, peptide){
+  return `${allele}|${+len}|${peptide}`;     // +len ⇒ numeric
+}
+```
+
+```js
 async function fetchAndMerge(windows){
   const groups = d3.group(windows, d => `${d.allele}|${d.pep_len}`);
 
@@ -2117,10 +2129,10 @@ async function fetchAndMerge(windows){
 
     for (const r of hits) {
       const len = +r["peptide length"];  
-      const k = `${r.allele}|${r["peptide length"]}|${r.peptide}`;
+      const k = makeKey(r.allele, r["peptide length"], r.peptide);
       HIT_CACHE.set(k, {
         allele : r.allele,
-        pep_len : +r["peptide length"],        // make it a Number
+        pep_len : +r["peptide length"],
         pct_el : +r["netmhcpan_el percentile"],
         peptide: r.peptide
       });
@@ -2188,3 +2200,10 @@ const missingPeptides = heatmapRaw
 
 ```
 
+```js
+console.log("HIT_CACHE size →", HIT_CACHE.size);
+console.log("Remaining todo →",
+  heatmapData2.filter(d=>!d.present)
+              .filter(w=>!HIT_CACHE.has(makeKey(w.allele,w.pep_len,w.peptide)))
+              .length);
+```
