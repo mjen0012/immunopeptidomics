@@ -1866,9 +1866,9 @@ function memo(keyObj, compute) {
 
 /* ---------- tiny helper reused by NetMHC polling --------------- */
 function rowsFromTable(tbl) {
-  const keys = tbl.table_columns.map(c => c.display_name || c.name);
+  const keys = tbl.table_columns.map(c => c.name);  // <— was display_name
   return tbl.table_data.map(r =>
-    Object.fromEntries(r.map((v,i)=>[keys[i],v]))
+    Object.fromEntries(r.map((v, i) => [keys[i], v]))
   );
 }
 
@@ -2047,11 +2047,10 @@ const chosenLen = Number.isFinite(+selectedLen)
                 : LENGTHS[0];              // same 8‑mer fallback
 const activeAlleles = selectedAlleles;         // or allelesCommitted
 
+const _ver = heatmapVersionMutable().value;   // ⚑  reactive trigger
+
 const heatmapData2 = heatmapRaw()
-  .filter(d =>
-       d.pep_len === chosenLen
-    && activeAlleles.includes(d.allele)
-  )
+  .filter(d => d.pep_len === chosenLen && activeAlleles.includes(d.allele))
   .map(({allele, pos, pct, peptide, aa, present}) => ({
     allele, pos, pct, peptide, aa, present
   }));
@@ -2182,11 +2181,11 @@ async function fetchAndMerge(windows) {
       const hits  = rowsFromTable(tbl);
 
       for (const r of hits) {
-        const k = makeKey(r.allele, r["peptide length"], r.peptide);
+        const k = makeKey(r.allele, r.peptide_length, r.peptide);   // <— snake_case
         HIT_CACHE.set(k, {
           allele  : r.allele,
-          pep_len : +r["peptide length"],
-          pct_el  : +r["netmhcpan_el percentile"],
+          pep_len : +r.peptide_length,          // <— snake_case
+          pct_el  : +r.netmhcpan_el_percentile, // <— snake_case
           peptide : r.peptide
         });
       }
