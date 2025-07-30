@@ -1843,31 +1843,28 @@ function rowsFromTable(tbl) {
 /* ------------------------------------------------------------------
    One‑time NetMHC hit cache (persists across reloads)
    ------------------------------------------------------------------*/
-const { HIT_CACHE, ALL_HITS } = await (async () => {
-  if (!globalThis.__NETMHC_CACHE__) {
-    globalThis.__NETMHC_CACHE__ = new Map();
+if (!globalThis.__NETMHC_CACHE__) {
+  globalThis.__NETMHC_CACHE__ = new Map();
 
-    /* seed with the bundled parquet so the heat‑map has data on load */
-    const seedRows = (await db.sql`
-      SELECT allele, peptide,
-             length AS pep_len,
-             netmhcpan_el_percentile AS pct_el
-      FROM   netmhccalc
-      WHERE  length BETWEEN 8 AND 14
-    `).toArray();
+  // seed once from parquet – unchanged
+  const seedRows = (await db.sql`
+    SELECT allele, peptide,
+           length                     AS pep_len,
+           netmhcpan_el_percentile    AS pct_el
+    FROM   netmhccalc
+    WHERE  length BETWEEN 8 AND 14
+  `).toArray();
 
-    for (const r of seedRows) {
-      globalThis.__NETMHC_CACHE__.set(
-        `${r.allele}|${r.pep_len}|${r.peptide}`, r
-      );
-    }
+  for (const r of seedRows) {
+    globalThis.__NETMHC_CACHE__.set(
+      `${r.allele}|${r.pep_len}|${r.peptide}`, r
+    );
   }
+}
 
-  return {
-    HIT_CACHE : globalThis.__NETMHC_CACHE__,
-    ALL_HITS  : Array.from(globalThis.__NETMHC_CACHE__.values())
-  };
-})();
+/* convenience handle */
+const HIT_CACHE = globalThis.__NETMHC_CACHE__;
+
 
 ```
 
@@ -1885,9 +1882,19 @@ const consensusSeq = consensusRows
 const heatmapRaw = memo(
   { tag:"heatmapRaw",
     consensusSeq,
-    ver: globalThis.__heatmapVersion.value          // << still works
+    ver: heatmapVersion.value                 // reactive
   },
   () => {
+    /* 1 ▸ all current hits -------------------------------------- */
+    const hitsArr = Array.from(HIT_CACHE.values());  // ← LIVE DATA
+
+    /* 2 ▸ roll them up exactly as before ------------------------ */
+    const hitsMap = d3.rollup(
+      hitsArr,
+      v => new Map(v.map(r => [r.peptide, r])),
+      d => d.allele,
+      d => d.pep_len
+    );
     // ----- indices of non-gaps
     const nonGapIdx = [];
     for (let i = 0; i < consensusSeq.length; i++)
