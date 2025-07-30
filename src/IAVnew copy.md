@@ -1809,6 +1809,19 @@ const histEl = histogramChart({
 })
 ```
 
+
+```js
+/* ----------------------------------------------------------------
+   Reactive bump‑counter for the heat‑map
+---------------------------------------------------------------- */
+if (!globalThis.__heatmapVersion)
+  globalThis.__heatmapVersion = Mutable(0);   // must exist *before* any async
+
+const heatmapVersion = globalThis.__heatmapVersion;    // convenience
+
+```
+
+
 ```js
 /* ───────────────── helpers (singleton + memo) ────────────────── */
 function singleton(id, factory) {
@@ -2148,10 +2161,9 @@ async function fetchAndMerge(windows){
         pct_el : +r["netmhcpan_el percentile"],
         peptide: r.peptide
       });
-    };
-    rows.forEach(r =>
-      IN_FLIGHT.delete(makeKey(r.allele, r["peptide length"], r.peptide))
-    );
+
+      IN_FLIGHT.delete(k); 
+    }
   }
 
   invalidateHeatmap();        // one‑shot refresh
@@ -2222,4 +2234,12 @@ console.log("Remaining todo →",
   heatmapData2.filter(d=>!d.present)
               .filter(w=>!HIT_CACHE.has(makeKey(w.allele,w.pep_len,w.peptide)))
               .length);
+```
+
+```js
+console.log("heatmapVersion bump →", heatmapVersion.value);
+console.log("heatmapData2 rows   →", heatmapData2.length,
+            "| still missing →",
+            heatmapData2.filter(d=>!d.present).length);
+console.log("IN_FLIGHT size      →", IN_FLIGHT.size);
 ```
