@@ -1817,9 +1817,7 @@ const histEl = histogramChart({
 ```js
 /* ─── central, single source of truth for the heat‑map version ─── */
 
-if (!globalThis.__heatmapVersion) {
-  globalThis.__heatmapVersion = Mutable(0);      // first load only
-}
+globalThis.__heatmapVersion = Mutable(0);
 
 /* ►  ALWAYS grab the live Mutable  ◄ */
 function heatmapVersionMutable() {               // call .value to read / write
@@ -1831,14 +1829,14 @@ function heatmapVersion() {
   return globalThis.__heatmapVersion.value;
 }
 
-/* Console‑friendly proxy so legacy code that still does
-   “heatmapVersion.value” continues to work. */
-const proxy = {};
-Object.defineProperty(proxy, "value", {
+/* If you still need a console helper, expose *another* name that
+   can’t be confused with the real Mutable or the function. */
+const consoleRef = {};
+Object.defineProperty(consoleRef, "value", {
   get()  { return globalThis.__heatmapVersion.value; },
   set(v) { globalThis.__heatmapVersion.value = v;    }
 });
-globalThis.heatmapVersionRef     = proxy;      // ‑‑ or rename/delete
+globalThis.heatmapVersionRef = consoleRef;     // ← purely for manual poking
 globalThis.getHeatmapVersion     = heatmapVersion;
 ```
 
