@@ -1810,11 +1810,6 @@ const histEl = histogramChart({
 ```
 
 
-```js
-// one‑time at top
-if (!globalThis.__HIT_ROWS__) globalThis.__HIT_ROWS__ = Mutable([]);
-const HIT_ROWS = globalThis.__HIT_ROWS__;
-```
 
 
 ```js
@@ -2166,20 +2161,7 @@ async function poll(resultId, timeout = 90_000){
 
 ```
 
-```js
-/* ---------------------------------------------------------------
-   Canonical key for HIT_CACHE (allele|len|peptide)
-   - len is always coerced to a Number so "9" and 9 collide
----------------------------------------------------------------- */
-function makeKey(allele, len, peptide){
-  return `${allele}|${+len}|${peptide}`;     // +len ⇒ numeric
-}
 
-if (!globalThis.__SUBMITTED_NETMHC__)
-  globalThis.__SUBMITTED_NETMHC__ = new Set();
-
-const IN_FLIGHT = globalThis.__SUBMITTED_NETMHC__;
-```
 
 ```js
 async function fetchAndMerge(windows) {
