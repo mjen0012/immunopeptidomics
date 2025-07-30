@@ -1810,7 +1810,7 @@ const histEl = histogramChart({
 ```
 
 ```js
-/* ───────────────── helpers ───────────────── */
+/* ───────────────── helpers (singleton + memo) ────────────────── */
 function singleton(id, factory) {
   if (!globalThis.__singletons) globalThis.__singletons = new Map();
   if (!globalThis.__singletons.has(id)) {
@@ -1828,31 +1828,42 @@ function memo(keyObj, compute) {
   return v;
 }
 
+/* ---------- tiny helper reused by NetMHC polling --------------- */
+function rowsFromTable(tbl) {
+  const keys = tbl.table_columns.map(c => c.display_name || c.name);
+  return tbl.table_data.map(r =>
+    Object.fromEntries(r.map((v,i)=>[keys[i],v]))
+  );
+}
+
 
 ```
 
 ```js
-/* ── one‑time static caches ─────────────────────────────── */
-if (!globalThis.__ALL_ALLELES__) {
-  const rows = (await db.sql`SELECT DISTINCT allele FROM netmhccalc`).toArray();
-  globalThis.__ALL_ALLELES__ = rows.map(d => d.allele).sort();
-}
-const ALL_ALLELES = globalThis.__ALL_ALLELES__;
-
-if (!globalThis.__ALL_HITS__) {
-  globalThis.__ALL_HITS__ = (await db.sql`
-    SELECT allele, peptide, length AS pep_len,
-           sequence_number AS seq_id,
-           start, "end" AS end_pos,
+if (HIT_CACHE.size === 0) {
+  const seedRows = (await db.sql`
+    SELECT allele, peptide,
+           length              AS pep_len,
            netmhcpan_el_percentile AS pct_el
-    FROM netmhccalc
-    WHERE length BETWEEN 8 AND 14
+    FROM   netmhccalc
+    WHERE  length BETWEEN 8 AND 14
   `).toArray();
+
+  for (const r of seedRows) {
+    HIT_CACHE.set(`${r.allele}|${r.pep_len}|${r.peptide}`, r);
+  }
 }
-const ALL_HITS = globalThis.__ALL_HITS__;
+```
 
+```js
+/* global hit‑cache (survives reloads) --------------------------- */
+if (!globalThis.__NETMHC_CACHE__)
+  globalThis.__NETMHC_CACHE__ = new Map();           // key → row
 
+const HIT_CACHE = globalThis.__NETMHC_CACHE__;
 
+/* flat view that every downstream cell uses */
+const ALL_HITS = Array.from(HIT_CACHE.values());
 ```
 
 ```js
@@ -1867,7 +1878,9 @@ const consensusSeq = consensusRows
 
 /* memo’ed computation of heatmapRaw for a given consensus */
 const heatmapRaw = memo(
-  { tag:"heatmapRaw", consensusSeq },         // key
+  { tag:"heatmapRaw",
+    consensusSeq,
+    ver: globalThis.__heatmapVersion?.value ?? 0 },
   () => {
     // ----- indices of non-gaps
     const nonGapIdx = [];
@@ -1959,6 +1972,15 @@ const lenInput = singleton("lenInput", () => {
 });
 const selectedLen = Generators.input(lenInput);
 
+/* ── one‑time list of all alleles ───────────────────────────── */
+if (!globalThis.__ALL_ALLELES__) {
+  const rows = (await db.sql`
+    SELECT DISTINCT allele FROM netmhccalc
+  `).toArray();
+  globalThis.__ALL_ALLELES__ = rows.map(d => d.allele).sort();
+}
+const ALL_ALLELES = globalThis.__ALL_ALLELES__;
+
 // allele multiselect (full list)
 const alleleInput = singleton("alleleInput", () => {
   const items = ALL_ALLELES.map(a => ({ id: a, label: a }));
@@ -2006,3 +2028,135 @@ ${lenInput}
 
 
 <div class="chart-card">${heatEl}</div>
+
+
+```js
+/* ---------- list of missing (present === false) windows ---------- */
+const missingPeptides = heatmapData2
+  .filter(d => !d.present)
+  .map(d =>
+    `• ${d.allele}  |  ${d.pep_len}-mer  |  pos ${d.start}-${d.end_pos}  |  ${d.peptide}`
+  );            // → Array<string>
+```
+
+```js
+/* cell AFTER you build `heatmapRaw` but BEFORE the chart */
+const missingWindows = heatmapRaw.filter(d => !d.present);
+
+const todo = heatmapRaw
+  .filter(d => !d.present)
+  .filter(w => !HIT_CACHE.has(`${w.allele}|${w.pep_len}|${w.peptide}`))
+  .map(w => ({ allele:w.allele, pep_len:w.pep_len, peptide:w.peptide }));
+
+if (todo.length) {
+  console.log(`NetMHCpan: submitting ${todo.length} new windows…`);
+  fetchAndMerge(todo);            // async
+}
+
+```
+
+```js
+/* --------------------------------------------------------------- */
+/*  NetMHC‑proxy helpers – single copy on the page                 */
+/* --------------------------------------------------------------- */
+async function submit(body){
+  const r = await fetch("/api/iedb-pipeline",{
+    method : "POST",
+    headers: {"content-type":"application/json"},
+    body   : JSON.stringify(body)
+  });
+  const j = await r.json();
+  if (!r.ok) throw new Error(j.errors?.join("; ") || r.statusText);
+  /* API returns “…/results/<id>” – we need just that id */
+  return j.results_uri.split("/").pop();
+}
+
+async function poll(resultId, timeout = 90_000){
+  const t0 = Date.now();
+  while (Date.now() - t0 < timeout){
+    const r = await fetch(`/api/iedb-result?id=${resultId}`);
+    const j = await r.json();
+    if (j.status === "done"){
+      return j.data.results.find(t => t.type === "peptide_table");
+    }
+    await new Promise(res => setTimeout(res, 1000));   // wait 1 s
+  }
+  throw new Error("NetMHC job timed out");
+}
+
+```
+
+```js
+async function fetchAndMerge(windows){
+  const groups = d3.group(windows, d => `${d.allele}|${d.pep_len}`);
+
+  for (const [key, rows] of groups) {
+    const [allele, lenStr] = key.split("|");
+    const len   = +lenStr;
+    const fasta = rows.map((r,i)=>`>p${i+1}\n${r.peptide}`).join("\n");
+
+    const body   = buildBodyI([allele], fasta);   // your helper
+    const id     = await submit(body);            // your proxy
+    const table  = await poll(id);
+    const hits   = rowsFromTable(table);
+
+    for (const r of hits) {
+      const k = `${r.allele}|${r["peptide length"]}|${r.peptide}`;
+      HIT_CACHE.set(k, {
+        allele : r.allele,
+        pep_len: r["peptide length"],
+        pct_el : +r["netmhcpan_el percentile"],
+        peptide: r.peptide
+      });
+    }
+  }
+
+  invalidateHeatmap();        // one‑shot refresh
+}
+
+
+```
+
+```js
+/* manual invalidator — bump a version number once */
+function invalidateHeatmap(){
+  if (!globalThis.__heatmapVersion)
+    globalThis.__heatmapVersion = Mutable(0);
+  globalThis.__heatmapVersion.value += 1;
+}
+
+
+```
+
+```js
+function buildBodyI(alleles, fasta){
+  return {
+    run_stage_range: [1,1],
+    stages: [{
+      stage_number        : 1,
+      stage_type          : "prediction",
+      tool_group          : "mhci",
+      input_sequence_text : fasta,
+      input_parameters    : {
+        alleles              : alleles.join(","),
+        peptide_length_range : null,              // let API infer
+        predictors           : [
+          {type:"binding", method:"netmhcpan_el"},
+          {type:"binding", method:"netmhcpan_ba"}
+        ]
+      }
+    }]
+  };
+}
+```
+
+```js
+const missingPeptides = heatmapRaw
+  .filter(d => !d.present)
+  .map(d =>
+    `• ${d.allele.padEnd(12)} | ${String(d.pep_len).padStart(2)}‑mer | ` +
+    `positions ${d.start}-${d.end_pos} | ${d.peptide}`
+  );
+
+
+```
