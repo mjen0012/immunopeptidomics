@@ -2058,12 +2058,25 @@ const consensusSeq = consensusRows
   .slice().sort((a,b)=>a.position-b.position)
   .map(d=>d.aminoacid).join("");
 
-/* ------------ heat-map working rows (DIAGNOSTIC) ---------------- */
-const chosenLen = +selectedLen;
+/* ── NORMALISE the raw UI values ──────────────────────────────── */
+function normaliseLength(v) {
+  // dropSelect returns either (a) the primitive id, or (b) {id,label}
+  if (v == null)         return null;
+  if (typeof v === "number" || typeof v === "string") return +v;
+  if (typeof v === "object" && "id" in v)            return +v.id;
+  return null;
+}
 
-const selArr = Array.isArray(selectedAlleles)
-             ? selectedAlleles
-             : Array.from(selectedAlleles ?? []);
+function normaliseAlleleArray(arr) {
+  if (!arr) return [];
+  return Array.from(arr).map(a =>
+    typeof a === "object" && "id" in a ? a.id : a   // keep plain strings
+  ).filter(Boolean);
+}
+
+/* 👉 use these everywhere from here on */
+const chosenLen     = normaliseLength(selectedLen);
+const selAllelesArr = normaliseAlleleArray(selectedAlleles);
 
 console.log("🔧 UI selections →",
             { chosenLen, selArrLen: selArr.length, selArr });
@@ -2071,11 +2084,14 @@ console.log("🔧 UI selections →",
 const allRows = heatmapRaw(consensusSeq, selArr);
 console.log("📐 allRows            :", allRows.length);
 
-const heatmapData2 = allRows
-  .filter(d => d.pep_len === chosenLen && selArr.includes(d.allele));
+const heatmapData2 = heatmapRaw(consensusSeq, activeAlleles)
+  .filter(d => d.pep_len === chosenLen && activeAlleles.includes(d.allele));
 
 console.log("✨ derived rows       :", heatmapData2.length);
-console.log("⚠️  missing rows      :", heatmapData2.filter(d=>!d.present).length);
+console.log("⚠️  missing rows      :",
+            heatmapData2.filter(d=>!d.present).length,
+            "| chosenLen:", chosenLen,
+            "| alleles:", activeAlleles.join(","));
 
 
 
