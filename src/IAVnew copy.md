@@ -2055,6 +2055,19 @@ const heatEl = heatmapChart({
 
 ```
 
+```js
+/* ─── HELPER: create a component exactly once per page reload ─── */
+function singleton(id, factory) {
+  if (!globalThis.__singletons) globalThis.__singletons = new Map();
+
+  if (!globalThis.__singletons.has(id)) {
+    console.log(`🆕 singleton "${id}" created`);
+    globalThis.__singletons.set(id, factory());
+  }
+  return globalThis.__singletons.get(id);
+}
+```
+
 
 ${alleleInput}
 
