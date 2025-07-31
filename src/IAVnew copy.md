@@ -1810,91 +1810,168 @@ const histEl = histogramChart({
 ```
 
 
+
 ```js
-/* ────────────────────────── 1. GLOBAL SETUP ───────────────────────── */
+import {heatmapChart}     from "./components/heatmapChart.js";
+```
 
-/* Helper → canonical cache key */
-function makeKey(allele, len, peptide) {
-  return `${allele}|${+len}|${peptide}`;
-}
+```js
+/* rigid key so (allele,len,peptide) is unique */
+const makeKey = (a,l,p) => `${a}|${+l}|${p}`;
 
-/* Helper → turn IEDB table into JS rows */
-function rowsFromTable(tbl) {
-  const keys = tbl.table_columns.map(c => c.name);   // snake_case
-  return tbl.table_data.map(r => Object.fromEntries(r.map((v,i)=>[keys[i],v])));
-}
+const rowsFromTable = tbl => {
+  const keys = tbl.table_columns.map(c => c.name);
+  return tbl.table_data.map(r =>
+    Object.fromEntries(r.map((v,i)=>[keys[i],v]))
+  );
+};
+```
 
-/* ----------  A. seed the hit cache from SQLite / Parquet ---------- */
-if (!globalThis.__NETMHC_CACHE__) {
-  globalThis.__NETMHC_CACHE__ = new Map();
+```js
+/* 1-time hit cache — survives hot-reloads */
+if (!globalThis.__HIT_CACHE__)
+  globalThis.__HIT_CACHE__ = new Map();
+const HIT_CACHE = globalThis.__HIT_CACHE__;
 
-  console.time("seed-cache");
-  const seedRows = (await db.sql`
+/* seed once from the parquet */
+if (HIT_CACHE.size === 0) {
+  const seed = (await db.sql`
     SELECT allele, peptide,
            length                  AS pep_len,
            netmhcpan_el_percentile AS pct_el
     FROM   netmhccalc
     WHERE  length BETWEEN 8 AND 14
   `).toArray();
-  seedRows.forEach(r =>
-    globalThis.__NETMHC_CACHE__.set(
-      makeKey(r.allele, r.pep_len, r.peptide),
-      {...r, pep_len:+r.pep_len}
-    )
+  seed.forEach(r =>
+    HIT_CACHE.set(makeKey(r.allele,r.pep_len,r.peptide), r)
   );
-  console.timeEnd("seed-cache");
+  console.log("🔹 seed rows", seed.length);
 }
-const HIT_CACHE = globalThis.__NETMHC_CACHE__;
 
-/* ----------  B. reactive rows array every chart depends on -------- */
+/* reactive snapshot — every redraw depends on this */
 if (!globalThis.__HIT_ROWS__)
   globalThis.__HIT_ROWS__ = Mutable(Array.from(HIT_CACHE.values()));
-else
-  globalThis.__HIT_ROWS__.value = Array.from(HIT_CACHE.values());
 const HIT_ROWS = globalThis.__HIT_ROWS__;
 
-console.log("📦  cache size :", HIT_CACHE.size);
-console.log("📊  rows ready :", HIT_ROWS.value.length);
+/* track in-flight API jobs */
+if (!globalThis.__IN_FLIGHT__)
+  globalThis.__IN_FLIGHT__ = new Set();
+const IN_FLIGHT = globalThis.__IN_FLIGHT__;
 
-/* ----------  C. keep track of in-flight jobs so we don’t resubmit - */
-if (!globalThis.__SUBMITTED_NETMHC__)
-  globalThis.__SUBMITTED_NETMHC__ = new Set();
-const IN_FLIGHT = globalThis.__SUBMITTED_NETMHC__;
 ```
 
 ```js
-/* ────────────────────────── 2. API HELPERS ───────────────────────── */
+const LENGTHS = d3.range(8,15);
 
-async function submit(body) {
-  const r = await fetch("/api/iedb-pipeline", {
-    method:"POST", headers:{"content-type":"application/json"},
-    body: JSON.stringify(body)
+/* consensusSeq must be defined earlier in your notebook */
+function heatmapRaw() {
+  const rows = HIT_ROWS.value;               // reactive trigger
+
+  /* — 0: all windows from the consensus — */
+  const nonGap = [...consensusSeq].flatMap((ch,i)=>ch!=="-"?i:[]);
+  const windows = LENGTHS.flatMap(len =>
+    d3.range(0, nonGap.length-len+1).map(s=>{
+      const idx = nonGap.slice(s,s+len);
+      return {
+        pep_len : len,
+        start   : idx[0]+1,
+        end_pos : idx.at(-1)+1,
+        peptide : idx.map(i=>consensusSeq[i]).join("")
+      };
+    })
+  );
+
+  /* — 1: index live hits — */
+  const byAlleleLen = d3.rollup(
+    rows,
+    v => new Map(v.map(r=>[r.peptide,r])),
+    d=>d.allele, d=>d.pep_len
+  );
+
+  /* — 2: decorate windows with pct / present — */
+  const table = [];
+  for (const [allele, byLen] of byAlleleLen)
+    for (const w of windows) {
+      const h = byLen.get(w.pep_len)?.get(w.peptide);
+      table.push({...w, allele,
+        pct:h?.pct_el ?? null, present:!!h});
+    }
+
+  /* — 3: explode to (allele,pos) rows — */
+  return table.flatMap(w=>
+    d3.range(w.start,w.end_pos+1).map(pos=>({
+      allele:w.allele, pep_len:w.pep_len, pos,
+      pct:w.pct, peptide:w.peptide,
+      aa:w.peptide[pos-w.start]??"-", present:w.present
+    }))
+  );
+}
+
+```
+
+```js
+/* lengths selector */
+const lenInput = Inputs.select(LENGTHS,{
+  label:"Peptide length", value:LENGTHS[0]
+});
+const chosenLen = Generators.input(lenInput);
+
+/* allele selector */
+const allAlleles = [...new Set(HIT_ROWS.value.map(d=>d.allele))].sort();
+const alleleInput = comboSelect(allAlleles,{
+  label:"Alleles", multiple:true, fontFamily:"'Roboto',sans-serif"
+});
+const chosenAlleles = Generators.input(alleleInput);
+
+```
+
+```js
+function filteredRows(){
+  const data = heatmapRaw()
+    .filter(d=>d.pep_len===+chosenLen && chosenAlleles.includes(d.allele));
+  console.log("🔹 heatmapData", data.length,
+              "| missing", data.filter(d=>!d.present).length,
+              "| in-flight", IN_FLIGHT.size);
+  return data;
+}
+
+const heatEl = heatmapChart({
+  data: filteredRows(),
+  posExtent:[1, consensusSeq.replace(/-/g,"").length],
+  missingAccessor:d=>!d.present
+});
+
+html`${lenInput}${alleleInput}
+<div class="chart-card">${heatEl}</div>`;
+
+```
+
+```js
+view(Generators.observe(change=>{
+  const todo = filteredRows().filter(d=>!d.present).filter(w=>{
+    const k = makeKey(w.allele,w.pep_len,w.peptide);
+    return !HIT_CACHE.has(k) && !IN_FLIGHT.has(k);
   });
-  const j = await r.json();
-  if (!r.ok) throw new Error(j.errors?.join("; ") || r.statusText);
-  return j.results_uri.split("/").pop();          // result_id
-}
+  console.log("🔹 todo", todo.length);
 
-async function poll(resultId, timeout = 90_000) {
-  const t0 = Date.now();
-  while (Date.now()-t0 < timeout) {
-    const j = await (await fetch(`/api/iedb-result?id=${resultId}`)).json();
-    if (j.status === "done")
-      return j.data.results.find(t => t.type === "peptide_table");
-    await new Promise(res => setTimeout(res, 1000));
+  if (todo.length){
+    fetchAndMerge(todo).catch(e=>console.error(e));
   }
-  throw new Error("NetMHC job timed out");
-}
+  change(todo.length);                 // just for visibility
+}));
 
-/* small body builder — only MHC I needed here */
-function buildBodyI(alleles, fasta) {
+```
+
+```js
+function buildBodyI(alleles,fasta){
   return {
     run_stage_range:[1,1],
     stages:[{
       stage_number:1, stage_type:"prediction", tool_group:"mhci",
       input_sequence_text:fasta,
       input_parameters:{
-        alleles:alleles.join(","), peptide_length_range:null,
+        alleles:alleles.join(","),
+        peptide_length_range:null,
         predictors:[
           {type:"binding",method:"netmhcpan_el"},
           {type:"binding",method:"netmhcpan_ba"}
@@ -1903,298 +1980,81 @@ function buildBodyI(alleles, fasta) {
     }]
   };
 }
-```
 
-```js
-/* ──────────────────────── 3. HEATMAP RAW DATA ───────────────────── */
-
-const LENGTHS = d3.range(8, 15);
-
-/* ─── HELPER: tiny memoisation cache ──────────────────────────── */
-function memo(keyObj, compute) {
-  if (!globalThis.__MEMO_CACHE__) globalThis.__MEMO_CACHE__ = new Map();
-  const key = JSON.stringify(keyObj);
-
-  if (globalThis.__MEMO_CACHE__.has(key)) {
-    console.debug("🔄 memo HIT", keyObj);
-    return globalThis.__MEMO_CACHE__.get(key);
-  }
-
-  console.debug("🆕 memo MISS", keyObj);
-  const value = compute();
-  globalThis.__MEMO_CACHE__.set(key, value);
-  return value;
-}
-
-/* ───────────────────── 3. HEATMAP RAW DATA (safe) ─────────────── */
-
-/* ─────────────────── 3. HEATMAP RAW DATA (v2) ─────────────────── */
-
-function heatmapRaw(consensusSeq, activeAlleles) {
-  const rowsTrigger = HIT_ROWS.value ?? [];
-
-  /* 🔧 normalise activeAlleles to a plain array */
-  const selArray = Array.isArray(activeAlleles)
-                 ? activeAlleles
-                 : Array.from(activeAlleles ?? []);
-
-  return memo(
-    {tag:"heatmapRaw",
-     stamp:rowsTrigger.length,
-     seq:consensusSeq ?? null,
-     sel:selArray.join("|")},          // safe string key
-    () => {
-      if (!consensusSeq) return [];
-
-      /* -------- 0. windows along the consensus ---------------- */
-      const idx = [...consensusSeq]
-        .map((aa,i)=> aa!=="-" ? i : null)
-        .filter(i => i!=null);
-
-      const windows = LENGTHS.flatMap(len =>
-        idx.slice(0, idx.length-len+1).map((_,s)=>{
-          const slice = idx.slice(s, s+len);
-          return {
-            pep_len:len,
-            start  :slice[0]+1,
-            end_pos:slice.at(-1)+1,
-            peptide:slice.map(i=>consensusSeq[i]).join(""),
-            display:consensusSeq.slice(slice[0], slice.at(-1)+1)
-          };
-        })
-      );
-
-      /* -------- 1. organise existing hits --------------------- */
-      const hitsByAlleleLen = d3.rollup(
-        rowsTrigger,
-        v=>new Map(v.map(r=>[r.peptide,r])),
-        d=>d.allele,
-        d=>d.pep_len
-      );
-
-      /* union = alleles with hits ∪ selected alleles */
-      const allAlleles = new Set([...hitsByAlleleLen.keys(), ...selArray]);
-
-      /* -------- 2. cover table: one row per window × allele ---- */
-      const coverTable = [];
-      for (const allele of allAlleles) {
-        const byLen = hitsByAlleleLen.get(allele) ?? new Map();
-        for (const len of LENGTHS) {
-          const pepMap = byLen.get(len) ?? new Map();
-          for (const w of windows) {
-            const h = pepMap.get(w.peptide);
-            coverTable.push({
-              allele, ...w,
-              pct     : h?.pct_el ?? null,
-              present : !!h
-            });
-          }
-        }
-      }
-
-      console.log("🟢 coverTable rows", coverTable.length);
-
-
-      /* -------- 3. explode to per-position rows & keep best pct */
-      const exploded = coverTable.flatMap(w =>
-        d3.range(w.start, w.end_pos+1).map(pos=>({
-          allele:w.allele, pep_len:w.pep_len, pos,
-          pct:w.pct, peptide:w.peptide,
-          aa:w.peptide[pos-w.start] ?? "-",
-          present:w.present
-        }))
-      );
-
-      /* ─── DIAGNOSTICS ───────────────────────────────────────── */
-      console.log("🔍 heatmapRaw",
-        { windows: windows.length,
-          cover  : coverTable.length,
-          exploded: exploded.length,
-          alleles:Array.from(allAlleles).join(",") });
-      /* ───────────────────────────────────────────────────────── */
-
-      return d3.rollups(
-        exploded,
-        v=>{
-          const withPct=v.filter(d=>d.pct!=null);
-          return withPct.length ? d3.least(withPct,d=>d.pct) : v[0];
-        },
-        d=>d.pep_len, d=>d.allele, d=>d.pos
-      ).flatMap(([len,byAllele])=>
-         byAllele.flatMap(([allele,byPos])=>
-           byPos.map(([pos,row])=>row)
-         )
-      );
-    }
-  );
-}
-
-```
-
-
-```js
-/* ───────────────────── 4. UI & DERIVED DATA ─────────────────────── */
-
-const lenInput = singleton("lenInput", () =>
-  dropSelect(LENGTHS.map(l=>({id:l,label:`${l}-mer`})), {
-    label:"Peptide length", value:8
-  })
-);
-const selectedLen = Generators.input(lenInput);
-
-/* ------------ allele multi-select (robust) ---------------------- */
-const alleleInput = singleton("alleleInput", () => {
-  /* fall back to empty array if the DB query hasn’t finished yet */
-  const allAllelesArr = globalThis.__ALL_ALLELES__ ?? [];
-
-  /* build item list */
-  const items = allAllelesArr.map(a => ({id:a, label:a}));
-
-  /* pick the first allele (if any) so the user sees a plot immediately */
-  const defaultSelection = items.length ? [items[0].id] : [];
-
-  return comboSelect(items, {
-    label : "Alleles",
-    value : defaultSelection
+async function submit(body){
+  const r = await fetch("/api/iedb-pipeline",{
+    method:"POST",headers:{"content-type":"application/json"},
+    body:JSON.stringify(body)
   });
-});
-const selectedAlleles = Generators.input(alleleInput);
-
-/* ------------ build consensus string yourself ------------- */
-const consensusSeq = consensusRows
-  .slice().sort((a,b)=>a.position-b.position)
-  .map(d=>d.aminoacid).join("");
-
-/* ──────────── 4-B. HEAT-MAP WORKING ROWS (fixed) ──────────────── */
-
-/* 1 ▸ normalise the raw UI outputs */
-function normaliseLength(v){
-  if (v == null) return null;
-  if (typeof v === "number" || typeof v === "string") return +v;
-  if (typeof v === "object" && "id" in v)             return +v.id;
-  return null;
-}
-function normaliseAlleleArray(a){
-  if (!a) return [];
-  return Array.from(a).map(x =>
-    typeof x === "object" && "id" in x ? x.id : x
-  ).filter(Boolean);
+  const j = await r.json();
+  if(!r.ok)throw new Error(j.errors?.join("; ")||r.statusText);
+  return j.results_uri.split("/").pop();
 }
 
-/* 2 ▸ clean values used everywhere below */
-const chosenLen      = normaliseLength(selectedLen);
-const activeAlleles  = normaliseAlleleArray(selectedAlleles);
-
-/* 3 ▸ log for troubleshooting */
-console.log("🔧 UI selections →",
-            { chosenLen, selArrLen: activeAlleles.length,
-              selArr: activeAlleles });
-
-/* 4 ▸ fetch / filter rows */
-const allRows = heatmapRaw(consensusSeq, activeAlleles);
-console.log("📐 allRows            :", allRows.length);
-
-const heatmapData2 = allRows
-  .filter(d => d.pep_len === chosenLen &&
-               activeAlleles.includes(d.allele));
-
-console.log("✨ derived rows       :", heatmapData2.length);
-console.log("⚠️  missing rows      :",
-            heatmapData2.filter(d=>!d.present).length);
-
-
-
-
-```
-
-```js
-import {heatmapChart} from "./components/heatmapChart.js";
-
-const heatEl = heatmapChart({
-  data:heatmapData2,
-  posExtent:[1, consensusSeq.length],
-  missingAccessor:d=>!d.present
-});
-
-```
-
-```js
-/* ─── HELPER: create a component exactly once per page reload ─── */
-function singleton(id, factory) {
-  if (!globalThis.__singletons) globalThis.__singletons = new Map();
-
-  if (!globalThis.__singletons.has(id)) {
-    console.log(`🆕 singleton "${id}" created`);
-    globalThis.__singletons.set(id, factory());
+async function poll(id,timeout=90_000){
+  const t0=Date.now();
+  while(Date.now()-t0<timeout){
+    const r=await fetch(`/api/iedb-result?id=${id}`);
+    const j=await r.json();
+    if(j.status==="done")
+      return j.data.results.find(t=>t.type==="peptide_table");
+    await new Promise(res=>setTimeout(res,1000));
   }
-  return globalThis.__singletons.get(id);
-}
-```
-
-
-${alleleInput}
-
-${lenInput}
-
-<div class="chart-card">${heatEl}</div>
-
-```js
-/* ─────────────────── 6. FIND & SUBMIT MISSING WINDOWS ───────────── */
-
-const todo = heatmapData2
-  .filter(d=>!d.present)
-  .filter(w => !HIT_CACHE.has(makeKey(w.allele,w.pep_len,w.peptide)) &&
-               !IN_FLIGHT.has(makeKey(w.allele,w.pep_len,w.peptide)));
-
-if (todo.length) {
-  console.log(`🚀  submitting ${todo.length} windows…`);
-  fetchAndMerge(todo);                 // fire & forget
+  throw new Error("poll-timeout");
 }
 
 ```
 
 ```js
-/* ───────────────────── 7. FETCH & MERGE RESULTS ─────────────────── */
-
-async function fetchAndMerge(windows) {
-  windows.forEach(w =>
-    IN_FLIGHT.add(makeKey(w.allele, w.pep_len, w.peptide))
-  );
+async function fetchAndMerge(windows){
+  windows.forEach(w=>IN_FLIGHT.add(makeKey(w.allele,w.pep_len,w.peptide)));
 
   const groups = d3.group(windows, d=>`${d.allele}|${d.pep_len}`);
-
-  for (const [key, rows] of groups) {
-    const [allele] = key.split("|");
+  for(const [key,rows] of groups){
+    const [allele,len]=key.split("|");
     const fasta = rows.map((r,i)=>`>p${i+1}\n${r.peptide}`).join("\n");
-    try {
-      const id  = await submit(buildBodyI([allele], fasta));
+    try{
+      console.log(`⏩ submit ${rows.length} × ${allele} ${len}-mer`);
+      const id  = await submit(buildBodyI([allele],fasta));
       const tbl = await poll(id);
-      const hits = rowsFromTable(tbl);
-
-      hits.forEach(r => {
-        HIT_CACHE.set(
-          makeKey(r.allele,r.peptide_length,r.peptide),
-          {
-            allele:r.allele,
-            pep_len:+r.peptide_length,
-            pct_el:+r.netmhcpan_el_percentile,
-            peptide:r.peptide
-          }
-        );
+      const hits= rowsFromTable(tbl);
+      console.log(`✅ poll ${hits.length} rows`);
+      hits.forEach(r=>{
+        HIT_CACHE.set(makeKey(r.allele,r.peptide_length,r.peptide),{
+          allele:r.allele,
+          pep_len:+r.peptide_length,
+          pct_el:+r.netmhcpan_el_percentile,
+          peptide:r.peptide
+        });
       });
-
-      console.log(`✔️  merged ${hits.length} hits for ${allele}`);
-    } catch(err) {
-      console.error("❌ NetMHC error:", err);
-    } finally {
-      rows.forEach(r =>
-        IN_FLIGHT.delete(makeKey(r.allele,r.pep_len,r.peptide))
-      );
+    }catch(e){console.error(e)}
+    finally{
+      rows.forEach(r=>IN_FLIGHT.delete(makeKey(r.allele,r.pep_len,r.peptide)))
     }
   }
-
-  HIT_ROWS.value = Array.from(HIT_CACHE.values());   // 🔄 trigger redraw
-  console.log("📊  HIT_ROWS now", HIT_ROWS.value.length);
+  HIT_ROWS.value = Array.from(HIT_CACHE.values());
+  console.log("🔹 HIT_ROWS snapshot", HIT_ROWS.value.length);
 }
+
+```
+
+<style>
+.chart-card{width:100%;background:#fff;border:1px solid #e0e0e0;
+  border-radius:8px;padding:12px 16px;box-shadow:0 2px 4px rgba(0,0,0,.06)}
+</style>
+
+
+```js
+console.log("%cTroubleshooting:",
+            "font-weight:bold;color:#1976d2",
+            `
+1 seed rows        -> 🔹 seed rows N
+2 selector change  -> 🔹 heatmapData … | missing …
+3 build todo       -> 🔹 todo M        (0? then nothing to fetch)
+4 submit windows   -> ⏩ submit …
+5 poll complete    -> ✅ poll …
+6 merge            -> 🔹 HIT_ROWS snapshot … (grows)
+7 redraw           -> 🔹 heatmapData … (missing 0)
+`);
 
 ```
