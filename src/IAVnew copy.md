@@ -1956,56 +1956,6 @@ function heatmapRaw(consensusSeq) {
 }
 ```
 
-```js
-/* ──────────────────────── 3. HEATMAP RAW DATA ───────────────────── */
-
-const LENGTHS = d3.range(8, 15);
-
-function heatmapRaw(consensusSeq) {
-  const rows = HIT_ROWS.value;                      // reactive trigger
-  if (!consensusSeq || !rows.length) return [];
-
-  /* ---- A. sliding windows along the consensus (gapless) ---- */
-  const idx = [...consensusSeq].map((aa,i)=> aa!=="-" ? i : null).filter(i=>i!==null);
-  const windows = LENGTHS.flatMap(len =>
-    idx.slice(0, idx.length-len+1).map((_,s) => {
-      const slice = idx.slice(s, s+len);
-      return {
-        pep_len : len,
-        start   : slice[0]+1,
-        end_pos : slice.at(-1)+1,
-        peptide : slice.map(i=>consensusSeq[i]).join(""),
-        display : consensusSeq.slice(slice[0], slice.at(-1)+1)
-      };
-    })
-  );
-
-  /* ---- B. organise hits by allele ▸ len ▸ peptide ---- */
-  const hitsMap = d3.rollup(
-    rows,
-    v => new Map(v.map(r=>[r.peptide,r])),
-    d => d.allele,
-    d => d.pep_len
-  );
-
-  /* ---- C. explode across positions, keep best pct ---- */
-  const exploded = [];
-  for (const [allele, byLen] of hitsMap)
-    for (const w of windows) if (byLen.get(w.pep_len)) {
-      const h = byLen.get(w.pep_len).get(w.peptide);
-      const present = !!h;
-      const pct = h?.pct_el ?? null;
-      for (let pos=w.start; pos<=w.end_pos; pos++)
-        exploded.push({
-          allele, pep_len:w.pep_len, pos,
-          pct, peptide:w.peptide,
-          aa:w.peptide[pos-w.start] ?? "-",
-          present
-        });
-    }
-  return exploded;
-}
-```
 
 ```js
 /* ───────────────────── 4. UI & DERIVED DATA ─────────────────────── */
