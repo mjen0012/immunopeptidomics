@@ -2035,8 +2035,14 @@ const convertCacheRow = r =>
     for (const r of apiRows)
       map.set(`${r.allele}|${r.peptide}`, r);   // overwrite if needed
 
+    /* counts for banner ------------------------------------------ */
+    const newSet      = new Set(apiRows.map(r => `${r.allele}|${r.peptide}`));
+    const totalRows   = map.size;
+    const newCount    = newSet.size;
+    const cacheCount  = totalRows - newCount;
+
     resultsArrayI.value = [...map.values()];
-    setBanner(`Class I done — ${resultsArrayI.value.length} rows (cache + new).`);
+    setBanner(`Class I done — ${totalRows} rows (cache ${cacheCount} + new ${newCount}).`);
   } catch (err) {
     setBanner(`Class I error: ${err.message}`);
   }
