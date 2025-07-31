@@ -2002,6 +2002,14 @@ function heatmapRaw(consensusSeq, activeAlleles) {
         }))
       );
 
+      /* ─── DIAGNOSTICS ───────────────────────────────────────── */
+      console.log("🔍 heatmapRaw",
+        { windows: windows.length,
+          cover  : coverTable.length,
+          exploded: exploded.length,
+          alleles:Array.from(allAlleles).join(",") });
+      /* ───────────────────────────────────────────────────────── */
+
       return d3.rollups(
         exploded,
         v=>{
@@ -2047,19 +2055,25 @@ const consensusSeq = consensusRows
   .slice().sort((a,b)=>a.position-b.position)
   .map(d=>d.aminoacid).join("");
 
-/* ------------ heat-map working rows ----------------------- */
+/* ------------ heat-map working rows (DIAGNOSTIC) ---------------- */
 const chosenLen = +selectedLen;
 
-/* normalise the selected-allele collection → plain array */
 const selArr = Array.isArray(selectedAlleles)
              ? selectedAlleles
              : Array.from(selectedAlleles ?? []);
 
-const heatmapData2 = heatmapRaw(consensusSeq, selArr)
+console.log("🔧 UI selections →",
+            { chosenLen, selArrLen: selArr.length, selArr });
+
+const allRows = heatmapRaw(consensusSeq, selArr);
+console.log("📐 allRows            :", allRows.length);
+
+const heatmapData2 = allRows
   .filter(d => d.pep_len === chosenLen && selArr.includes(d.allele));
 
-console.log("✨ derived rows :", heatmapData2.length,
-            "| missing :", heatmapData2.filter(d=>!d.present).length);
+console.log("✨ derived rows       :", heatmapData2.length);
+console.log("⚠️  missing rows      :", heatmapData2.filter(d=>!d.present).length);
+
 
 
 ```
