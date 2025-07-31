@@ -1981,7 +1981,7 @@ function heatmapRaw(consensusSeq, activeAlleles) {
         const byLen = hitsByAlleleLen.get(allele) ?? new Map();
         for (const len of LENGTHS) {
           const pepMap = byLen.get(len) ?? new Map();
-          for (const w of windows) if (w.pep_len===len) {
+          for (const w of windows) {
             const h = pepMap.get(w.peptide);
             coverTable.push({
               allele, ...w,
@@ -1991,6 +1991,9 @@ function heatmapRaw(consensusSeq, activeAlleles) {
           }
         }
       }
+
+      console.log("🟢 coverTable rows", coverTable.length);
+
 
       /* -------- 3. explode to per-position rows & keep best pct */
       const exploded = coverTable.flatMap(w =>
