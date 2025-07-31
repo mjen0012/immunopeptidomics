@@ -1938,10 +1938,14 @@ const consensusSeq = consensusRows
 
 /* memo’ed computation of heatmapRaw for a given consensus */
 function heatmapRaw() {
-  const _rowsTrigger = HIT_ROWS.value;      // ⚑ reactive dependency
+  const rowsTrigger = HIT_ROWS.value;            // ⚑ reactive dependency
 
   return memo(
-    {tag:"heatmapRaw", consensusSeq},       // key no longer needs “ver”
+    {
+      tag : "heatmapRaw",
+      consensusSeq,
+      stamp : rowsTrigger.length                 // 👈 key now changes
+    },
     () => {
       /* ---------- 0 ▸ current consensus windows ------------------ */
       const nonGapIdx = [];
@@ -1967,9 +1971,8 @@ function heatmapRaw() {
         return arr;
       });
 
-      /* ---------- 1 ▸ live NetMHC hits --------------------------- */
-      /* live NetMHC hits */
-      const hitsArr = Array.from(HIT_CACHE.values());
+      /* ---------- 1 ▸ live NetMHC hits ------------------------ */
+      const hitsArr = rowsTrigger;               // ← use the fresh array
       const hitsMap = d3.rollup(
         hitsArr,
         v => new Map(v.map(r => [r.peptide, r])),
@@ -2165,7 +2168,6 @@ async function poll(resultId, timeout = 90_000){
 
 ```js
 async function fetchAndMerge(windows) {
-  /* mark these windows “in‑flight” so we don’t duplicate requests */
   windows.forEach(w =>
     IN_FLIGHT.add(makeKey(w.allele, w.pep_len, w.peptide))
   );
@@ -2190,6 +2192,8 @@ async function fetchAndMerge(windows) {
           peptide : r.peptide
         });
       }
+
+      console.log(`✔️  ${hits.length} new hits merged (allele ${allele})`);
     } catch (err) {
       console.error("NetMHC poll failed:", err);
     } finally {
@@ -2199,9 +2203,11 @@ async function fetchAndMerge(windows) {
     }
   }
 
-  /* 🚀 trigger every downstream cell (heat‑map, missing list, …) */
+  /* 🚀 kick every dependent cell */
   HIT_ROWS.value = Array.from(HIT_CACHE.values());
+  console.log("HIT_ROWS now", HIT_ROWS.value.length, "rows");
 }
+
 
 
 
