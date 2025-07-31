@@ -1809,7 +1809,27 @@ const histEl = histogramChart({
 })
 ```
 
+```js
+/* Build consensusSeq once — replace the query if yours differs —— */
 
+const consensusRows = (await db.sql`
+  SELECT position, aminoacid           -- 1-based positions
+  FROM   consensus                     -- ← your table / view name
+  ORDER  BY position
+`).toArray();
+
+/* Example row structure: {position:1, aminoacid:"M"}              */
+
+if (consensusRows.length === 0)
+  throw new Error("consensusRows query returned 0 rows");
+
+const consensusSeq = consensusRows
+  .sort((a,b)=>a.position-b.position)
+  .map(d=>d.aminoacid)
+  .join("");
+
+console.log("🔹 consensusSeq length", consensusSeq.length);
+```
 
 ```js
 import {heatmapChart}     from "./components/heatmapChart.js";
