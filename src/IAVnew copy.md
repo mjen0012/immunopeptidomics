@@ -1931,12 +1931,18 @@ function memo(keyObj, compute) {
 /* ─────────────────── 3. HEATMAP RAW DATA (v2) ─────────────────── */
 
 function heatmapRaw(consensusSeq, activeAlleles) {
-  /* reactive triggers */
   const rowsTrigger = HIT_ROWS.value ?? [];
-  const selAlleles  = activeAlleles ?? [];
+
+  /* 🔧 normalise activeAlleles to a plain array */
+  const selArray = Array.isArray(activeAlleles)
+                 ? activeAlleles
+                 : Array.from(activeAlleles ?? []);
 
   return memo(
-    {tag:"heatmapRaw", stamp:rowsTrigger.length, seq:consensusSeq, sel:selAlleles.join("|")},
+    {tag:"heatmapRaw",
+     stamp:rowsTrigger.length,
+     seq:consensusSeq ?? null,
+     sel:selArray.join("|")},          // safe string key
     () => {
       if (!consensusSeq) return [];
 
@@ -1967,7 +1973,7 @@ function heatmapRaw(consensusSeq, activeAlleles) {
       );
 
       /* union = alleles with hits ∪ selected alleles */
-      const allAlleles = new Set([...hitsByAlleleLen.keys(), ...selAlleles]);
+      const allAlleles = new Set([...hitsByAlleleLen.keys(), ...selArray]);
 
       /* -------- 2. cover table: one row per window × allele ---- */
       const coverTable = [];
