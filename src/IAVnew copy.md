@@ -1913,15 +1913,11 @@ if (!globalThis.__NETMHC_CACHE__) {
 }
 const HIT_CACHE = globalThis.__NETMHC_CACHE__;
 
-/* ─── Live rows Mutable — MUST exist before heatmapRaw runs ───── */
-if (!globalThis.__HIT_ROWS__)
-  globalThis.__HIT_ROWS__ = Mutable(Array.from(HIT_CACHE.values()));   // ALWAYS an array
+if (!globalThis.__HIT_ROWS__)              // create once per reload
+  globalThis.__HIT_ROWS__ = Mutable(Array.from(HIT_CACHE.values()));
+else                                       // notebook hot-reload
+  globalThis.__HIT_ROWS__.value = Array.from(HIT_CACHE.values());
 const HIT_ROWS = globalThis.__HIT_ROWS__;
-
-/* ─── Track jobs already submitted so we don’t resubmit ───────── */
-if (!globalThis.__SUBMITTED_NETMHC__)
-  globalThis.__SUBMITTED_NETMHC__ = new Set();
-const IN_FLIGHT = globalThis.__SUBMITTED_NETMHC__;
 
 ```
 
