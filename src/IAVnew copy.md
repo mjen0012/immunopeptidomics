@@ -1910,6 +1910,22 @@ function buildBodyI(alleles, fasta) {
 
 const LENGTHS = d3.range(8, 15);
 
+/* ─── HELPER: tiny memoisation cache ──────────────────────────── */
+function memo(keyObj, compute) {
+  if (!globalThis.__MEMO_CACHE__) globalThis.__MEMO_CACHE__ = new Map();
+  const key = JSON.stringify(keyObj);
+
+  if (globalThis.__MEMO_CACHE__.has(key)) {
+    console.debug("🔄 memo HIT", keyObj);
+    return globalThis.__MEMO_CACHE__.get(key);
+  }
+
+  console.debug("🆕 memo MISS", keyObj);
+  const value = compute();
+  globalThis.__MEMO_CACHE__.set(key, value);
+  return value;
+}
+
 /* ───────────────────── 3. HEATMAP RAW DATA (safe) ─────────────── */
 
 function heatmapRaw(consensusSeq) {
