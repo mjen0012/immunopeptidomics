@@ -2042,10 +2042,17 @@ const lenInput = singleton("lenInput", () =>
 );
 const selectedLen = Generators.input(lenInput);
 
-/* ------------ allele multi-select (pre-select 1st allele) ------- */
+/* ------------ allele multi-select (robust) ---------------------- */
 const alleleInput = singleton("alleleInput", () => {
-  const items = globalThis.__ALL_ALLELES__.map(a => ({id:a,label:a}));
-  const defaultSelection = items.length ? [items[0].id] : [];   // pick first
+  /* fall back to empty array if the DB query hasn’t finished yet */
+  const allAllelesArr = globalThis.__ALL_ALLELES__ ?? [];
+
+  /* build item list */
+  const items = allAllelesArr.map(a => ({id:a, label:a}));
+
+  /* pick the first allele (if any) so the user sees a plot immediately */
+  const defaultSelection = items.length ? [items[0].id] : [];
+
   return comboSelect(items, {
     label : "Alleles",
     value : defaultSelection
