@@ -2042,15 +2042,15 @@ const lenInput = singleton("lenInput", () =>
 );
 const selectedLen = Generators.input(lenInput);
 
-if (!globalThis.__ALL_ALLELES__)
-  globalThis.__ALL_ALLELES__ = (await db.sql`
-    SELECT DISTINCT allele FROM netmhccalc
-  `).toArray().map(d=>d.allele).sort();
-const alleleInput = singleton("alleleInput", () =>
-  comboSelect(globalThis.__ALL_ALLELES__.map(a=>({id:a,label:a})), {
-    label:"Alleles"
-  })
-);
+/* ------------ allele multi-select (pre-select 1st allele) ------- */
+const alleleInput = singleton("alleleInput", () => {
+  const items = globalThis.__ALL_ALLELES__.map(a => ({id:a,label:a}));
+  const defaultSelection = items.length ? [items[0].id] : [];   // pick first
+  return comboSelect(items, {
+    label : "Alleles",
+    value : defaultSelection
+  });
+});
 const selectedAlleles = Generators.input(alleleInput);
 
 /* ------------ build consensus string yourself ------------- */
@@ -2058,40 +2058,43 @@ const consensusSeq = consensusRows
   .slice().sort((a,b)=>a.position-b.position)
   .map(d=>d.aminoacid).join("");
 
-/* ── NORMALISE the raw UI values ──────────────────────────────── */
-function normaliseLength(v) {
-  // dropSelect returns either (a) the primitive id, or (b) {id,label}
-  if (v == null)         return null;
+/* ──────────── 4-B. HEAT-MAP WORKING ROWS (fixed) ──────────────── */
+
+/* 1 ▸ normalise the raw UI outputs */
+function normaliseLength(v){
+  if (v == null) return null;
   if (typeof v === "number" || typeof v === "string") return +v;
-  if (typeof v === "object" && "id" in v)            return +v.id;
+  if (typeof v === "object" && "id" in v)             return +v.id;
   return null;
 }
-
-function normaliseAlleleArray(arr) {
-  if (!arr) return [];
-  return Array.from(arr).map(a =>
-    typeof a === "object" && "id" in a ? a.id : a   // keep plain strings
+function normaliseAlleleArray(a){
+  if (!a) return [];
+  return Array.from(a).map(x =>
+    typeof x === "object" && "id" in x ? x.id : x
   ).filter(Boolean);
 }
 
-/* 👉 use these everywhere from here on */
-const chosenLen     = normaliseLength(selectedLen);
-const selAllelesArr = normaliseAlleleArray(selectedAlleles);
+/* 2 ▸ clean values used everywhere below */
+const chosenLen      = normaliseLength(selectedLen);
+const activeAlleles  = normaliseAlleleArray(selectedAlleles);
 
+/* 3 ▸ log for troubleshooting */
 console.log("🔧 UI selections →",
-            { chosenLen, selArrLen: selArr.length, selArr });
+            { chosenLen, selArrLen: activeAlleles.length,
+              selArr: activeAlleles });
 
-const allRows = heatmapRaw(consensusSeq, selArr);
+/* 4 ▸ fetch / filter rows */
+const allRows = heatmapRaw(consensusSeq, activeAlleles);
 console.log("📐 allRows            :", allRows.length);
 
-const heatmapData2 = heatmapRaw(consensusSeq, activeAlleles)
-  .filter(d => d.pep_len === chosenLen && activeAlleles.includes(d.allele));
+const heatmapData2 = allRows
+  .filter(d => d.pep_len === chosenLen &&
+               activeAlleles.includes(d.allele));
 
 console.log("✨ derived rows       :", heatmapData2.length);
 console.log("⚠️  missing rows      :",
-            heatmapData2.filter(d=>!d.present).length,
-            "| chosenLen:", chosenLen,
-            "| alleles:", activeAlleles.join(","));
+            heatmapData2.filter(d=>!d.present).length);
+
 
 
 
