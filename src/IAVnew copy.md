@@ -1910,50 +1910,87 @@ function buildBodyI(alleles, fasta) {
 
 const LENGTHS = d3.range(8, 15);
 
+/* ───────────────────── 3. HEATMAP RAW DATA (safe) ─────────────── */
+
 function heatmapRaw(consensusSeq) {
-  const rows = HIT_ROWS.value;                      // reactive trigger
-  if (!consensusSeq || !rows.length) return [];
+  /* reactive trigger */
+  const rowsTrigger = HIT_ROWS.value ?? [];
 
-  /* ---- A. sliding windows along the consensus (gapless) ---- */
-  const idx = [...consensusSeq].map((aa,i)=> aa!=="-" ? i : null).filter(i=>i!==null);
-  const windows = LENGTHS.flatMap(len =>
-    idx.slice(0, idx.length-len+1).map((_,s) => {
-      const slice = idx.slice(s, s+len);
-      return {
-        pep_len : len,
-        start   : slice[0]+1,
-        end_pos : slice.at(-1)+1,
-        peptide : slice.map(i=>consensusSeq[i]).join(""),
-        display : consensusSeq.slice(slice[0], slice.at(-1)+1)
-      };
-    })
-  );
+  /* memo key – depends only on inputs */
+  return memo(
+    {
+      tag   : "heatmapRaw",
+      stamp : rowsTrigger.length,
+      seq   : consensusSeq ?? null          // include seq in the key
+    },
+    () => {
+      /* ⬇️  NEW: if consensus not ready, return empty array */
+      if (!consensusSeq || !rowsTrigger.length) return [];
 
-  /* ---- B. organise hits by allele ▸ len ▸ peptide ---- */
-  const hitsMap = d3.rollup(
-    rows,
-    v => new Map(v.map(r=>[r.peptide,r])),
-    d => d.allele,
-    d => d.pep_len
-  );
+      /* ---------- 0. build windows ------------------------------ */
+      const idx = [...consensusSeq]
+        .map((aa,i)=>aa!=="-" ? i : null)
+        .filter(i=>i!=null);
 
-  /* ---- C. explode across positions, keep best pct ---- */
-  const exploded = [];
-  for (const [allele, byLen] of hitsMap)
-    for (const w of windows) if (byLen.get(w.pep_len)) {
-      const h = byLen.get(w.pep_len).get(w.peptide);
-      const present = !!h;
-      const pct = h?.pct_el ?? null;
-      for (let pos=w.start; pos<=w.end_pos; pos++)
-        exploded.push({
-          allele, pep_len:w.pep_len, pos,
-          pct, peptide:w.peptide,
+      const windows = LENGTHS.flatMap(len =>
+        idx.slice(0, idx.length-len+1).map((_,s)=>{
+          const slice = idx.slice(s, s+len);
+          return {
+            pep_len : len,
+            start   : slice[0]+1,
+            end_pos : slice[slice.length-1]+1,
+            peptide : slice.map(i=>consensusSeq[i]).join(""),
+            display : consensusSeq.slice(slice[0], slice[slice.length-1]+1)
+          };
+        })
+      );
+
+      /* ---------- 1. live NetMHC hits --------------------------- */
+      const hitsMap = d3.rollup(
+        rowsTrigger,
+        v => new Map(v.map(r=>[r.peptide,r])),
+        d => d.allele,
+        d => d.pep_len
+      );
+
+      /* ---------- 2. cover table + explode + reduce ------------- */
+      const coverTable = [];
+      for (const [allele, byLen] of hitsMap)
+        for (const w of windows) if (byLen.get(w.pep_len)) {
+          const h = byLen.get(w.pep_len).get(w.peptide);
+          coverTable.push({
+            allele,
+            ...w,
+            pct     : h?.pct_el ?? null,
+            present : !!h
+          });
+        }
+
+      const exploded = coverTable.flatMap(w =>
+        d3.range(w.start, w.end_pos+1).map(pos=>({
+          allele:w.allele, pep_len:w.pep_len, pos,
+          pct:w.pct, peptide:w.peptide,
           aa:w.peptide[pos-w.start] ?? "-",
-          present
-        });
+          present:w.present
+        }))
+      );
+
+      return d3.rollups(
+        exploded,
+        v=>{
+          const withPct=v.filter(d=>d.pct!=null);
+          return withPct.length ? d3.least(withPct,d=>d.pct) : v[0];
+        },
+        d=>d.pep_len, d=>d.allele, d=>d.pos
+      ).flatMap(([len,byAllele])=>
+         byAllele.flatMap(([allele,byPos])=>
+           byPos.map(([pos,row])=>row)
+         )
+      );
     }
-  return exploded;
+  );
 }
+
 ```
 
 
