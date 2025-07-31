@@ -1928,60 +1928,65 @@ function memo(keyObj, compute) {
 
 /* ───────────────────── 3. HEATMAP RAW DATA (safe) ─────────────── */
 
-function heatmapRaw(consensusSeq) {
-  /* reactive trigger */
+/* ─────────────────── 3. HEATMAP RAW DATA (v2) ─────────────────── */
+
+function heatmapRaw(consensusSeq, activeAlleles) {
+  /* reactive triggers */
   const rowsTrigger = HIT_ROWS.value ?? [];
+  const selAlleles  = activeAlleles ?? [];
 
-  /* memo key – depends only on inputs */
   return memo(
-    {
-      tag   : "heatmapRaw",
-      stamp : rowsTrigger.length,
-      seq   : consensusSeq ?? null          // include seq in the key
-    },
+    {tag:"heatmapRaw", stamp:rowsTrigger.length, seq:consensusSeq, sel:selAlleles.join("|")},
     () => {
-      /* ⬇️  NEW: if consensus not ready, return empty array */
-      if (!consensusSeq || !rowsTrigger.length) return [];
+      if (!consensusSeq) return [];
 
-      /* ---------- 0. build windows ------------------------------ */
+      /* -------- 0. windows along the consensus ---------------- */
       const idx = [...consensusSeq]
-        .map((aa,i)=>aa!=="-" ? i : null)
-        .filter(i=>i!=null);
+        .map((aa,i)=> aa!=="-" ? i : null)
+        .filter(i => i!=null);
 
       const windows = LENGTHS.flatMap(len =>
         idx.slice(0, idx.length-len+1).map((_,s)=>{
           const slice = idx.slice(s, s+len);
           return {
-            pep_len : len,
-            start   : slice[0]+1,
-            end_pos : slice[slice.length-1]+1,
-            peptide : slice.map(i=>consensusSeq[i]).join(""),
-            display : consensusSeq.slice(slice[0], slice[slice.length-1]+1)
+            pep_len:len,
+            start  :slice[0]+1,
+            end_pos:slice.at(-1)+1,
+            peptide:slice.map(i=>consensusSeq[i]).join(""),
+            display:consensusSeq.slice(slice[0], slice.at(-1)+1)
           };
         })
       );
 
-      /* ---------- 1. live NetMHC hits --------------------------- */
-      const hitsMap = d3.rollup(
+      /* -------- 1. organise existing hits --------------------- */
+      const hitsByAlleleLen = d3.rollup(
         rowsTrigger,
-        v => new Map(v.map(r=>[r.peptide,r])),
-        d => d.allele,
-        d => d.pep_len
+        v=>new Map(v.map(r=>[r.peptide,r])),
+        d=>d.allele,
+        d=>d.pep_len
       );
 
-      /* ---------- 2. cover table + explode + reduce ------------- */
-      const coverTable = [];
-      for (const [allele, byLen] of hitsMap)
-        for (const w of windows) if (byLen.get(w.pep_len)) {
-          const h = byLen.get(w.pep_len).get(w.peptide);
-          coverTable.push({
-            allele,
-            ...w,
-            pct     : h?.pct_el ?? null,
-            present : !!h
-          });
-        }
+      /* union = alleles with hits ∪ selected alleles */
+      const allAlleles = new Set([...hitsByAlleleLen.keys(), ...selAlleles]);
 
+      /* -------- 2. cover table: one row per window × allele ---- */
+      const coverTable = [];
+      for (const allele of allAlleles) {
+        const byLen = hitsByAlleleLen.get(allele) ?? new Map();
+        for (const len of LENGTHS) {
+          const pepMap = byLen.get(len) ?? new Map();
+          for (const w of windows) if (w.pep_len===len) {
+            const h = pepMap.get(w.peptide);
+            coverTable.push({
+              allele, ...w,
+              pct     : h?.pct_el ?? null,
+              present : !!h
+            });
+          }
+        }
+      }
+
+      /* -------- 3. explode to per-position rows & keep best pct */
       const exploded = coverTable.flatMap(w =>
         d3.range(w.start, w.end_pos+1).map(pos=>({
           allele:w.allele, pep_len:w.pep_len, pos,
@@ -2040,11 +2045,12 @@ const consensusSeq = consensusRows
 const chosenLen     = +selectedLen;
 const activeAlleles = selectedAlleles;
 
-const heatmapData2 = heatmapRaw(consensusSeq)
-  .filter(d => d.pep_len===chosenLen && activeAlleles.includes(d.allele));
+const heatmapData2 = heatmapRaw(consensusSeq, activeAlleles)
+  .filter(d => d.pep_len === chosenLen && activeAlleles.includes(d.allele));
 
-console.log("✨  derived rows:", heatmapData2.length);
-console.log("⚠️  missing rows:", heatmapData2.filter(d=>!d.present).length);
+console.log("✨ derived rows :", heatmapData2.length,
+            "| missing :", heatmapData2.filter(d=>!d.present).length);
+
 ```
 
 ```js
