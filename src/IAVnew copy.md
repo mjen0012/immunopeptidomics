@@ -1915,7 +1915,7 @@ const HIT_CACHE = globalThis.__NETMHC_CACHE__;
 
 /* ─── Live rows Mutable — MUST exist before heatmapRaw runs ───── */
 if (!globalThis.__HIT_ROWS__)
-  globalThis.__HIT_ROWS__ = Mutable([]);   // ALWAYS an array
+  globalThis.__HIT_ROWS__ = Mutable(Array.from(HIT_CACHE.values()));   // ALWAYS an array
 const HIT_ROWS = globalThis.__HIT_ROWS__;
 
 /* ─── Track jobs already submitted so we don’t resubmit ───────── */
