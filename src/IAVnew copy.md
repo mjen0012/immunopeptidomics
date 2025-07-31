@@ -1848,17 +1848,23 @@ const commitTo = (btn, element) =>
     btn.addEventListener("input", update);
     return () => btn.removeEventListener("input", update);
   });
+```
 
+```js
 const committedI  = commitTo(runBtnI , alleleCtrl1);
 const committedII = commitTo(runBtnII, alleleCtrl2);
+```
 
+```js
 /* ▸ state holders ------------------------------------------------ */
 const resultsArrayI = Mutable([]);
 const resultsArrayII = Mutable([]);
 
 const excludedI = Mutable([]);      // peptides <8 or >14
 const excludedII = Mutable([]);     // peptides <11 or >30
+```
 
+```js
 /* ▸ helpers to talk to IEDB -------------------------------------- */
 function buildBodyI(alleles, fasta) {
   return {
@@ -1898,7 +1904,9 @@ function buildBodyII(alleles, fasta) {
     }]
   };
 }
+```
 
+```js
 async function submit(body) {
   const r = await fetch("/api/iedb-pipeline", {
     method:"POST",
@@ -1941,7 +1949,9 @@ async function parsePeptides(file) {
     .map(l => l.split(",")[idx]?.trim()?.toUpperCase())
     .filter(Boolean);
 }
+```
 
+```js
 /* ▸ RUN pipeline – Class I --------------------------------------- */
 trigI;                      // make cell reactive
 (async () => {
@@ -1967,7 +1977,9 @@ trigI;                      // make cell reactive
     setBanner(`Class I error: ${err.message}`);
   }
 })();
+```
 
+```js
 /* ▸ RUN pipeline – Class II -------------------------------------- */
 trigII;                     // make cell reactive
 (async () => {
@@ -1993,7 +2005,9 @@ trigII;                     // make cell reactive
     setBanner(`Class II error: ${err.message}`);
   }
 })();
+```
 
+```js
 /* ▸ CSV download helpers ----------------------------------------- */
 function makeDownloadButton(label, rowsMut, filename) {
   const btn = Inputs.button(label);
@@ -2016,7 +2030,6 @@ const downloadCSVI  = makeDownloadButton("Download Class-I CSV",
                                          resultsArrayI,  "mhcI_predictions.csv");
 const downloadCSVII = makeDownloadButton("Download Class-II CSV",
                                          resultsArrayII, "mhcII_predictions.csv");
-
 ```
 
 
