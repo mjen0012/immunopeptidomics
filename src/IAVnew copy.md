@@ -1952,8 +1952,33 @@ async function parsePeptides(file) {
 ```
 
 ```js
-/* ▸ RUN pipeline – Class I --------------------------------------- */
+/* ▸ RUN pipeline – Class I  (now cache-aware) -------------------- */
 trigI;                      // make cell reactive
+
+/* — column mapping: cache → API display names — */
+const colMap = {
+  sequence_number           : "seq #",
+  peptide                   : "peptide",
+  start                     : "start",
+  end                       : "end",
+  length                    : "peptide length",
+  allele                    : "allele",
+  peptide_index             : "peptide index",
+  median_percentile         : "median binding percentile",
+  netmhcpan_el_core         : "netmhcpan_el core",
+  netmhcpan_el_icore        : "netmhcpan_el icore",
+  netmhcpan_el_score        : "netmhcpan_el score",
+  netmhcpan_el_percentile   : "netmhcpan_el percentile",
+  netmhcpan_ba_core         : "netmhcpan_ba core",
+  netmhcpan_ba_icore        : "netmhcpan_ba icore",
+  netmhcpan_ba_ic50         : "netmhcpan_ba IC50",
+  netmhcpan_ba_percentile   : "netmhcpan_ba percentile"
+};
+const convertCacheRow = r =>
+  Object.fromEntries(Object.entries(r).map(([k,v]) =>
+    [colMap[k] ?? k, v]
+  ));
+
 (async () => {
   if (!peptideFile) return;                 // no peptides yet
   setBanner("Class I: starting…");
@@ -1966,13 +1991,50 @@ trigI;                      // make cell reactive
   if (!alleles.length)   return setBanner("Class I: no alleles selected.");
   if (!okPeps.length)    return setBanner("Class I: no peptides in 8-14 range.");
 
-  const fasta = okPeps.map((p,i)=>`>p${i+1}\n${p}`).join("\n");
+  /* 1 ▸ pull any existing predictions from netmhccalc ------------- */
+  const cacheRows = await db.sql`
+    SELECT *
+    FROM   netmhccalc
+    WHERE  allele IN (${alleles})
+      AND  peptide IN (${okPeps})
+  `.toArray();
+
+  const cacheSet = new Set(
+    cacheRows.map(r => `${r.allele}|${r.peptide}`)
+  );
+  const cachedConverted = cacheRows.map(convertCacheRow);
+
+  /* 2 ▸ decide which peptides still need querying ----------------- */
+  const pepsNeeded = okPeps.filter(p => {
+    for (const al of alleles)
+      if (!cacheSet.has(`${al}|${p}`)) return true;   // at least one miss
+    return false;                                     // fully cached
+  });
+
+  /* 3 ▸ if everything cached, we’re done -------------------------- */
+  if (pepsNeeded.length === 0) {
+    resultsArrayI.value = cachedConverted;
+    return setBanner(`Class I: all ${cachedConverted.length} rows from cache ✅`);
+  }
+
+  /* 4 ▸ otherwise hit the API only for the missing peptides ------- */
+  const fasta = pepsNeeded.map((p,i)=>`>p${i+1}\n${p}`).join("\n");
+
   try {
     const id  = await submit(buildBodyI(alleles, fasta));
     setBanner("Class I: polling…");
     const tbl = await poll(id);
-    resultsArrayI.value = rowsFromTable(tbl);
-    setBanner(`Class I done — ${resultsArrayI.value.length} rows.`);
+    const apiRows = rowsFromTable(tbl);
+
+    /* 5 ▸ merge cache + fresh rows (API rows win on duplicates) --- */
+    const map = new Map();
+    for (const r of cachedConverted)
+      map.set(`${r.allele}|${r.peptide}`, r);
+    for (const r of apiRows)
+      map.set(`${r.allele}|${r.peptide}`, r);   // overwrite if needed
+
+    resultsArrayI.value = [...map.values()];
+    setBanner(`Class I done — ${resultsArrayI.value.length} rows (cache + new).`);
   } catch (err) {
     setBanner(`Class I error: ${err.message}`);
   }
