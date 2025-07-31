@@ -2048,14 +2048,19 @@ const consensusSeq = consensusRows
   .map(d=>d.aminoacid).join("");
 
 /* ------------ heat-map working rows ----------------------- */
-const chosenLen     = +selectedLen;
-const activeAlleles = selectedAlleles;
+const chosenLen = +selectedLen;
 
-const heatmapData2 = heatmapRaw(consensusSeq, activeAlleles)
-  .filter(d => d.pep_len === chosenLen && activeAlleles.includes(d.allele));
+/* normalise the selected-allele collection → plain array */
+const selArr = Array.isArray(selectedAlleles)
+             ? selectedAlleles
+             : Array.from(selectedAlleles ?? []);
+
+const heatmapData2 = heatmapRaw(consensusSeq, selArr)
+  .filter(d => d.pep_len === chosenLen && selArr.includes(d.allele));
 
 console.log("✨ derived rows :", heatmapData2.length,
             "| missing :", heatmapData2.filter(d=>!d.present).length);
+
 
 ```
 
