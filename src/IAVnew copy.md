@@ -1992,12 +1992,14 @@ const convertCacheRow = r =>
   if (!okPeps.length)    return setBanner("Class I: no peptides in 8-14 range.");
 
   /* 1 ▸ pull any existing predictions from netmhccalc ------------- */
-  const cacheRows = await db.sql`
-    SELECT *
-    FROM   netmhccalc
-    WHERE  allele IN (${alleles})
-      AND  peptide IN (${okPeps})
-  `.toArray();
+  const cacheRows = (
+    await db.sql`
+      SELECT *
+      FROM   netmhccalc
+      WHERE  allele IN (${alleles})
+        AND  peptide IN (${okPeps})
+    `
+  ).toArray();
 
   const cacheSet = new Set(
     cacheRows.map(r => `${r.allele}|${r.peptide}`)
