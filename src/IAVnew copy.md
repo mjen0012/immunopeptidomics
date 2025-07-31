@@ -1810,13 +1810,6 @@ const histEl = histogramChart({
 ```
 
 ```js
-/* Build consensusSeq once — replace the query if yours differs —— */
-
-const consensusRows = (await db.sql`
-  SELECT position, aminoacid           -- 1-based positions
-  FROM   consensus                     -- ← your table / view name
-  ORDER  BY position
-`).toArray();
 
 /* Example row structure: {position:1, aminoacid:"M"}              */
 
