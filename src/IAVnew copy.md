@@ -1892,7 +1892,7 @@ function makeKey(allele, len, peptide) {
 ```
 
 ```js
-/* ─── NetMHC hit cache (persists across reloads) ───────────────── */
+/* ─── NetMHC hit cache (persists across reloads) ──────────────── */
 if (!globalThis.__NETMHC_CACHE__) {
   globalThis.__NETMHC_CACHE__ = new Map();
 
@@ -1913,16 +1913,15 @@ if (!globalThis.__NETMHC_CACHE__) {
 }
 const HIT_CACHE = globalThis.__NETMHC_CACHE__;
 
-/* ─── Live rows Mutable — downstream cells react to this ───────── */
+/* ─── Live rows Mutable — MUST exist before heatmapRaw runs ───── */
 if (!globalThis.__HIT_ROWS__)
-  globalThis.__HIT_ROWS__ = Mutable([]);
+  globalThis.__HIT_ROWS__ = Mutable([]);   // ALWAYS an array
 const HIT_ROWS = globalThis.__HIT_ROWS__;
 
-/* ─── Track jobs already submitted so we don’t resubmit —───────── */
+/* ─── Track jobs already submitted so we don’t resubmit ───────── */
 if (!globalThis.__SUBMITTED_NETMHC__)
   globalThis.__SUBMITTED_NETMHC__ = new Set();
 const IN_FLIGHT = globalThis.__SUBMITTED_NETMHC__;
-
 
 ```
 
@@ -1938,16 +1937,17 @@ const consensusSeq = consensusRows
 
 /* memo’ed computation of heatmapRaw for a given consensus */
 function heatmapRaw() {
-  const rowsTrigger = HIT_ROWS.value;            // ⚑ reactive dependency
+  /* reactive dependency – default to empty array if value is nullish */
+  const rowsTrigger = HIT_ROWS.value ?? [];
 
   return memo(
     {
-      tag : "heatmapRaw",
+      tag   : "heatmapRaw",
       consensusSeq,
-      stamp : rowsTrigger.length                 // 👈 key now changes
+      stamp : rowsTrigger.length          // 0 when array empty
     },
     () => {
-      /* ---------- 0 ▸ current consensus windows ------------------ */
+      /* ---------- 0 ▸ build consensus windows ------------------ */
       const nonGapIdx = [];
       for (let i = 0; i < consensusSeq.length; ++i)
         if (consensusSeq[i] !== "-") nonGapIdx.push(i);
@@ -1956,8 +1956,8 @@ function heatmapRaw() {
         const arr = [];
         for (let s = 0; s <= nonGapIdx.length - len; ++s) {
           const sliceIdx   = nonGapIdx.slice(s, s + len);
-          const startPos   = sliceIdx[0] + 1;                  // 1‑based
-          const endPos     = sliceIdx[sliceIdx.length - 1] + 1;
+          const startPos   = sliceIdx[0] + 1;             // 1-based
+          const endPos     = sliceIdx.at(-1) + 1;
           const pepGapless = sliceIdx.map(i => consensusSeq[i]).join("");
           const display    = consensusSeq.slice(startPos - 1, endPos);
           arr.push({
@@ -1971,8 +1971,8 @@ function heatmapRaw() {
         return arr;
       });
 
-      /* ---------- 1 ▸ live NetMHC hits ------------------------ */
-      const hitsArr = rowsTrigger;               // ← use the fresh array
+      /* ---------- 1 ▸ live NetMHC hits ------------------------- */
+      const hitsArr = rowsTrigger;        // always an array now
       const hitsMap = d3.rollup(
         hitsArr,
         v => new Map(v.map(r => [r.peptide, r])),
@@ -1980,7 +1980,7 @@ function heatmapRaw() {
         d => d.pep_len
       );
 
-      /* ---------- 2 ▸ cover table (unchanged) -------------------- */
+      /* ---------- 2 ▸ cover table + explode + reduce ----------- */
       const coverTable = [];
       for (const [allele, byLen] of hitsMap) {
         for (const len of LENGTHS) {
@@ -2001,7 +2001,6 @@ function heatmapRaw() {
         }
       }
 
-      /* ---------- 3 ▸ explode & reduce (unchanged) --------------- */
       const exploded = coverTable.flatMap(w =>
         d3.range(w.start, w.end_pos + 1).map(pos => ({
           allele  : w.allele,
@@ -2023,10 +2022,10 @@ function heatmapRaw() {
         d => d.pep_len,
         d => d.allele,
         d => d.pos
-      ).flatMap(([pep_len, byAllele]) =>
-          byAllele.flatMap(([allele, byPos]) =>
-            byPos.map(([pos, row]) => row)
-          )
+      ).flatMap(([len, byAllele]) =>
+         byAllele.flatMap(([allele, byPos]) =>
+           byPos.map(([pos, row]) => row)
+         )
       );
     }
   );
