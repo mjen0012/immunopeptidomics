@@ -2117,6 +2117,8 @@ const downloadCSVII = makeDownloadButton("Download Class-II CSV",
   ${runBtnII}
   ${downloadCSVI}
   ${downloadCSVII}
+  ${percentileModeInput}
+  ${mhcClassInput}
   ${allelePlot}
 </div>
 
@@ -2143,4 +2145,3 @@ const allelePlot = alleleChart({
   cell     : 28
 });
 ```
-
