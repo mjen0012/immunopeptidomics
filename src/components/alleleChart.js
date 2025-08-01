@@ -13,6 +13,7 @@
  *  Returns an <svg> node wrapped in a scrolling <div>.
  *  Colour scale:  0 (blue) → 50 (white) → 100 (red)
  * ────────────────────────────────────────────────────────────────*/
+import * as d3 from "npm:d3";
 
 export function alleleChart({
   data,
