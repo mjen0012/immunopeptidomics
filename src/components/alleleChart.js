@@ -23,6 +23,10 @@ export function alleleChart({
   margin    = {top: 40, right: 20, bottom: 20, left: 140}
 } = {}) {
 
+  /* ---- graceful fall-backs for initial empty render ----------- */
+  data    = Array.isArray(data)    ? data    : [];
+  alleles = Array.isArray(alleles) ? alleles : [];
+
   /* 1 ▸ column resolver ----------------------------------------- */
   const pctCol =
     classType === "I"
