@@ -201,6 +201,7 @@ import { peptideHeatmap } from "./components/peptideHeatmap.js";
 import {areaChart} from "./components/areaChart.js";
 import {sequenceCompareChart} from "./components/sequenceCompareChart.js";
 import {histogramChart} from "./components/histogramChart.js";
+import {alleleChart} from "./components/alleleChart.js";
 import * as d3 from "npm:d3";
 ```
 
