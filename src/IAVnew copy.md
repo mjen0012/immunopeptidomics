@@ -2116,5 +2116,30 @@ const downloadCSVII = makeDownloadButton("Download Class-II CSV",
   ${runBtnII}
   ${downloadCSVI}
   ${downloadCSVII}
+  ${allelePlot}
 </div>
+
+
+```js
+/* external radios – place these with your other controls */
+const percentileModeInput = Inputs.radio(["EL","BA"], {
+  label : "Percentile type:",
+  value : "EL"
+});
+const mhcClassInput = Inputs.radio(["Class I","Class II"], {
+  label : "MHC class:",
+  value : "Class I"
+});
+const percMode = Generators.input(percentileModeInput);
+const mhcClass = Generators.input(mhcClassInput);
+
+/* build chart (reactive cell) */
+const allelePlot = alleleChart({
+  data    : mhcClass === "Class I" ? resultsArrayI.value : resultsArrayII.value,
+  alleles : mhcClass === "Class I" ? [...committedI]     : [...committedII],
+  mode    : percMode,
+  classType: mhcClass === "Class I" ? "I" : "II",
+  cell    : 28                         // tweak size if needed
+});
+```
 
