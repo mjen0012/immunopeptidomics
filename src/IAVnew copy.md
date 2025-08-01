@@ -2136,11 +2136,11 @@ const mhcClass = Generators.input(mhcClassInput);
 
 /* build chart (reactive cell) */
 const allelePlot = alleleChart({
-  data    : mhcClass === "Class I" ? resultsArrayI.value : resultsArrayII.value,
-  alleles : mhcClass === "Class I" ? [...committedI]     : [...committedII],
-  mode    : percMode,
+  data     : (mhcClass === "Class I" ? resultsArrayI.value : resultsArrayII.value) ?? [],
+  alleles  : (mhcClass === "Class I" ? committedI : committedII) ?? [],
+  mode     : percMode,
   classType: mhcClass === "Class I" ? "I" : "II",
-  cell    : 28                         // tweak size if needed
+  cell     : 28
 });
 ```
 
