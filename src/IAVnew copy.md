@@ -2119,7 +2119,7 @@ const downloadCSVII = makeDownloadButton("Download Class-II CSV",
   ${downloadCSVII}
   ${percentileModeInput}
   ${mhcClassInput}
-  ${allelePlot}
+  ${view(allelePlot)} 
 </div>
 
 
@@ -2139,7 +2139,7 @@ const mhcClass = Generators.input(mhcClassInput);
 /* build chart (reactive cell) */
 const allelePlot = alleleChart({
   data     : (mhcClass === "Class I" ? resultsArrayI.value : resultsArrayII.value) ?? [],
-  alleles  : (mhcClass === "Class I" ? committedI : committedII) ?? [],
+  alleles  : [...(mhcClass === "Class I" ? committedI : committedII) ?? []],  // ← spread to array
   mode     : percMode,
   classType: mhcClass === "Class I" ? "I" : "II",
   cell     : 28
