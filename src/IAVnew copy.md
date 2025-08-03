@@ -1992,43 +1992,50 @@ const peptidesI = await (async () => {
 
 ```js
 /* ▸ Class I cache preview for the *live* selection (selectedI) */
-const cachePreviewI = {
+const cachePreviewI = await (async () => {
   const alleles = [...selectedI];
   if (!alleles.length || !peptidesI.length) return [];
-  const cacheRows = (await db.sql`
-    SELECT *
-    FROM   netmhccalc
-    WHERE  allele IN (${alleles})
-      AND  peptide IN (${peptidesI})
-  `).toArray();
+
+  const cacheRows = (
+    await db.sql`
+      SELECT *
+      FROM   netmhccalc
+      WHERE  allele IN (${alleles})
+        AND  peptide IN (${peptidesI})
+    `
+  ).toArray();
+
   const mapped = cacheRows.map(convertCacheRowI);
   console.debug("cachePreviewI", { alleles, peps: peptidesI.length, rows: mapped.length });
   return mapped;
-}
+})();
 
 ```
 
 ```js
 /* ▸ merged rows for the chart: cache preview + (overwrite by) resultsArrayI */
-const chartRowsI = {
-  // Start with cache preview
+const chartRowsI = (() => {
   const map = new Map();
+
+  // Start with cache preview
   for (const r of cachePreviewI)
     map.set(`${r.allele}|${r.peptide}`, r);
 
-  // Overlay any fetched rows from IEDB (resultsArrayI is a Mutable; read *without* .value)
-  for (const r of resultsArrayI)
+  // Overlay any fetched rows from IEDB (API rows win)
+  const apiRows = Array.isArray(resultsArrayI.value) ? resultsArrayI.value : [];
+  for (const r of apiRows)
     map.set(`${r.allele}|${r.peptide}`, r);
 
   const merged = [...map.values()];
   console.debug("chartRowsI", {
     selectedAlleles: [...selectedI],
     fromCache      : cachePreviewI.length,
-    fromResults    : resultsArrayI.length ?? 0,
+    fromResults    : apiRows.length,
     merged         : merged.length
   });
   return merged;
-}
+})();
+
 
 ```
 
