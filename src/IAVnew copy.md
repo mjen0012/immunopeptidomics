@@ -2062,9 +2062,9 @@ const chartRowsI = (() => {
 ```
 
 ```js
-/* ▸ RUN results – Class I  (reactive to button click) */
+/* ▸ RUN results – Class I  (reactive to button click; per-allele missing) */
 const runResultsI = await (async () => {
-  trigI;                           // ← re-run this cell when Run Class I is clicked
+  trigI;                           // re-run when Run Class I is clicked
 
   if (!peptideFile) return [];
   setBanner("Class I: starting…");
@@ -2089,46 +2089,56 @@ const runResultsI = await (async () => {
     `
   ).toArray();
 
+  // cacheSet is over unique (allele|peptide) pairs
   const cacheSet = new Set(cacheRows.map(r => `${r.allele}|${r.peptide}`));
   const cachedConverted = cacheRows.map(convertCacheRowI);
 
-  /* 2 ▸ decide which peptides still need querying */
-  const pepsNeeded = okPeps.filter(p => {
-    for (const al of alleles) if (!cacheSet.has(`${al}|${p}`)) return true;
-    return false;
-  });
-
-  /* 3 ▸ if everything cached, update and finish */
-  if (pepsNeeded.length === 0) {
-    resultsArrayI.value = cachedConverted;
-    setBanner(`Class I: all ${cachedConverted.length} rows from cache ✅`);
-    console.debug("resultsArrayI after run", { len: resultsArrayI.value.length, sample: resultsArrayI.value[0] });
-    return cachedConverted;
+  /* 2 ▸ compute missing peptides per allele */
+  const missingByAllele = new Map();
+  for (const al of alleles) {
+    const miss = [];
+    for (const p of okPeps) {
+      if (!cacheSet.has(`${al}|${p}`)) miss.push(p);
+    }
+    if (miss.length) missingByAllele.set(al, miss);
   }
 
-  /* 4 ▸ otherwise hit the API for missing peptides */
-  const fasta = pepsNeeded.map((p,i)=>`>p${i+1}\n${p}`).join("\n");
+  // If everything is cached for all alleles, we’re done.
+  if (missingByAllele.size === 0) {
+    const merged = [...new Map(cachedConverted.map(r => [`${r.allele}|${r.peptide}`, r])).values()];
+    resultsArrayI.value = merged;
+    setBanner(`Class I: all ${merged.length} rows from cache ✅`);
+    console.debug("resultsArrayI after run", { len: resultsArrayI.value.length, sample: resultsArrayI.value[0] });
+    return merged;
+  }
+
+  /* 3 ▸ build API request only for alleles that have missing peptides */
+  const allelesToQuery = [...missingByAllele.keys()];
+  const unionMissingPeps = [...new Set([].concat(...allelesToQuery.map(al => missingByAllele.get(al))))];
+
+  const fasta = unionMissingPeps.map((p,i)=>`>p${i+1}\n${p}`).join("\n");
 
   try {
-    const id  = await submit(buildBodyI(alleles, fasta));
+    const id  = await submit(buildBodyI(allelesToQuery, fasta));
     setBanner("Class I: polling…");
     const tbl = await poll(id);
     const apiRows = rowsFromTable(tbl);
 
-    /* 5 ▸ merge cache + fresh rows (API rows win on duplicates) */
+    /* 4 ▸ merge cache + fresh rows (API rows win on duplicates) */
     const map = new Map();
     for (const r of cachedConverted) map.set(`${r.allele}|${r.peptide}`, r);
     for (const r of apiRows)       map.set(`${r.allele}|${r.peptide}`, r);
 
-    /* counts for banner */
-    const newSet      = new Set(apiRows.map(r => `${r.allele}|${r.peptide}`));
-    const totalRows   = map.size;
-    const newCount    = newSet.size;
-    const cacheCount  = totalRows - newCount;
+    // Accurate counts:
+    const apiKeySet = new Set(apiRows.map(r => `${r.allele}|${r.peptide}`));
+    const newCount  = [...apiKeySet].filter(k => !cacheSet.has(k)).length;   // truly new pairs
+    const cacheHit  = cacheSet.size;                                         // unique cached pairs
+    const totalRows = map.size;
 
     const merged = [...map.values()];
-    resultsArrayI.value = merged;      // keep your CSV button working
-    setBanner(`Class I done — ${totalRows} rows (cache ${cacheCount} + new ${newCount}).`);
+    resultsArrayI.value = merged;  // keep CSV button working
+
+    setBanner(`Class I done — ${totalRows} rows (cache ${cacheHit} + new ${newCount}).`);
     console.debug("resultsArrayI after run", { len: resultsArrayI.value.length, sample: resultsArrayI.value[0] });
     return merged;
   } catch (err) {

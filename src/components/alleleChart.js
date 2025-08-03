@@ -1,5 +1,5 @@
 /*****************************************************************
- *  alleleChart() → HTMLElement   ·   v4 (fixed-height responsive)
+ *  alleleChart() → HTMLElement   ·   v5 (fixed-height responsive)
  *****************************************************************/
 import * as d3 from "npm:d3";
 
@@ -11,13 +11,14 @@ export function alleleChart({
   baseCell   = 28,                    // preferred cell size; will shrink/grow
   height0    = 320,                   // fixed card height (px), like peptideHeatmap
   margin     = { top: 80, right: 24, bottom: 24, left: 140 },
-  showNumbers = false                 // NEW: hide numbers by default
+  showNumbers = false                 // hide numbers by default
 } = {}) {
 
   /* ── guard ───────────────────────────────────────────────── */
   if (!alleles?.length || !data?.length) {
     const span = document.createElement("span");
-    span.textContent = "Select alleles to see cached results (then click Run for fresh predictions).";
+    span.textContent =
+      "Select alleles to see cached results (then click Run for fresh predictions).";
     span.style.fontStyle = "italic";
     return span;
   }
@@ -110,16 +111,18 @@ export function alleleChart({
       }
     }
 
-    /* ── X-axis labels (alleles, rotated) ───────────────────── */
+    /* ── X-axis labels (alleles, above the grid) ────────────── */
     const xg = svg.append("g")
-      .attr("transform", `translate(${margin.left},${margin.top - 6})`);
+      // draw the labels a little ABOVE the grid, then rotate each label
+      .attr("transform", `translate(${margin.left},${margin.top - 10})`);
 
     alleles.forEach((al, i) => {
       xg.append("text")
-        .attr("x", i * cell + cell / 2)
-        .attr("y", 0)
-        .attr("text-anchor", "end")
-        .attr("transform", `rotate(-45, ${i * cell + cell / 2}, 0)`)
+        // position at the column center, then rotate -45°
+        .attr("transform", `translate(${i * cell + cell / 2}, 0) rotate(-45)`)
+        // make labels lean up-right so they don't overlap the left Y labels
+        .attr("text-anchor", "start")
+        .attr("dy", -4) // lift slightly above the grid top
         .text(al);
     });
 
