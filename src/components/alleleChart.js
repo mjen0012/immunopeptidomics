@@ -1,5 +1,8 @@
 /*****************************************************************
- *  alleleChart() → HTMLElement   ·   v5 (fixed-height responsive)
+ *  alleleChart() → HTMLElement   ·   v6
+ *  - Fixes top clipping of allele labels (reserves label band)
+ *  - Robust percentile key resolution (EL/BA, spaces/underscores)
+ *  - Mode switch (EL ↔ BA) updates colors/values immediately
  *****************************************************************/
 import * as d3 from "npm:d3";
 
@@ -9,7 +12,7 @@ export function alleleChart({
   mode       = "EL",                  // "EL" | "BA"
   classType  = "I",                   // "I"  | "II"
   baseCell   = 28,                    // preferred cell size; will shrink/grow
-  height0    = 320,                   // fixed card height (px), like peptideHeatmap
+  height0    = 320,                   // fixed card height (px)
   margin     = { top: 80, right: 24, bottom: 24, left: 140 },
   showNumbers = false                 // hide numbers by default
 } = {}) {
@@ -23,11 +26,44 @@ export function alleleChart({
     return span;
   }
 
-  /* ── pick the percentile column ──────────────────────────── */
-  const pctCol =
-    classType === "I"
-      ? (mode === "EL" ? "netmhcpan_el percentile" : "netmhcpan_ba percentile")
-      : (mode === "EL" ? "netmhciipan_el percentile" : "netmhciipan_ba percentile");
+  /* ── resolve percentile column robustly ──────────────────── */
+  function resolvePctKey(keys, cls, m) {
+    const norm = s => String(s).toLowerCase().replace(/[\s_-]+/g, "");
+    const lut  = new Map(keys.map(k => [norm(k), k]));
+
+    // Candidate lists (most specific → least)
+    const cI_EL = ["netmhcpan_el_percentile", "netmhcpanelpercentile", "elpercentile"];
+    const cI_BA = ["netmhcpan_ba_percentile", "netmhcpanbapercentile", "bapercentile"];
+    const cII_EL = ["netmhciipan_el_percentile","netmhciipanelpercentile","elpercentile"];
+    const cII_BA = ["netmhciipan_ba_percentile","netmhciipanbapercentile","bapercentile"];
+
+    const cands = cls === "I"
+      ? (m === "EL" ? cI_EL : cI_BA)
+      : (m === "EL" ? cII_EL : cII_BA);
+
+    for (const c of cands) {
+      if (lut.has(c)) return lut.get(c);
+    }
+    // Fallback: scan keys for regex like /netmhc.*(iipan|pan).*el.*percent/i
+    const rx = (m === "EL")
+      ? /el.*percent/i
+      : /ba.*percent/i;
+    const found = keys.find(k => rx.test(k));
+    if (found) return found;
+
+    console.warn("[alleleChart] Could not resolve percentile column. Keys:", keys);
+    return null;
+  }
+
+  // Gather keys once (merged data share a schema)
+  const keys0  = Object.keys(data[0] ?? {});
+  const pctKey = resolvePctKey(keys0, classType, mode);
+  if (!pctKey) {
+    const span = document.createElement("span");
+    span.textContent = "No percentile column found in data.";
+    span.style.color = "crimson";
+    return span;
+  }
 
   /* ── filter rows to selected alleles & prep structures ───── */
   const rows = data.filter(d => alleles.includes(d.allele));
@@ -45,7 +81,7 @@ export function alleleChart({
   // Percentiles can arrive as strings; ensure numbers. Ignore NaN in lookup.
   const lookup = new Map();
   for (const d of rows) {
-    const v = +d[pctCol];
+    const v = +d[pctKey];
     if (Number.isFinite(v)) lookup.set(`${d.allele}|${d.peptide}`, v);
   }
 
@@ -53,6 +89,17 @@ export function alleleChart({
   const colour = d3.scaleLinear()
     .domain([0, 50, 100])
     .range(["#0074D9", "#ffffff", "#e60000"]);
+
+  /* ── dynamic label band to prevent top clipping ──────────── */
+  // Estimate how much vertical space rotated (-45°) labels need.
+  const maxLabelLen = alleles.reduce((m, a) => Math.max(m, a?.length ?? 0), 0);
+  const approxCharW = 6.5;                 // px per character (approx)
+  const approxTextW = maxLabelLen * approxCharW;
+  const textH       = 12;                   // font-size ≈ 12
+  const rot = Math.PI / 4;                  // 45°
+  const rotatedHeight = approxTextW * Math.sin(rot) + textH * Math.cos(rot);
+  // Clamp to a reasonable band:
+  const xLabelBand = Math.max(44, Math.min(120, Math.round(rotatedHeight + 10)));
 
   /* ── wrapper div (fixed height, width:100%) ───────────────── */
   const wrapper = document.createElement("div");
@@ -65,12 +112,12 @@ export function alleleChart({
   /* ── layout + draw (mimics peptideHeatmap) ───────────────── */
   function draw(wrapperWidth) {
     // Choose a cell size that fits both width & height
-    const fitH = Math.floor((height0 - margin.top - margin.bottom) / nRows);
+    const fitH = Math.floor((height0 - margin.top - margin.bottom - xLabelBand) / nRows);
     const fitW = Math.floor((wrapperWidth - margin.left - margin.right) / nCols);
     const cell = Math.max(10, Math.min(baseCell, fitH, fitW));   // clamp ≥10px
 
     const w = margin.left + nCols * cell + margin.right;
-    const h = margin.top  + nRows * cell + margin.bottom;
+    const h = margin.top  + xLabelBand + nRows * cell + margin.bottom;
 
     // Fresh SVG (responsive via viewBox + preserveAspectRatio)
     const svg = d3.create("svg")
@@ -81,8 +128,9 @@ export function alleleChart({
       .style("font-family", "sans-serif")
       .style("font-size", 12);
 
+    // Grid group: moved DOWN by xLabelBand to create a safe stripe for labels
     const g = svg.append("g")
-      .attr("transform", `translate(${margin.left},${margin.top})`);
+      .attr("transform", `translate(${margin.left},${margin.top + xLabelBand})`);
 
     /* ── draw cells ─────────────────────────────────────────── */
     for (let yi = 0; yi < nRows; yi++) {
@@ -111,24 +159,20 @@ export function alleleChart({
       }
     }
 
-    /* ── X-axis labels (alleles, above the grid) ────────────── */
+    /* ── X-axis labels (alleles) — inside the reserved band ── */
     const xg = svg.append("g")
-      // draw the labels a little ABOVE the grid, then rotate each label
-      .attr("transform", `translate(${margin.left},${margin.top - 10})`);
+      .attr("transform", `translate(${margin.left},${margin.top + xLabelBand - 2})`);
 
     alleles.forEach((al, i) => {
       xg.append("text")
-        // position at the column center, then rotate -45°
         .attr("transform", `translate(${i * cell + cell / 2}, 0) rotate(-45)`)
-        // make labels lean up-right so they don't overlap the left Y labels
-        .attr("text-anchor", "start")
-        .attr("dy", -4) // lift slightly above the grid top
+        .attr("text-anchor", "start")  // lean up-right; avoids overlap with left axis
         .text(al);
     });
 
     /* ── Y-axis labels (peptides) ───────────────────────────── */
     const yg = svg.append("g")
-      .attr("transform", `translate(${margin.left - 8},${margin.top})`);
+      .attr("transform", `translate(${margin.left - 8},${margin.top + xLabelBand})`);
 
     peptides.forEach((pep, i) => {
       yg.append("text")
