@@ -2010,6 +2010,7 @@ const cachePreviewI = await (async () => {
   return mapped;
 })();
 
+
 ```
 
 ```js
@@ -2017,14 +2018,14 @@ const cachePreviewI = await (async () => {
 const chartRowsI = (() => {
   const map = new Map();
 
-  // Start with cache preview
+  // Start with cache preview (immediate)
   for (const r of cachePreviewI)
     map.set(`${r.allele}|${r.peptide}`, r);
 
-  // Overlay any fetched rows from IEDB (API rows win)
-  const apiRows = Array.isArray(resultsArrayI.value) ? resultsArrayI.value : [];
+  // Overlay freshly-fetched rows from IEDB (REACTIVE READ — note: NO .value)
+  const apiRows = Array.isArray(resultsArrayI) ? resultsArrayI : [];
   for (const r of apiRows)
-    map.set(`${r.allele}|${r.peptide}`, r);
+    map.set(`${r.allele}|${r.peptide}`, r); // API rows win
 
   const merged = [...map.values()];
   console.debug("chartRowsI", {
@@ -2035,6 +2036,26 @@ const chartRowsI = (() => {
   });
   return merged;
 })();
+
+
+```
+
+```js
+{
+  Object.defineProperty(globalThis, "debugNetMHC", {
+    configurable: true,
+    get() {
+      return {
+        get selectedI()     { return [...selectedI]; },
+        get peptidesI()     { return peptidesI; },
+        get cachePreviewI() { return cachePreviewI; },
+        get chartRowsI()    { return chartRowsI; },
+        get resultsI()      { return resultsArrayI; } // reactive read
+      };
+    }
+  });
+  console.debug("debugNetMHC ready → try:", "debugNetMHC.chartRowsI.length");
+}
 
 ```
 
@@ -2200,13 +2221,13 @@ const mhcClass = Generators.input(mhcClassInput);
 
 // Build the allele-chart element reactively (preview from cache, then API)
 const allelePlot = alleleChart({
-  data      : chartRowsI,          // ← reactive merged data (no .value)
-  alleles   : [...selectedI],      // ← live selection drives preview
+  data      : chartRowsI,          // merged (reactive) rows
+  alleles   : [...selectedI],      // live selection drives preview
   mode      : percMode,
   classType : "I",
   baseCell  : 28,
   margin    : { top: 40, right: 20, bottom: 20, left: 140 },
-  showNumbers: false               // ← per your preference “just show the plot”
+  showNumbers: false
 });
 
 
