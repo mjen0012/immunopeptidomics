@@ -17,7 +17,7 @@ export function alleleChart({
   mode       = "EL",
   classType  = "I",
   baseCell   = 28,
-  margin     = {top: 40, right: 20, bottom: 20, left: 140}
+  margin     = {top: 80, right: 20, bottom: 20, left: 140}
 } = {}) {
   // Pick the correct percentile column name
   const pctCol =
@@ -67,6 +67,7 @@ export function alleleChart({
       .attr("width",  Math.max(w, width))
       .attr("height", h)
       .attr("viewBox", `0 0 ${Math.max(w, width)} ${h}`)
+      .style("overflow", "visible")
       .style("font-family", "sans-serif")
       .style("font-size", 12);
 
@@ -98,7 +99,7 @@ export function alleleChart({
 
     // X-axis labels (alleles)
     const xg = svg.append("g")
-      .attr("transform", `translate(${margin.left},${margin.top - 5})`);
+      .attr("transform", `translate(${margin.left},${margin.top})`);
     alleles.forEach((al, i) => {
       xg.append("text")
         .attr("x", i*cell + cell/2)
