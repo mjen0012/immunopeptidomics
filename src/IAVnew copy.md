@@ -2135,15 +2135,30 @@ const mhcClassInput = Inputs.radio(["Class I","Class II"], {
 const percMode = Generators.input(percentileModeInput);
 const mhcClass = Generators.input(mhcClassInput);
 
-// Build the allele-chart element whenever results change
-const allelePlot = alleleChart({
-  data      : resultsArrayI.value,
-  alleles   : [...committedI],
-  mode      : percMode,
-  classType : "I",
-  baseCell  : 28,
-  margin    : { top: 40, right: 20, bottom: 20, left: 140 }
-});
+/* Build (and rebuild) the allele-chart whenever inputs or results change */
+const allelePlot = {
+  /* Touch the mutables (no .value) so this cell re-runs when they change */
+  resultsArrayI; resultsArrayII; committedI; committedII; percMode; mhcClass;
+
+  /* Choose the correct dataset / alleles based on the MHC class radio */
+  const data    = mhcClass === "Class I" ? resultsArrayI.value : resultsArrayII.value;
+  const alleles = mhcClass === "Class I" ? [...committedI]     : [...committedII];
+
+  /* Render */
+  const el = alleleChart({
+    data,
+    alleles,
+    mode      : percMode,
+    classType : mhcClass === "Class I" ? "I" : "II",
+    baseCell  : 28,
+    margin    : { top: 80, right: 24, bottom: 24, left: 140 }
+  });
+
+  /* Clean up if this cell is invalidated (navigated away, etc.) */
+  invalidation.then(() => el.remove());
+  return el;
+}
+
 
 ```
 

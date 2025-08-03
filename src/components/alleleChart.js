@@ -1,5 +1,5 @@
 /*****************************************************************
- *  alleleChart() → HTMLElement   ·   v3 (fixed-height responsive)
+ *  alleleChart() → HTMLElement   ·   v3.1 (fixed-height responsive)
  *****************************************************************/
 import * as d3 from "npm:d3";
 
@@ -98,7 +98,8 @@ export function alleleChart({
           .attr("height", cell - 1)
           .attr("fill", val == null ? "#f0f0f0" : colour(val));
 
-        if (val != null) {
+        // Only show numbers if there's room
+        if (val != null && cell >= 18) {
           g.append("text")
             .attr("x", xi * cell + cell / 2)
             .attr("y", yi * cell + cell / 2 + 3)
