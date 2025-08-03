@@ -2235,15 +2235,22 @@ const percMode = Generators.input(percentileModeInput);
 const mhcClass = Generators.input(mhcClassInput);
 
 // Build the allele-chart element reactively (preview from cache, then API)
-const allelePlot = alleleChart({
-  data      : chartRowsI,          // merged (reactive) rows
-  alleles   : [...selectedI],      // live selection drives preview
-  mode      : percMode,
-  classType : "I",
-  baseCell  : 28,
-  margin    : { top: 40, right: 20, bottom: 20, left: 140 },
-  showNumbers: false
-});
+// REPLACE your existing allelePlot cell with this block
+const allelePlot = (() => {
+  const modeNow = `${percMode}`;  // ← force a concrete string & dependency
+  console.debug("allelePlot render — mode:", modeNow);
+
+  return alleleChart({
+    data      : chartRowsI,          // merged (reactive) rows
+    alleles   : [...selectedI],      // live selection drives preview
+    mode      : modeNow,             // ← pass the concrete string
+    classType : "I",
+    baseCell  : 28,
+    margin    : { top: 40, right: 20, bottom: 20, left: 140 },
+    showNumbers: false
+  });
+})();
+
 
 
 
