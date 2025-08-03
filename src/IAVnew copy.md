@@ -2238,14 +2238,15 @@ const mhcClass = Generators.input(mhcClassInput);
 // REPLACE your existing allelePlot cell with this block
 // Build the allele-chart element reactively (preview from cache, then API)
 const allelePlot = alleleChart({
-  data      : chartRowsI,          // merged (reactive) rows
-  alleles   : [...selectedI],      // live selection drives preview
-  mode      : percMode,            // ← pass the AsyncGenerator directly
+  data      : chartRowsI,
+  alleles   : [...selectedI],
+  mode      : percMode,     // pass the AsyncGenerator
   classType : "I",
   baseCell  : 28,
   margin    : { top: 40, right: 20, bottom: 20, left: 140 },
   showNumbers: false
 });
+
 
 
 

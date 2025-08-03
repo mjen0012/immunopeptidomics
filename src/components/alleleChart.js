@@ -1,9 +1,10 @@
 /*****************************************************************
- *  alleleChart() → HTMLElement   ·   v7
+ *  alleleChart() → HTMLElement   ·   v8
  *  - Accepts mode as string OR AsyncGenerator (Generators.input)
- *  - Waits for initial mode before first draw (no EL flicker)
- *  - Re-renders on every mode change; still resizes responsively
- *  - Keeps label band (no top clipping); robust percentile key
+ *  - Dedupes mode changes, latest-toggle-wins rendering
+ *  - Cleans up observers when detached (no zombie draws)
+ *  - Prevents top clipping of allele labels (label band)
+ *  - Robust percentile key resolution (EL/BA, spaces/underscores)
  *****************************************************************/
 import * as d3 from "npm:d3";
 
@@ -29,6 +30,7 @@ export function alleleChart({
 
   /* ── helpers ─────────────────────────────────────────────── */
   const isAsyncIterable = (v) => v && typeof v[Symbol.asyncIterator] === "function";
+  const normMode = (m) => (String(m).toUpperCase().includes("BA") ? "BA" : "EL");
 
   function resolvePctKey(keys, cls, m) {
     const norm = s => String(s).toLowerCase().replace(/[\s_-]+/g, "");
@@ -62,19 +64,36 @@ export function alleleChart({
     overflow: hidden;
   `;
 
-  let curMode;             // "EL" | "BA"
-  let ro;                  // ResizeObserver
+  let curMode;                 // "EL" | "BA"
+  let ro;                      // ResizeObserver
   let roActive = false;
+  let disposed = false;
+  let renderTick = 0;          // latest-toggle-wins counter
+
+  const cleanup = () => {
+    disposed = true;
+    try { ro && ro.disconnect(); } catch {}
+  };
+
+  // If this element ever gets detached, stop listening/resizing
+  const detObs = new MutationObserver(() => {
+    if (!wrapper.isConnected) {
+      cleanup();
+      detObs.disconnect();
+    }
+  });
+  // Observe the whole document for removals (cheap enough here)
+  detObs.observe(document.documentElement, { childList: true, subtree: true });
 
   const draw = (wrapperWidth) => {
-    if (!curMode) return; // wait for first mode
-    // keys may come from cache or API; resolve per render
+    if (disposed || !curMode) return;
+
     const keys0  = Object.keys(data[0] ?? {});
     const pctKey = resolvePctKey(keys0, classType, curMode);
     console.debug("[alleleChart] class:", classType, "mode:", curMode, "pctKey:", pctKey);
 
     if (!pctKey) {
-      wrapper.innerHTML = "";
+      wrapper.replaceChildren();
       const span = document.createElement("span");
       span.textContent = "No percentile column found in data.";
       span.style.color = "crimson";
@@ -82,14 +101,13 @@ export function alleleChart({
       return;
     }
 
-    // Prepare rows/peptides
     const rows = data.filter(d => alleles.includes(d.allele));
     const peptides = [...new Set(rows.map(d => d.peptide))].sort(d3.ascending);
     const nRows = peptides.length;
     const nCols = alleles.length;
 
     if (nRows === 0 || nCols === 0) {
-      wrapper.innerHTML = "";
+      wrapper.replaceChildren();
       const span = document.createElement("span");
       span.textContent = "No matching rows for the selected alleles.";
       span.style.fontStyle = "italic";
@@ -97,19 +115,14 @@ export function alleleChart({
       return;
     }
 
-    // Build lookup
     const lookup = new Map();
     for (const d of rows) {
       const v = +d[pctKey];
       if (Number.isFinite(v)) lookup.set(`${d.allele}|${d.peptide}`, v);
     }
 
-    // Color scale
-    const colour = d3.scaleLinear()
-      .domain([0, 50, 100])
-      .range(["#0074D9", "#ffffff", "#e60000"]);
+    const colour = d3.scaleLinear().domain([0, 50, 100]).range(["#0074D9", "#ffffff", "#e60000"]);
 
-    // Compute sizes
     const fitH = Math.floor((height0 - margin.top - margin.bottom - xLabelBand) / nRows);
     const fitW = Math.floor((wrapperWidth - margin.left - margin.right) / nCols);
     const cell = Math.max(10, Math.min(baseCell, fitH, fitW));
@@ -117,7 +130,6 @@ export function alleleChart({
     const w = margin.left + nCols * cell + margin.right;
     const h = margin.top  + xLabelBand + nRows * cell + margin.bottom;
 
-    // SVG
     const svg = d3.create("svg")
       .attr("viewBox", `0 0 ${w} ${h}`)
       .attr("width",  "100%")
@@ -126,10 +138,8 @@ export function alleleChart({
       .style("font-family", "sans-serif")
       .style("font-size", 12);
 
-    const g = svg.append("g")
-      .attr("transform", `translate(${margin.left},${margin.top + xLabelBand})`);
+    const g = svg.append("g").attr("transform", `translate(${margin.left},${margin.top + xLabelBand})`);
 
-    // Cells
     for (let yi = 0; yi < nRows; yi++) {
       const pep = peptides[yi];
       for (let xi = 0; xi < nCols; xi++) {
@@ -156,9 +166,7 @@ export function alleleChart({
       }
     }
 
-    // X labels
-    const xg = svg.append("g")
-      .attr("transform", `translate(${margin.left},${margin.top + xLabelBand - 2})`);
+    const xg = svg.append("g").attr("transform", `translate(${margin.left},${margin.top + xLabelBand - 2})`);
     alleles.forEach((al, i) => {
       xg.append("text")
         .attr("transform", `translate(${i * cell + cell / 2}, 0) rotate(-45)`)
@@ -166,9 +174,7 @@ export function alleleChart({
         .text(al);
     });
 
-    // Y labels
-    const yg = svg.append("g")
-      .attr("transform", `translate(${margin.left - 8},${margin.top + xLabelBand})`);
+    const yg = svg.append("g").attr("transform", `translate(${margin.left - 8},${margin.top + xLabelBand})`);
     peptides.forEach((pep, i) => {
       yg.append("text")
         .attr("x", 0)
@@ -177,35 +183,45 @@ export function alleleChart({
         .text(pep);
     });
 
-    // Commit
-    wrapper.innerHTML = "";
-    wrapper.appendChild(svg.node());
+    wrapper.replaceChildren(svg.node());
   };
 
-  // Set up resize observer (activated on first draw)
+  const scheduleDraw = () => {
+    const myTick = ++renderTick;
+    const width = wrapper.getBoundingClientRect().width || wrapper.clientWidth || 800;
+    // ensure latest-toggle wins if multiple toggles happen quickly
+    requestAnimationFrame(() => {
+      if (disposed) return;
+      if (myTick !== renderTick) return; // a newer toggle arrived; skip
+      draw(width);
+    });
+  };
+
+  // Resize observer: redraw on container width changes
   ro = new ResizeObserver(entries => {
+    if (disposed) return;
     for (const e of entries) draw(e.contentRect.width);
   });
 
-  // Handle mode as string OR stream
+  // Initialize & subscribe to mode changes
   if (isAsyncIterable(mode)) {
-    // Subscribe; first emission gives current value, then changes
     (async () => {
+      let first = true;
       for await (const m of mode) {
-        curMode = (m === "BA") ? "BA" : "EL";
-        if (!roActive) {
-          ro.observe(wrapper); // start listening to size after first mode
-          roActive = true;
-        }
-        draw(wrapper.getBoundingClientRect().width);
+        if (disposed) break;
+        const nm = normMode(m);
+        if (nm === curMode && !first) continue; // dedupe repeats
+        curMode = nm;
+        if (!roActive) { ro.observe(wrapper); roActive = true; }
+        scheduleDraw();
+        first = false;
       }
     })();
   } else {
-    // Simple string mode
-    curMode = (mode === "BA") ? "BA" : "EL";
+    curMode = normMode(mode);
     ro.observe(wrapper);
     roActive = true;
-    draw(wrapper.getBoundingClientRect().width);
+    scheduleDraw();
   }
 
   return wrapper;
