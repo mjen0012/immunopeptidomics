@@ -2014,16 +2014,16 @@ const cachePreviewI = await (async () => {
 ```
 
 ```js
-/* ▸ merged rows for the chart: cache preview + (overwrite by) resultsArrayI */
+/* ▸ merged rows for the chart: cache preview + (overwrite by) run results */
 const chartRowsI = (() => {
   const map = new Map();
 
-  // Start with cache preview (immediate)
+  // Start with cache preview (instant feedback)
   for (const r of cachePreviewI)
     map.set(`${r.allele}|${r.peptide}`, r);
 
-  // Overlay freshly-fetched rows from IEDB (REACTIVE READ — note: NO .value)
-  const apiRows = Array.isArray(resultsArrayI) ? resultsArrayI : [];
+  // Overlay freshly-fetched rows from IEDB (reactive via runResultsI)
+  const apiRows = Array.isArray(runResultsI) ? runResultsI : [];
   for (const r of apiRows)
     map.set(`${r.allele}|${r.peptide}`, r); // API rows win
 
@@ -2049,22 +2049,24 @@ const chartRowsI = (() => {
         get selectedI()     { return [...selectedI]; },
         get peptidesI()     { return peptidesI; },
         get cachePreviewI() { return cachePreviewI; },
-        get chartRowsI()    { return chartRowsI; },
-        get resultsI()      { return resultsArrayI; } // reactive read
+        get runResultsI()   { return runResultsI; },
+        get resultsI()      { return resultsArrayI.value; }, // value (array) for CSV
+        get chartRowsI()    { return chartRowsI; }
       };
     }
   });
   console.debug("debugNetMHC ready → try:", "debugNetMHC.chartRowsI.length");
 }
 
+
 ```
 
 ```js
-/* ▸ RUN pipeline – Class I  (cache-aware) */
-trigI;                      // make cell reactive
+/* ▸ RUN results – Class I  (reactive to button click) */
+const runResultsI = await (async () => {
+  trigI;                           // ← re-run this cell when Run Class I is clicked
 
-(async () => {
-  if (!peptideFile) return;                 // no peptides yet
+  if (!peptideFile) return [];
   setBanner("Class I: starting…");
 
   const alleles = [...committedI];
@@ -2072,12 +2074,12 @@ trigI;                      // make cell reactive
   const okPeps  = allPeps.filter(p => p.length >= 8 && p.length <= 14);
   excludedI.value = allPeps.filter(p => p.length < 8 || p.length > 14);
 
-  if (!alleles.length)   return setBanner("Class I: no alleles selected.");
-  if (!okPeps.length)    return setBanner("Class I: no peptides in 8-14 range.");
+  if (!alleles.length) { setBanner("Class I: no alleles selected."); return []; }
+  if (!okPeps.length)  { setBanner("Class I: no peptides in 8-14 range."); return []; }
 
   console.debug("Run I start", { alleles, okPeps: okPeps.length });
 
-  /* 1 ▸ pull any existing predictions from netmhccalc ------------- */
+  /* 1 ▸ pull any existing predictions from netmhccalc */
   const cacheRows = (
     await db.sql`
       SELECT *
@@ -2090,20 +2092,21 @@ trigI;                      // make cell reactive
   const cacheSet = new Set(cacheRows.map(r => `${r.allele}|${r.peptide}`));
   const cachedConverted = cacheRows.map(convertCacheRowI);
 
-  /* 2 ▸ decide which peptides still need querying ----------------- */
+  /* 2 ▸ decide which peptides still need querying */
   const pepsNeeded = okPeps.filter(p => {
-    for (const al of alleles)
-      if (!cacheSet.has(`${al}|${p}`)) return true;   // at least one miss
-    return false;                                     // fully cached
+    for (const al of alleles) if (!cacheSet.has(`${al}|${p}`)) return true;
+    return false;
   });
 
-  /* 3 ▸ if everything cached, we’re done -------------------------- */
+  /* 3 ▸ if everything cached, update and finish */
   if (pepsNeeded.length === 0) {
     resultsArrayI.value = cachedConverted;
-    return setBanner(`Class I: all ${cachedConverted.length} rows from cache ✅`);
+    setBanner(`Class I: all ${cachedConverted.length} rows from cache ✅`);
+    console.debug("resultsArrayI after run", { len: resultsArrayI.value.length, sample: resultsArrayI.value[0] });
+    return cachedConverted;
   }
 
-  /* 4 ▸ otherwise hit the API only for the missing peptides ------- */
+  /* 4 ▸ otherwise hit the API for missing peptides */
   const fasta = pepsNeeded.map((p,i)=>`>p${i+1}\n${p}`).join("\n");
 
   try {
@@ -2112,23 +2115,25 @@ trigI;                      // make cell reactive
     const tbl = await poll(id);
     const apiRows = rowsFromTable(tbl);
 
-    /* 5 ▸ merge cache + fresh rows (API rows win on duplicates) --- */
+    /* 5 ▸ merge cache + fresh rows (API rows win on duplicates) */
     const map = new Map();
-    for (const r of cachedConverted)
-      map.set(`${r.allele}|${r.peptide}`, r);
-    for (const r of apiRows)
-      map.set(`${r.allele}|${r.peptide}`, r);   // overwrite if needed
+    for (const r of cachedConverted) map.set(`${r.allele}|${r.peptide}`, r);
+    for (const r of apiRows)       map.set(`${r.allele}|${r.peptide}`, r);
 
-    /* counts for banner ------------------------------------------ */
+    /* counts for banner */
     const newSet      = new Set(apiRows.map(r => `${r.allele}|${r.peptide}`));
     const totalRows   = map.size;
     const newCount    = newSet.size;
     const cacheCount  = totalRows - newCount;
 
-    resultsArrayI.value = [...map.values()];
+    const merged = [...map.values()];
+    resultsArrayI.value = merged;      // keep your CSV button working
     setBanner(`Class I done — ${totalRows} rows (cache ${cacheCount} + new ${newCount}).`);
+    console.debug("resultsArrayI after run", { len: resultsArrayI.value.length, sample: resultsArrayI.value[0] });
+    return merged;
   } catch (err) {
     setBanner(`Class I error: ${err.message}`);
+    return [];
   }
 })();
 
