@@ -2137,12 +2137,12 @@ const mhcClass = Generators.input(mhcClassInput);
 
 // Build the allele-chart element whenever results change
 const allelePlot = alleleChart({
-  data      : resultsArrayI.value,           // or resultsArrayII.value when you switch
-  alleles   : [...committedI],               // or committedII
-  mode      : percMode,                      // "EL" or "BA"
-  classType : "I",                           // switch to "II" as needed
+  data      : resultsArrayI.value,
+  alleles   : [...committedI],
+  mode      : percMode,
+  classType : "I",
   baseCell  : 28,
-  margin    : { top:40, right:20, bottom:20, left:140 }
+  margin    : { top: 40, right: 20, bottom: 20, left: 140 }
 });
 
 ```
