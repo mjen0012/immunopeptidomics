@@ -2222,11 +2222,21 @@ const downloadCSVII = makeDownloadButton("Download Class-II CSV",
 
 
 ```js
-/* external radios – place these with your other controls */
-const percentileModeInput = Inputs.radio(["EL","BA"], {
-  label : "Percentile type:",
-  value : "EL"
-});
+/* external radios – place these with your other controls (PERSISTENT) */
+const percentileModeInput = (() => {
+  // Remember last selection across any cell re-evaluations
+  const init = globalThis.__netmhcPercMode ?? "EL";   // default only once
+  const el = Inputs.radio(["EL","BA"], {
+    label : "Percentile type:",
+    value : init
+  });
+  el.addEventListener("input", () => {
+    globalThis.__netmhcPercMode = el.value;          // persist new choice
+  });
+  return el;
+})();
+const percMode = Generators.input(percentileModeInput);
+
 const mhcClassInput = Inputs.radio(["Class I","Class II"], {
   label : "MHC class:",
   value : "Class I"
