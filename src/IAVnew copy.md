@@ -2014,12 +2014,17 @@ const cachePreviewI = await (async () => {
 
 ```js
 /* ▸ merged rows for the chart: cache preview + (overwrite by) resultsArrayI */
-const chartRowsI = (() => {
+chartRowsI = {
   const map = new Map();
-  for (const r of cachePreviewI) map.set(`${r.allele}|${r.peptide}`, r);
+
+  // Start with cache preview rows (immediate)
+  for (const r of cachePreviewI)
+    map.set(`${r.allele}|${r.peptide}`, r);
+
+  // Overlay freshly-fetched rows from IEDB (reactive read — note: NO .value)
   const apiRows = Array.isArray(resultsArrayI) ? resultsArrayI : [];
-  for (const r of apiRows) map.set(`${r.allele}|${r.peptide}`, r);
-  return [...map.values()];
+  for (const r of apiRows)
+    map.set(`${r.allele}|${r.peptide}`, r);  // API rows win
 
   const merged = [...map.values()];
   console.debug("chartRowsI", {
@@ -2029,7 +2034,7 @@ const chartRowsI = (() => {
     merged         : merged.length
   });
   return merged;
-})();
+}
 
 
 ```
