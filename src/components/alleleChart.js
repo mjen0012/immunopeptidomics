@@ -58,6 +58,8 @@ export function alleleChart({
   // Gather keys once (merged data share a schema)
   const keys0  = Object.keys(data[0] ?? {});
   const pctKey = resolvePctKey(keys0, classType, mode);
+  console.debug("[alleleChart] class:", classType, "mode:", mode, "pctKey:", pctKey);
+
   if (!pctKey) {
     const span = document.createElement("span");
     span.textContent = "No percentile column found in data.";
