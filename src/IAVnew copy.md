@@ -1953,11 +1953,8 @@ async function parsePeptides(file) {
 ```
 
 ```js
-/* ▸ RUN pipeline – Class I  (now cache-aware) -------------------- */
-trigI;                      // make cell reactive
-
-/* — column mapping: cache → API display names — */
-const colMap = {
+/* ▸ shared mapping: cache → API/IEDB display names (Class I) */
+const colMapI = {
   sequence_number           : "seq #",
   peptide                   : "peptide",
   start                     : "start",
@@ -1975,10 +1972,69 @@ const colMap = {
   netmhcpan_ba_ic50         : "netmhcpan_ba IC50",
   netmhcpan_ba_percentile   : "netmhcpan_ba percentile"
 };
-const convertCacheRow = r =>
-  Object.fromEntries(Object.entries(r).map(([k,v]) =>
-    [colMap[k] ?? k, v]
+
+function convertCacheRowI(r) {
+  return Object.fromEntries(Object.entries(r).map(([k,v]) =>
+    [colMapI[k] ?? k, v]
   ));
+}
+```
+
+```js
+/* ▸ peptides for Class I preview (derived from uploaded peptideFile) */
+const peptidesI = await (async () => {
+  if (!peptideFile) return [];
+  const all = await parsePeptides(peptideFile);
+  return all.filter(p => p.length >= 8 && p.length <= 14);
+})();
+
+```
+
+```js
+/* ▸ Class I cache preview for the *live* selection (selectedI) */
+const cachePreviewI = {
+  const alleles = [...selectedI];
+  if (!alleles.length || !peptidesI.length) return [];
+  const cacheRows = (await db.sql`
+    SELECT *
+    FROM   netmhccalc
+    WHERE  allele IN (${alleles})
+      AND  peptide IN (${peptidesI})
+  `).toArray();
+  const mapped = cacheRows.map(convertCacheRowI);
+  console.debug("cachePreviewI", { alleles, peps: peptidesI.length, rows: mapped.length });
+  return mapped;
+}
+
+```
+
+```js
+/* ▸ merged rows for the chart: cache preview + (overwrite by) resultsArrayI */
+const chartRowsI = {
+  // Start with cache preview
+  const map = new Map();
+  for (const r of cachePreviewI)
+    map.set(`${r.allele}|${r.peptide}`, r);
+
+  // Overlay any fetched rows from IEDB (resultsArrayI is a Mutable; read *without* .value)
+  for (const r of resultsArrayI)
+    map.set(`${r.allele}|${r.peptide}`, r);
+
+  const merged = [...map.values()];
+  console.debug("chartRowsI", {
+    selectedAlleles: [...selectedI],
+    fromCache      : cachePreviewI.length,
+    fromResults    : resultsArrayI.length ?? 0,
+    merged         : merged.length
+  });
+  return merged;
+}
+
+```
+
+```js
+/* ▸ RUN pipeline – Class I  (cache-aware) */
+trigI;                      // make cell reactive
 
 (async () => {
   if (!peptideFile) return;                 // no peptides yet
@@ -1992,6 +2048,8 @@ const convertCacheRow = r =>
   if (!alleles.length)   return setBanner("Class I: no alleles selected.");
   if (!okPeps.length)    return setBanner("Class I: no peptides in 8-14 range.");
 
+  console.debug("Run I start", { alleles, okPeps: okPeps.length });
+
   /* 1 ▸ pull any existing predictions from netmhccalc ------------- */
   const cacheRows = (
     await db.sql`
@@ -2002,10 +2060,8 @@ const convertCacheRow = r =>
     `
   ).toArray();
 
-  const cacheSet = new Set(
-    cacheRows.map(r => `${r.allele}|${r.peptide}`)
-  );
-  const cachedConverted = cacheRows.map(convertCacheRow);
+  const cacheSet = new Set(cacheRows.map(r => `${r.allele}|${r.peptide}`));
+  const cachedConverted = cacheRows.map(convertCacheRowI);
 
   /* 2 ▸ decide which peptides still need querying ----------------- */
   const pepsNeeded = okPeps.filter(p => {
@@ -2048,6 +2104,7 @@ const convertCacheRow = r =>
     setBanner(`Class I error: ${err.message}`);
   }
 })();
+
 ```
 
 ```js
@@ -2135,29 +2192,18 @@ const mhcClassInput = Inputs.radio(["Class I","Class II"], {
 const percMode = Generators.input(percentileModeInput);
 const mhcClass = Generators.input(mhcClassInput);
 
-/* Build (and rebuild) the allele-chart whenever inputs or results change */
-const allelePlot = {
-  /* Touch the mutables (no .value) so this cell re-runs when they change */
-  resultsArrayI; resultsArrayII; committedI; committedII; percMode; mhcClass;
+// Build the allele-chart element reactively (preview from cache, then API)
+const allelePlot = alleleChart({
+  data      : chartRowsI,          // ← reactive merged data (no .value)
+  alleles   : [...selectedI],      // ← live selection drives preview
+  mode      : percMode,
+  classType : "I",
+  baseCell  : 28,
+  margin    : { top: 40, right: 20, bottom: 20, left: 140 },
+  showNumbers: false               // ← per your preference “just show the plot”
+});
 
-  /* Choose the correct dataset / alleles based on the MHC class radio */
-  const data    = mhcClass === "Class I" ? resultsArrayI.value : resultsArrayII.value;
-  const alleles = mhcClass === "Class I" ? [...committedI]     : [...committedII];
 
-  /* Render */
-  const el = alleleChart({
-    data,
-    alleles,
-    mode      : percMode,
-    classType : mhcClass === "Class I" ? "I" : "II",
-    baseCell  : 28,
-    margin    : { top: 80, right: 24, bottom: 24, left: 140 }
-  });
-
-  /* Clean up if this cell is invalidated (navigated away, etc.) */
-  invalidation.then(() => el.remove());
-  return el;
-}
 
 
 ```

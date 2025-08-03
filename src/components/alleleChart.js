@@ -1,5 +1,5 @@
 /*****************************************************************
- *  alleleChart() → HTMLElement   ·   v3.1 (fixed-height responsive)
+ *  alleleChart() → HTMLElement   ·   v4 (fixed-height responsive)
  *****************************************************************/
 import * as d3 from "npm:d3";
 
@@ -10,13 +10,14 @@ export function alleleChart({
   classType  = "I",                   // "I"  | "II"
   baseCell   = 28,                    // preferred cell size; will shrink/grow
   height0    = 320,                   // fixed card height (px), like peptideHeatmap
-  margin     = { top: 80, right: 24, bottom: 24, left: 140 }
+  margin     = { top: 80, right: 24, bottom: 24, left: 140 },
+  showNumbers = false                 // NEW: hide numbers by default
 } = {}) {
 
   /* ── guard ───────────────────────────────────────────────── */
   if (!alleles?.length || !data?.length) {
     const span = document.createElement("span");
-    span.textContent = "Select alleles and run predictions to see the heatmap.";
+    span.textContent = "Select alleles to see cached results (then click Run for fresh predictions).";
     span.style.fontStyle = "italic";
     return span;
   }
@@ -59,7 +60,6 @@ export function alleleChart({
     height: ${height0}px;
     overflow: hidden;
   `;
-  // wrapper.style.outline = "1px dashed #ccc";  // ← uncomment to debug bounds
 
   /* ── layout + draw (mimics peptideHeatmap) ───────────────── */
   function draw(wrapperWidth) {
@@ -83,7 +83,7 @@ export function alleleChart({
     const g = svg.append("g")
       .attr("transform", `translate(${margin.left},${margin.top})`);
 
-    /* ── draw cells + numbers ───────────────────────────────── */
+    /* ── draw cells ─────────────────────────────────────────── */
     for (let yi = 0; yi < nRows; yi++) {
       const pep = peptides[yi];
       for (let xi = 0; xi < nCols; xi++) {
@@ -98,8 +98,7 @@ export function alleleChart({
           .attr("height", cell - 1)
           .attr("fill", val == null ? "#f0f0f0" : colour(val));
 
-        // Only show numbers if there's room
-        if (val != null && cell >= 18) {
+        if (showNumbers && val != null) {
           g.append("text")
             .attr("x", xi * cell + cell / 2)
             .attr("y", yi * cell + cell / 2 + 3)
@@ -112,7 +111,6 @@ export function alleleChart({
     }
 
     /* ── X-axis labels (alleles, rotated) ───────────────────── */
-    // Margin.top is intentionally generous (80px default) so labels sit inside viewBox
     const xg = svg.append("g")
       .attr("transform", `translate(${margin.left},${margin.top - 6})`);
 
