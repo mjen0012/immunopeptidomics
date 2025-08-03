@@ -2222,21 +2222,11 @@ const downloadCSVII = makeDownloadButton("Download Class-II CSV",
 
 
 ```js
-/* external radios – place these with your other controls (PERSISTENT) */
-const percentileModeInput = (() => {
-  // Remember last selection across any cell re-evaluations
-  const init = globalThis.__netmhcPercMode ?? "EL";   // default only once
-  const el = Inputs.radio(["EL","BA"], {
-    label : "Percentile type:",
-    value : init
-  });
-  el.addEventListener("input", () => {
-    globalThis.__netmhcPercMode = el.value;          // persist new choice
-  });
-  return el;
-})();
-const percMode = Generators.input(percentileModeInput);
-
+/* external radios – place these with your other controls */
+const percentileModeInput = Inputs.radio(["EL","BA"], {
+  label : "Percentile type:",
+  value : "EL"
+});
 const mhcClassInput = Inputs.radio(["Class I","Class II"], {
   label : "MHC class:",
   value : "Class I"
@@ -2245,17 +2235,16 @@ const percMode = Generators.input(percentileModeInput);
 const mhcClass = Generators.input(mhcClassInput);
 
 // Build the allele-chart element reactively (preview from cache, then API)
-// REPLACE your existing allelePlot cell with this block
-// Build the allele-chart element reactively (preview from cache, then API)
 const allelePlot = alleleChart({
   data      : chartRowsI,
   alleles   : [...selectedI],
-  mode      : percMode,     // pass the AsyncGenerator
+  mode      : percentileModeInput,   // ← pass the radio ELEMENT, not the generator
   classType : "I",
   baseCell  : 28,
   margin    : { top: 40, right: 20, bottom: 20, left: 140 },
   showNumbers: false
 });
+
 
 
 

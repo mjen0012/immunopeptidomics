@@ -1,17 +1,17 @@
 /*****************************************************************
- *  alleleChart() → HTMLElement   ·   v8
- *  - Accepts mode as string OR AsyncGenerator (Generators.input)
- *  - Dedupes mode changes, latest-toggle-wins rendering
- *  - Cleans up observers when detached (no zombie draws)
- *  - Prevents top clipping of allele labels (label band)
- *  - Robust percentile key resolution (EL/BA, spaces/underscores)
+ *  alleleChart() → HTMLElement   ·   v9
+ *  - mode can be: string | AsyncGenerator | HTMLInput-like element
+ *  - Listens to radio element's 'input' events (multicast & robust)
+ *  - Dedupes mode changes; latest-toggle-wins rendering
+ *  - Cleans up observers & listeners when detached
+ *  - Prevents top clipping (label band) & resolves percentile keys
  *****************************************************************/
 import * as d3 from "npm:d3";
 
 export function alleleChart({
   data       = [],
   alleles    = [],
-  mode       = "EL",                  // "EL" | "BA" | AsyncGenerator
+  mode       = "EL",                  // "EL" | "BA" | AsyncGenerator | radio element
   classType  = "I",                   // "I"  | "II"
   baseCell   = 28,
   height0    = 320,
@@ -30,7 +30,8 @@ export function alleleChart({
 
   /* ── helpers ─────────────────────────────────────────────── */
   const isAsyncIterable = (v) => v && typeof v[Symbol.asyncIterator] === "function";
-  const normMode = (m) => (String(m).toUpperCase().includes("BA") ? "BA" : "EL");
+  const isEventTarget   = (v) => v && typeof v.addEventListener === "function" && "value" in v;
+  const normMode        = (m) => (String(m).toUpperCase().includes("BA") ? "BA" : "EL");
 
   function resolvePctKey(keys, cls, m) {
     const norm = s => String(s).toLowerCase().replace(/[\s_-]+/g, "");
@@ -68,21 +69,22 @@ export function alleleChart({
   let ro;                      // ResizeObserver
   let roActive = false;
   let disposed = false;
-  let renderTick = 0;          // latest-toggle-wins counter
+  let renderTick = 0;
+  let removeModeListener = null;
 
   const cleanup = () => {
     disposed = true;
     try { ro && ro.disconnect(); } catch {}
+    try { removeModeListener && removeModeListener(); } catch {}
   };
 
-  // If this element ever gets detached, stop listening/resizing
+  // Stop if wrapper is detached
   const detObs = new MutationObserver(() => {
     if (!wrapper.isConnected) {
       cleanup();
       detObs.disconnect();
     }
   });
-  // Observe the whole document for removals (cheap enough here)
   detObs.observe(document.documentElement, { childList: true, subtree: true });
 
   const draw = (wrapperWidth) => {
@@ -189,7 +191,6 @@ export function alleleChart({
   const scheduleDraw = () => {
     const myTick = ++renderTick;
     const width = wrapper.getBoundingClientRect().width || wrapper.clientWidth || 800;
-    // ensure latest-toggle wins if multiple toggles happen quickly
     requestAnimationFrame(() => {
       if (disposed) return;
       if (myTick !== renderTick) return; // a newer toggle arrived; skip
@@ -203,8 +204,24 @@ export function alleleChart({
     for (const e of entries) draw(e.contentRect.width);
   });
 
-  // Initialize & subscribe to mode changes
-  if (isAsyncIterable(mode)) {
+  /* ── initialize & subscribe to mode changes ───────────────── */
+  if (isEventTarget(mode)) {
+    // DOM element (e.g., Inputs.radio)
+    const getVal = () => normMode(mode.value);
+    const onInput = () => {
+      const nm = getVal();
+      if (nm === curMode) return;
+      curMode = nm;
+      scheduleDraw();
+    };
+    curMode = getVal();                // initial mode from control
+    mode.addEventListener("input", onInput);
+    removeModeListener = () => mode.removeEventListener("input", onInput);
+    ro.observe(wrapper); roActive = true;
+    scheduleDraw();
+  }
+  else if (isAsyncIterable(mode)) {
+    // AsyncGenerator (Generators.input)
     (async () => {
       let first = true;
       for await (const m of mode) {
@@ -217,10 +234,11 @@ export function alleleChart({
         first = false;
       }
     })();
-  } else {
+  }
+  else {
+    // Plain string
     curMode = normMode(mode);
-    ro.observe(wrapper);
-    roActive = true;
+    ro.observe(wrapper); roActive = true;
     scheduleDraw();
   }
 
