@@ -168,9 +168,10 @@ banner.className = "banner__bg";
     ${metricCard({title:"Conserved peptides",current: aligned_count,      previous: nonaligned_count, hideDelta:true})}
   </div>
 
-  <!-- Row 3 · 80 % · two equal cards -->
-  <div style="display:grid; grid-template-columns:repeat(2,1fr); gap:1rem;">
+  <!-- Row 3 · 80 % · three equal cards -->
+  <div style="display:grid; grid-template-columns:repeat(3,1fr); gap:1rem;">
     <div class="card">${heatmapSVG}</div>
+    <div class="card">${allelePlot}</div>   <!-- ⬅️ NEW: netMHC heatmap card -->
     <div class="card">${histEl}</div>
   </div>
 
@@ -2327,5 +2328,3 @@ const allelePlot = alleleChart({
 
 
 ```
-
-${allelePlot} 
