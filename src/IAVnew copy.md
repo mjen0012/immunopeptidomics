@@ -1950,6 +1950,51 @@ async function parsePeptides(file) {
     .map(l => l.split(",")[idx]?.trim()?.toUpperCase())
     .filter(Boolean);
 }
+
+/* ▸ parse uploaded peptide table with protein column ------------- */
+async function parsePeptideTable(file) {
+  if (!file) return [];
+  const text = await file.text();
+  const lines = text.trim().split(/\r?\n/);
+  if (lines.length <= 1) return [];
+
+  const headers = lines[0].split(",").map(s => s.trim());
+  const lower   = headers.map(h => h.toLowerCase());
+  const iPep    = lower.indexOf("peptide");
+  const iProt   = lower.indexOf("protein");
+
+  if (iPep < 0) return []; // must have peptide column
+
+  const out = [];
+  for (let i = 1; i < lines.length; i++) {
+    const cols = lines[i].split(",");
+    const pep  = cols[iPep]?.trim()?.toUpperCase();
+    const prot = iProt >= 0 ? cols[iProt]?.trim() : null;
+    if (pep) out.push({ peptide: pep, protein: prot });
+  }
+  return out;
+}
+
+```
+
+```js
+/* ▸ committed protein id (from Apply Filters) -------------------- */
+function normalizeProteinId(v) {
+  if (!v) return null;
+  if (typeof v === "string") return v;
+  if (typeof v === "object") return v.id ?? v.value ?? v.protein ?? null;
+  return null;
+}
+
+const committedProteinId = await (async () => {
+  // commit(...) emits immediately, and again on every Apply click
+  for await (const v of proteinCommitted) {
+    const id = normalizeProteinId(v);
+    // Normalize to uppercase symbol like "HA", "M1", etc.
+    return id ? String(id).toUpperCase() : null;
+  }
+})();
+
 ```
 
 ```js
@@ -1991,45 +2036,57 @@ const peptidesI = await (async () => {
 ```
 
 ```js
-/* ▸ Class I cache preview for the *live* selection (selectedI) */
+/* ▸ Class I cache preview for the committed protein -------------- */
 const cachePreviewI = await (async () => {
   const alleles = [...selectedI];
-  if (!alleles.length || !peptidesI.length) return [];
+  const peps    = peptidesICommitted;  // ← scoped to committed protein
+
+  if (!alleles.length || !peps.length) return [];
 
   const cacheRows = (
     await db.sql`
       SELECT *
       FROM   netmhccalc
       WHERE  allele IN (${alleles})
-        AND  peptide IN (${peptidesI})
+        AND  peptide IN (${peps})
     `
   ).toArray();
 
   const mapped = cacheRows.map(convertCacheRowI);
-  console.debug("cachePreviewI", { alleles, peps: peptidesI.length, rows: mapped.length });
+  console.debug("cachePreviewI", {
+    alleles,
+    protein : committedProteinId,
+    peps    : peps.length,
+    rows    : mapped.length
+  });
   return mapped;
 })();
+
 
 
 ```
 
 ```js
-/* ▸ merged rows for the chart: cache preview + (overwrite by) run results */
+/* ▸ merged rows for the chart, scoped to committed protein ------- */
 const chartRowsI = (() => {
+  const allowed = new Set(peptidesICommitted);  // ← only this protein’s peptides
   const map = new Map();
 
-  // Start with cache preview (instant feedback)
-  for (const r of cachePreviewI)
-    map.set(`${r.allele}|${r.peptide}`, r);
+  // Start with cache preview (already scoped, but keep guard)
+  for (const r of cachePreviewI) {
+    if (allowed.has(r.peptide)) map.set(`${r.allele}|${r.peptide}`, r);
+  }
 
-  // Overlay freshly-fetched rows from IEDB (reactive via runResultsI)
+  // Overlay run results (may include peptides from other proteins; filter them out)
   const apiRows = Array.isArray(runResultsI) ? runResultsI : [];
-  for (const r of apiRows)
-    map.set(`${r.allele}|${r.peptide}`, r); // API rows win
+  for (const r of apiRows) {
+    if (allowed.has(r.peptide)) map.set(`${r.allele}|${r.peptide}`, r);
+  }
 
   const merged = [...map.values()];
   console.debug("chartRowsI", {
     selectedAlleles: [...selectedI],
+    protein        : committedProteinId,
     fromCache      : cachePreviewI.length,
     fromResults    : apiRows.length,
     merged         : merged.length
@@ -2200,6 +2257,20 @@ const downloadCSVI  = makeDownloadButton("Download Class-I CSV",
                                          resultsArrayI,  "mhcI_predictions.csv");
 const downloadCSVII = makeDownloadButton("Download Class-II CSV",
                                          resultsArrayII, "mhcII_predictions.csv");
+```
+
+```js
+/* ▸ uploaded peptides table + committed-protein slice (Class I) -- */
+const uploadedPeptidesTable = await parsePeptideTable(peptideFile);
+
+const peptidesICommitted = (() => {
+  if (!uploadedPeptidesTable?.length || !committedProteinId) return [];
+  return uploadedPeptidesTable
+    .filter(r => String(r.protein || "").toUpperCase() === committedProteinId)
+    .map(r => r.peptide)
+    .filter(p => p.length >= 8 && p.length <= 14);
+})();
+
 ```
 
 
