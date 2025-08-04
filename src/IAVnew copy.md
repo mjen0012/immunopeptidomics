@@ -1978,7 +1978,7 @@ async function parsePeptideTable(file) {
 ```
 
 ```js
-/* ▸ committed protein id (from Apply Filters) -------------------- */
+/* ▸ committed protein id (reactive, not one-shot) ----------------- */
 function normalizeProteinId(v) {
   if (!v) return null;
   if (typeof v === "string") return v;
@@ -1986,14 +1986,14 @@ function normalizeProteinId(v) {
   return null;
 }
 
-const committedProteinId = await (async () => {
-  // commit(...) emits immediately, and again on every Apply click
-  for await (const v of proteinCommitted) {
-    const id = normalizeProteinId(v);
-    // Normalize to uppercase symbol like "HA", "M1", etc.
-    return id ? String(id).toUpperCase() : null;
-  }
+const committedProteinId = (() => {
+  const raw = proteinCommitted;        // ← reactive dependency
+  const id  = normalizeProteinId(raw);
+  const out = id ? String(id).trim().toUpperCase() : null;
+  console.debug("[netMHC] committedProteinId:", out, "raw:", raw);
+  return out;
 })();
+
 
 ```
 
@@ -2039,7 +2039,7 @@ const peptidesI = await (async () => {
 /* ▸ Class I cache preview for the committed protein -------------- */
 const cachePreviewI = await (async () => {
   const alleles = [...selectedI];
-  const peps    = peptidesICommitted;  // ← scoped to committed protein
+  const peps    = peptidesICommitted;
 
   if (!alleles.length || !peps.length) return [];
 
@@ -2054,13 +2054,11 @@ const cachePreviewI = await (async () => {
 
   const mapped = cacheRows.map(convertCacheRowI);
   console.debug("cachePreviewI", {
-    alleles,
-    protein : committedProteinId,
-    peps    : peps.length,
-    rows    : mapped.length
+    alleles, protein: committedProteinId, peps: peps.length, rows: mapped.length
   });
   return mapped;
 })();
+
 
 
 
@@ -2069,15 +2067,14 @@ const cachePreviewI = await (async () => {
 ```js
 /* ▸ merged rows for the chart, scoped to committed protein ------- */
 const chartRowsI = (() => {
-  const allowed = new Set(peptidesICommitted);  // ← only this protein’s peptides
+  const allowed = new Set(peptidesICommitted);
   const map = new Map();
 
-  // Start with cache preview (already scoped, but keep guard)
   for (const r of cachePreviewI) {
+    if (allowed.size === 0) break;           // fast exit
     if (allowed.has(r.peptide)) map.set(`${r.allele}|${r.peptide}`, r);
   }
 
-  // Overlay run results (may include peptides from other proteins; filter them out)
   const apiRows = Array.isArray(runResultsI) ? runResultsI : [];
   for (const r of apiRows) {
     if (allowed.has(r.peptide)) map.set(`${r.allele}|${r.peptide}`, r);
@@ -2085,14 +2082,16 @@ const chartRowsI = (() => {
 
   const merged = [...map.values()];
   console.debug("chartRowsI", {
+    protein: committedProteinId,
     selectedAlleles: [...selectedI],
-    protein        : committedProteinId,
-    fromCache      : cachePreviewI.length,
-    fromResults    : apiRows.length,
-    merged         : merged.length
+    allowed: allowed.size,
+    fromCache: cachePreviewI.length,
+    fromResults: apiRows.length,
+    merged: merged.length
   });
   return merged;
 })();
+
 
 
 ```
@@ -2263,13 +2262,19 @@ const downloadCSVII = makeDownloadButton("Download Class-II CSV",
 /* ▸ uploaded peptides table + committed-protein slice (Class I) -- */
 const uploadedPeptidesTable = await parsePeptideTable(peptideFile);
 
+/* ▸ peptides for Class I, scoped to committed protein ------------- */
 const peptidesICommitted = (() => {
-  if (!uploadedPeptidesTable?.length || !committedProteinId) return [];
-  return uploadedPeptidesTable
-    .filter(r => String(r.protein || "").toUpperCase() === committedProteinId)
-    .map(r => r.peptide)
+  if (!committedProteinId) return [];
+  const peps = peptidesClean
+    .filter(r => (r.protein || "").toUpperCase() === committedProteinId)
+    .map(r => (r.peptide || "").toUpperCase())
     .filter(p => p.length >= 8 && p.length <= 14);
+
+  console.debug("[netMHC] peptidesICommitted",
+                { protein: committedProteinId, count: peps.length });
+  return peps;
 })();
+
 
 ```
 
