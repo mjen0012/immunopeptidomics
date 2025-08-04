@@ -1,11 +1,11 @@
 /* ───────────────────────────────────────────────────────────────
-   src/components/comboSelect.js  ·  v8  (responsive + bug-fixes)
+   src/components/comboSelect.js  ·  v9  (lazy + delegated events)
    ----------------------------------------------------------------
-   • Accepts either ["A","B"]  or  [{id:"A",label:"…"}] arrays.
-   • Dropdown position recalculated on *every* update so it
-     never sticks at top:0 when first rendered.
-   • Pointer events fixed (clicks no longer immediately hide list).
-   • Fully fluid width with 120-px floor, like v7.
+   • Accepts either ["A","B"] or [{id,label}] arrays
+   • NEW: minChars gate (no list until user types N chars)
+   • NEW: maxResults cap per render (prevents huge DOM)
+   • Uses event delegation (one click handler on <ul>)
+   • Keeps v8 API; adds setItems() + clear()
 ────────────────────────────────────────────────────────────────*/
 
 export function comboSelect(
@@ -16,17 +16,19 @@ export function comboSelect(
     fontFamily   = "inherit",
     pillColor    = "#006DAE",
     pillText     = "#fff",
-    listHeight   = 180
+    listHeight   = 180,
+    minChars     = 2,     // ← NEW: require N chars before showing results
+    maxResults   = 200    // ← NEW: cap rendered rows per update
   } = {}
 ) {
-  /* ─── allow both string & object inputs ─────────────────── */
+  /* ─ allow both string & object inputs ─ */
   const asLabel = d => (typeof d === "string" ? d : d.label ?? d.id);
   const asId    = d => (typeof d === "string" ? d      : d.id    );
-  const allIds  = items.map(asId);
+  let   allIds  = items.map(asId);
 
   /* ─ state ─ */
   const selected = new Set();
-  let   filtered = items.slice();
+  let   filtered = [];                 // ← start empty; render nothing at idle
 
   /* ─ elements ─ */
   const root    = document.createElement("div");
@@ -40,7 +42,6 @@ export function comboSelect(
   root.style.minWidth = "120px";
   root.style.width    = "100%";
 
-  /* label */
   if (labelEl) {
     labelEl.className = "combo-label";
     labelEl.textContent = label;
@@ -49,52 +50,50 @@ export function comboSelect(
     root.appendChild(labelEl);
   }
 
-  /* search box */
   input.className   = "combo-search";
   input.type        = "text";
-  input.placeholder = placeholder;
+  input.placeholder = minChars > 0 ? `Type ${minChars}+ chars…` : placeholder;
   root.appendChild(input);
 
-  // **NEW** force it to span 100% of the parent
-  input.style.width      = "100%";
-  input.style.boxSizing  = "border-box";
+  input.style.width     = "100%";
+  input.style.boxSizing = "border-box";
 
-  /* dropdown list */
-  list.className  = "combo-list";
+  list.className   = "combo-list";
   list.style.display = "none";
   root.appendChild(list);
 
-  /* pill container */
   pills.className = "combo-pills";
   root.appendChild(pills);
 
-  /* ─ helper: keep dropdown anchored ─ */
+  /* keep dropdown anchored to input */
   const positionList = () => {
     const { top, height } = input.getBoundingClientRect();
-    const parentTop      = root.getBoundingClientRect().top;
+    const parentTop       = root.getBoundingClientRect().top;
     list.style.top = `${top - parentTop + height}px`;
   };
 
-  /* ─ show / hide ─ */
   const showList = () => {
     if (filtered.length) {
       list.style.display = "block";
       positionList();
+    } else {
+      list.style.display = "none";
     }
   };
   const hideList = () => { list.style.display = "none"; };
 
-  /* ─ refresh pills & list ─ */
   const refreshPills = () => {
     pills.innerHTML = "";
     selected.forEach(id => {
+      const idx  = allIds.indexOf(id);
+      const text = idx >= 0 ? asLabel(items[idx]) : id;
       const pill = Object.assign(document.createElement("span"), {
-        className : "combo-pill",
-        textContent: asLabel(items[allIds.indexOf(id)])
+        className  : "combo-pill",
+        textContent: text
       });
       const btn  = Object.assign(document.createElement("button"), {
-        className : "combo-x",
-        ariaLabel : `Remove ${id}`,
+        className  : "combo-x",
+        ariaLabel  : `Remove ${id}`,
         textContent: "×"
       });
       btn.onclick = e => {
@@ -107,16 +106,24 @@ export function comboSelect(
     });
   };
 
-  const refreshList = () => {
+  /* event delegation (one listener) */
+  list.addEventListener("click", (e) => {
+    const li = e.target.closest("li[data-id]");
+    if (!li) return;
+    e.stopPropagation();
+    toggleSelect(li.dataset.id);
+  });
+
+  const renderList = () => {
     list.innerHTML = "";
-    for (const d of filtered) {
+    const toRender = filtered.slice(0, maxResults);     // cap
+    for (const d of toRender) {
       const id  = asId(d);
       const txt = asLabel(d);
-      const li = Object.assign(document.createElement("li"), {
-        className : "combo-item" + (selected.has(id) ? " is-selected" : ""),
-        textContent: txt
-      });
-      li.onclick = e => { e.stopPropagation(); toggleSelect(id); };
+      const li  = document.createElement("li");
+      li.className   = "combo-item" + (selected.has(id) ? " is-selected" : "");
+      li.dataset.id  = id;                               // used by delegated click
+      li.textContent = txt;
       list.appendChild(li);
     }
     positionList();
@@ -129,22 +136,22 @@ export function comboSelect(
     input.focus();
   };
 
-  /* ─ update cycle ─ */
   function update() {
     const q = input.value.trim().toLowerCase();
-    filtered = q
-      ? items.filter(d => asLabel(d).toLowerCase().includes(q))
-      : items.slice();
-
+    if (q.length >= minChars) {
+      filtered = items.filter(d => asLabel(d).toLowerCase().includes(q));
+    } else {
+      filtered = [];                                     // ← nothing rendered at idle
+    }
     refreshPills();
-    refreshList();
+    renderList();
     if (document.activeElement === input) showList();
 
     root.value = Array.from(selected);
     root.dispatchEvent(new CustomEvent("input"));
   }
 
-  /* ─ events ─ */
+  /* events */
   input.addEventListener("input", update);
   input.addEventListener("keydown", e => {
     if (e.key === "Enter" && filtered.length) {
@@ -154,14 +161,14 @@ export function comboSelect(
   });
   input.addEventListener("focus", showList);
 
-  /* keep list visible on click inside; hide otherwise */
   root.addEventListener("click", e => e.stopPropagation());
-  document.addEventListener("click", hideList);
+  const onDocClick = () => hideList();
+  document.addEventListener("click", onDocClick);
 
-  /* first paint */
+  /* first paint — does NOT render 10k rows anymore */
   update();
 
-  /* ─ styles ─ */
+  /* styles */
   const style = document.createElement("style");
   style.textContent = `
 .combo-root   { font-family:${fontFamily}; width:100%; box-sizing:border-box; }
@@ -202,6 +209,11 @@ export function comboSelect(
 
   /* public helpers */
   root.clear = () => { selected.clear(); input.value=""; update(); };
+  root.setItems = (nextItems = []) => {                 // ← NEW
+    items = nextItems;
+    allIds = items.map(asId);
+    update();
+  };
 
   return root;
 }

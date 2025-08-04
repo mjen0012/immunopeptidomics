@@ -1819,21 +1819,28 @@ const hlaCSV  = await FileAttachment("data/HLAlistClassI.csv").csv();
 const allHLA1 = hlaCSV.map(d => d["Class I"]?.trim()).filter(Boolean);
 const allHLA2 = hlaCSV.map(d => d["Class II"]?.trim()).filter(Boolean);
 
+
 const alleleCtrl1 = comboSelect(allHLA1, {
   label: "Class I alleles (MHCI)",
-  multiple: true,
-  placeholder: "Type class-I allele…",
-  fontFamily: "'Roboto', sans-serif"
+  placeholder: "Type 2+ chars…",
+  fontFamily: "'Roboto', sans-serif",
+  minChars: 2,        // ← gate
+  maxResults: 200,    // ← cap render
+  listHeight: 240
 });
 const selectedI = Generators.input(alleleCtrl1);
 
 const alleleCtrl2 = comboSelect(allHLA2, {
   label: "Class II alleles (MHCII)",
-  multiple: true,
-  placeholder: "Type class-II allele…",
-  fontFamily: "'Roboto', sans-serif"
+  placeholder: "Type 2+ chars…",
+  fontFamily: "'Roboto', sans-serif",
+  minChars: 2,
+  maxResults: 200,
+  listHeight: 240
 });
 const selectedII = Generators.input(alleleCtrl2);
+
+
 
 /* ▸ RUN buttons -------------------------------------------------- */
 const runBtnI  = Inputs.button("Run Class I (EL + BA)");
@@ -2317,6 +2324,7 @@ const allelePlot = alleleChart({
   alleles   : [...selectedI],
   mode      : percentileModeInput,   // ← pass the radio ELEMENT, not the generator
   classType : "I",
+  // height0 : null,                // ← omit or set null for auto height
   baseCell  : 28,
   margin    : { top: 40, right: 20, bottom: 20, left: 140 },
   showNumbers: false
