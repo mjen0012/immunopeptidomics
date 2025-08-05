@@ -212,7 +212,8 @@ const db = extendDB(
   await DuckDBClient.of({
     proteins: FileAttachment("data/IAV6-all.parquet").parquet(),
     sequencecalc: FileAttachment("data/IAV8_sequencecalc.parquet").parquet(),
-    netmhccalc: FileAttachment("data/iedb_netmhcpan_30k_allalleles_results.parquet").parquet()
+    netmhccalc: FileAttachment("data/iedb_netmhcpan_30k_allalleles_results.parquet").parquet(),
+    hla: FileAttachment("data/HLAlistClassI.parquet").parquet()
   })
 );
 ```
@@ -1814,34 +1815,6 @@ const histEl = histogramChart({
 const statusBanner = html`<div style="margin:0.5rem 0; font-style:italic;"></div>`;
 function setBanner(msg) { statusBanner.textContent = msg; }
 
-/* ▸ allele lists ------------------------------------------------- */
-const hlaCSV  = await FileAttachment("data/HLAlistClassI.csv").csv();
-const allHLA1 = hlaCSV.map(d => d["Class I"]?.trim()).filter(Boolean);
-const allHLA2 = hlaCSV.map(d => d["Class II"]?.trim()).filter(Boolean);
-
-
-const alleleCtrl1 = comboSelect(allHLA1, {
-  label: "Class I alleles (MHCI)",
-  placeholder: "Type 2+ chars…",
-  fontFamily: "'Roboto', sans-serif",
-  minChars: 2,        // ← gate
-  maxResults: 200,    // ← cap render
-  listHeight: 240
-});
-const selectedI = Generators.input(alleleCtrl1);
-
-const alleleCtrl2 = comboSelect(allHLA2, {
-  label: "Class II alleles (MHCII)",
-  placeholder: "Type 2+ chars…",
-  fontFamily: "'Roboto', sans-serif",
-  minChars: 2,
-  maxResults: 200,
-  listHeight: 240
-});
-const selectedII = Generators.input(alleleCtrl2);
-
-
-
 /* ▸ RUN buttons -------------------------------------------------- */
 const runBtnI  = Inputs.button("Run Class I (EL + BA)");
 const runBtnII = Inputs.button("Run Class II (EL + BA)");
@@ -1857,11 +1830,6 @@ const commitTo = (btn, element) =>
     btn.addEventListener("input", update);
     return () => btn.removeEventListener("input", update);
   });
-```
-
-```js
-const committedI  = commitTo(runBtnI , alleleCtrl1);
-const committedII = commitTo(runBtnII, alleleCtrl2);
 ```
 
 ```js
@@ -1994,14 +1962,12 @@ function normalizeProteinId(v) {
   return null;
 }
 
+// simplest: read the UI element at re-run time
 const committedProteinId = (() => {
-  const raw = proteinCommitted;        // ← reactive dependency
-  const id  = normalizeProteinId(raw);
-  const out = id ? String(id).trim().toUpperCase() : null;
-  console.debug("[netMHC] committedProteinId:", out, "raw:", raw);
-  return out;
+  const v  = proteinInput.value;                 // element from dropSelect
+  const id = normalizeProteinId(v);
+  return id ? String(id).trim().toUpperCase() : null;
 })();
-
 
 ```
 
@@ -2133,7 +2099,7 @@ const runResultsI = await (async () => {
   if (!peptideFile) return [];
   setBanner("Class I: starting…");
 
-  const alleles = [...committedI];
+  const alleles = Array.from(alleleCtrl1.value || []);  // Class I
   const allPeps = await parsePeptides(peptideFile);
   const okPeps  = allPeps.filter(p => p.length >= 8 && p.length <= 14);
   excludedI.value = allPeps.filter(p => p.length < 8 || p.length > 14);
@@ -2220,7 +2186,7 @@ trigII;                     // make cell reactive
   if (!peptideFile) return;
   setBanner("Class II: starting…");
 
-  const alleles = [...committedII];
+  const alleles = Array.from(alleleCtrl2.value || []);  // Class II
   const allPeps = await parsePeptides(peptideFile);
   const okPeps  = allPeps.filter(p => p.length >= 11 && p.length <= 30);
   excludedII.value = allPeps.filter(p => p.length < 11 || p.length > 30);
@@ -2334,5 +2300,75 @@ const allelePlot = alleleChart({
 // Build the allele-chart element reactively (preview from cache, then API)
 
 
+
+```
+
+
+```js
+import {comboSelectLazy} from "./components/comboSelectLazy.js";
+
+```
+
+```js
+/* HLA fetchers (on-demand from DuckDB) -------------------------- */
+const PAGE_LIMIT_DEFAULT = 50;  // when searching (≥2 chars)
+const PAGE_LIMIT_INITIAL = 20;  // first display when q === ""
+
+/* cls: "I" | "II"; q: string; offset/limit: paging */
+async function fetchAlleles(cls, q = "", offset = 0, limit = PAGE_LIMIT_DEFAULT) {
+  const like = `%${q}%`;
+  const filterLike = q.length >= 2 ? sql`AND allele ILIKE ${like}` : sql``;
+
+  const rows = (await db.sql`
+    SELECT allele
+    FROM (
+      SELECT 'I'  AS class, "Class I"  AS allele FROM hla WHERE "Class I"  IS NOT NULL
+      UNION ALL
+      SELECT 'II' AS class, "Class II" AS allele FROM hla WHERE "Class II" IS NOT NULL
+    )
+    WHERE class = ${cls} ${filterLike}
+    ORDER BY allele
+    LIMIT ${limit} OFFSET ${offset}
+  `).toArray();
+
+  return rows.map(r => r.allele);
+}
+```
+
+```js
+import {comboSelectLazy} from "./components/comboSelectLazy.js";
+
+/* ▸ allele lists (lazy) ----------------------------------------- */
+const alleleCtrl1 = comboSelectLazy({
+  label: "Class I alleles (MHCI)",
+  placeholder: "Type class-I allele…",
+  fontFamily: "'Roboto', sans-serif",
+  initialLimit: 20,          // show 20 on focus
+  pageLimit: 50,             // fetch 50 at a time when q ≥ 2
+  fetch: ({ q, offset, limit }) => fetchAlleles("I", q, offset, limit)
+});
+const selectedI = Generators.input(alleleCtrl1);
+
+const alleleCtrl2 = comboSelectLazy({
+  label: "Class II alleles (MHCII)",
+  placeholder: "Type class-II allele…",
+  fontFamily: "'Roboto', sans-serif",
+  initialLimit: 20,
+  pageLimit: 50,
+  fetch: ({ q, offset, limit }) => fetchAlleles("II", q, offset, limit)
+});
+const selectedII = Generators.input(alleleCtrl2);
+
+/* commit helper must run AFTER the controls exist */
+const committedI  = commitTo(runBtnI , alleleCtrl1);
+const committedII = commitTo(runBtnII, alleleCtrl2);
+
+
+```
+
+```js
+// Should log ~20 class-I alleles on page load (before typing)
+console.debug("test fetch I, first page:",
+  await fetchAlleles("I", "", 0, 20));
 
 ```
