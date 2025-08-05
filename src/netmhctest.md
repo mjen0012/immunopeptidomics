@@ -19,28 +19,7 @@ const statusBanner = html`<div style="margin:0.5rem 0; font-style:italic;"></div
 function setBanner(msg) { statusBanner.textContent = msg; }
 ```
 
-```js
-const hlaCSV = await FileAttachment("data/HLAlistClassI.csv").csv();
-const allHLA1 = hlaCSV.map(d => d["Class I"]?.trim()).filter(Boolean);
-const allHLA2 = hlaCSV.map(d => d["Class II"]?.trim()).filter(Boolean);
 
-/* Class I multi‑select */
-const alleleCtrl1 = comboSelect(allHLA1, {
-  label: "Class I alleles (MHCI)",
-  multiple: true, placeholder: "Type class‑I allele…",
-  fontFamily: "'Roboto', sans-serif"
-});
-const selectedI = Generators.input(alleleCtrl1);
-
-/* Class II multi‑select */
-const alleleCtrl2 = comboSelect(allHLA2, {
-  label: "Class II alleles (MHCII)",
-  multiple: true, placeholder: "Type class‑II allele…",
-  fontFamily: "'Roboto', sans-serif"
-});
-const selectedII = Generators.input(alleleCtrl2);
-
-```
 
 
 
