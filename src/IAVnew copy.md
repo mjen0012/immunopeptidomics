@@ -1954,7 +1954,7 @@ async function parsePeptideTable(file) {
 ```
 
 ```js
-/* ▸ committed protein id (reactive, not one-shot) ----------------- */
+/* committed protein id – reactive to Apply clicks */
 function normalizeProteinId(v) {
   if (!v) return null;
   if (typeof v === "string") return v;
@@ -1962,12 +1962,14 @@ function normalizeProteinId(v) {
   return null;
 }
 
-// simplest: read the UI element at re-run time
-const committedProteinId = (() => {
-  const v  = proteinInput.value;                 // element from dropSelect
-  const id = normalizeProteinId(v);
-  return id ? String(id).trim().toUpperCase() : null;
+const committedProteinId = await (async () => {
+  // take the newest committed value (this cell re-runs on each Apply)
+  for await (const v of proteinCommitted) {
+    const id = normalizeProteinId(v);
+    return id ? String(id).trim().toUpperCase() : null;
+  }
 })();
+
 
 ```
 
@@ -2010,9 +2012,10 @@ const peptidesI = await (async () => {
 ```
 
 ```js
-/* ▸ Class I cache preview for the committed protein -------------- */
+/* Class I cache preview for the committed protein (reactive) */
 const cachePreviewI = await (async () => {
-  const alleles = [...selectedI];
+  selectedI;                               // ← reactive dependency (don’t remove)
+  const alleles = Array.from(alleleCtrl1.value || []);
   const peps    = peptidesICommitted;
 
   if (!alleles.length || !peps.length) return [];
@@ -2021,17 +2024,14 @@ const cachePreviewI = await (async () => {
     await db.sql`
       SELECT *
       FROM   netmhccalc
-      WHERE  allele IN (${alleles})
+      WHERE  allele  IN (${alleles})
         AND  peptide IN (${peps})
     `
   ).toArray();
 
-  const mapped = cacheRows.map(convertCacheRowI);
-  console.debug("cachePreviewI", {
-    alleles, protein: committedProteinId, peps: peps.length, rows: mapped.length
-  });
-  return mapped;
+  return cacheRows.map(convertCacheRowI);
 })();
+
 
 
 
@@ -2039,34 +2039,29 @@ const cachePreviewI = await (async () => {
 ```
 
 ```js
-/* ▸ merged rows for the chart, scoped to committed protein ------- */
+/* merged rows for the chart, scoped to committed protein */
 const chartRowsI = (() => {
-  const allowed = new Set(peptidesICommitted);
-  const map = new Map();
+  selectedI;                               // ← reactive dependency
+  const allelesNow = new Set(alleleCtrl1.value || []);
+  const allowed    = new Set(peptidesICommitted);
+  const map        = new Map();
 
   for (const r of cachePreviewI) {
-    if (allowed.size === 0) break;           // fast exit
-    if (allowed.has(r.peptide)) map.set(`${r.allele}|${r.peptide}`, r);
+    if (!allowed.size) break;
+    if (allowed.has(r.peptide) && allelesNow.has(r.allele)) {
+      map.set(`${r.allele}|${r.peptide}`, r);
+    }
   }
 
   const apiRows = Array.isArray(runResultsI) ? runResultsI : [];
   for (const r of apiRows) {
-    if (allowed.has(r.peptide)) map.set(`${r.allele}|${r.peptide}`, r);
+    if (allowed.has(r.peptide) && allelesNow.has(r.allele)) {
+      map.set(`${r.allele}|${r.peptide}`, r);
+    }
   }
 
-  const merged = [...map.values()];
-  console.debug("chartRowsI", {
-    protein: committedProteinId,
-    selectedAlleles: [...selectedI],
-    allowed: allowed.size,
-    fromCache: cachePreviewI.length,
-    fromResults: apiRows.length,
-    merged: merged.length
-  });
-  return merged;
+  return [...map.values()];
 })();
-
-
 
 ```
 
@@ -2236,18 +2231,16 @@ const downloadCSVII = makeDownloadButton("Download Class-II CSV",
 /* ▸ uploaded peptides table + committed-protein slice (Class I) -- */
 const uploadedPeptidesTable = await parsePeptideTable(peptideFile);
 
-/* ▸ peptides for Class I, scoped to committed protein ------------- */
+
+/* peptides for Class I, scoped to committed protein */
 const peptidesICommitted = (() => {
   if (!committedProteinId) return [];
-  const peps = peptidesClean
+  return peptidesClean
     .filter(r => (r.protein || "").toUpperCase() === committedProteinId)
     .map(r => (r.peptide || "").toUpperCase())
     .filter(p => p.length >= 8 && p.length <= 14);
-
-  console.debug("[netMHC] peptidesICommitted",
-                { protein: committedProteinId, count: peps.length });
-  return peps;
 })();
+
 
 
 ```
@@ -2320,18 +2313,30 @@ async function fetchAlleles(cls, q = "", offset = 0, limit = PAGE_LIMIT_DEFAULT)
   const filterLike = q.length >= 2 ? sql`AND allele ILIKE ${like}` : sql``;
 
   const rows = (await db.sql`
-    SELECT allele
-    FROM (
-      SELECT 'I'  AS class, "Class I"  AS allele FROM hla WHERE "Class I"  IS NOT NULL
+    WITH base AS (
+      SELECT 'I'  AS class, TRIM("Class I")  AS allele
+      FROM   hla
+      WHERE  "Class I"  IS NOT NULL
+         AND LENGTH(TRIM("Class I"))  > 0
+
       UNION ALL
-      SELECT 'II' AS class, "Class II" AS allele FROM hla WHERE "Class II" IS NOT NULL
-    )
-    WHERE class = ${cls} ${filterLike}
-    ORDER BY allele
-    LIMIT ${limit} OFFSET ${offset}
+
+      SELECT 'II' AS class, TRIM("Class II") AS allele
+      FROM   hla
+      WHERE  "Class II" IS NOT NULL
+         AND LENGTH(TRIM("Class II")) > 0
+    ),
+    dedup AS ( SELECT DISTINCT class, allele FROM base )
+
+    SELECT allele
+    FROM   dedup
+    WHERE  class = ${cls} ${filterLike}
+    ORDER  BY allele
+    LIMIT  ${limit} OFFSET ${offset}
   `).toArray();
 
-  return rows.map(r => r.allele);
+  // extra guard (in case)
+  return rows.map(r => r.allele).filter(s => s && s.trim().length);
 }
 ```
 
