@@ -2012,50 +2012,61 @@ const peptidesI = await (async () => {
 ```
 
 ```js
-/* Class I cache preview for the committed protein (reactive) */
+/* Class I cache preview for the committed protein (reactive, with fallback) */
 const cachePreviewI = await (async () => {
-  selectedI;                               // ← reactive dependency (don’t remove)
-  const alleles = Array.from(alleleCtrl1.value || []);
-  const peps    = peptidesICommitted;
+  selectedI;          // ← re-run when the class-I selection changes
+  committedProteinId; // ← re-run when Apply (protein) changes
 
-  if (!alleles.length || !peps.length) return [];
+  const alleles = Array.from(alleleCtrl1.value || []);
+
+  // Prefer committed-protein peptides; fall back to all uploaded peptides
+  const pepsPreferred =
+    (peptidesICommitted && peptidesICommitted.length)
+      ? peptidesICommitted
+      : peptidesI;
+
+  if (!alleles.length || !pepsPreferred.length) return [];
 
   const cacheRows = (
     await db.sql`
       SELECT *
       FROM   netmhccalc
       WHERE  allele  IN (${alleles})
-        AND  peptide IN (${peps})
+        AND  peptide IN (${pepsPreferred})
     `
   ).toArray();
 
   return cacheRows.map(convertCacheRowI);
 })();
 
-
-
-
-
 ```
 
 ```js
-/* merged rows for the chart, scoped to committed protein */
+/* merged rows for the chart, scoped to current protein or fallback */
 const chartRowsI = (() => {
-  selectedI;                               // ← reactive dependency
-  const allelesNow = new Set(alleleCtrl1.value || []);
-  const allowed    = new Set(peptidesICommitted);
-  const map        = new Map();
+  selectedI;          // ← re-run on allele picks
+  committedProteinId; // ← re-run on Apply (protein) changes
 
+  const allelesNow = new Set(alleleCtrl1.value || []);
+
+  const allowedPeps = (peptidesICommitted && peptidesICommitted.length)
+    ? new Set(peptidesICommitted)
+    : new Set(peptidesI);
+
+  const map = new Map();
+
+  // Cached rows (immediate preview)
   for (const r of cachePreviewI) {
-    if (!allowed.size) break;
-    if (allowed.has(r.peptide) && allelesNow.has(r.allele)) {
+    if (!allowedPeps.size) break;
+    if (allowedPeps.has(r.peptide) && allelesNow.has(r.allele)) {
       map.set(`${r.allele}|${r.peptide}`, r);
     }
   }
 
+  // API rows (augment preview when Run completes)
   const apiRows = Array.isArray(runResultsI) ? runResultsI : [];
   for (const r of apiRows) {
-    if (allowed.has(r.peptide) && allelesNow.has(r.allele)) {
+    if (allowedPeps.has(r.peptide) && allelesNow.has(r.allele)) {
       map.set(`${r.allele}|${r.peptide}`, r);
     }
   }
@@ -2277,17 +2288,19 @@ const mhcClassInput = Inputs.radio(["Class I","Class II"], {
 const percMode = Generators.input(percentileModeInput);
 const mhcClass = Generators.input(mhcClassInput);
 
-// Build the allele-chart element reactively (preview from cache, then API)
+/* allele plot — reactive to allele picks; read current values from the control */
+selectedI; // ← re-run this cell when the selection changes
+
 const allelePlot = alleleChart({
   data      : chartRowsI,
-  alleles   : [...selectedI],
-  mode      : percentileModeInput,   // ← pass the radio ELEMENT, not the generator
+  alleles   : Array.from(alleleCtrl1.value || []),  // <- not [...selectedI]
+  mode      : percentileModeInput,                  // radio element (already handled)
   classType : "I",
-  // height0 : null,                // ← omit or set null for auto height
   baseCell  : 28,
   margin    : { top: 40, right: 20, bottom: 20, left: 140 },
   showNumbers: false
 });
+
 
 
 // Build the allele-chart element reactively (preview from cache, then API)
@@ -2367,13 +2380,4 @@ const selectedII = Generators.input(alleleCtrl2);
 /* commit helper must run AFTER the controls exist */
 const committedI  = commitTo(runBtnI , alleleCtrl1);
 const committedII = commitTo(runBtnII, alleleCtrl2);
-
-
-```
-
-```js
-// Should log ~20 class-I alleles on page load (before typing)
-console.debug("test fetch I, first page:",
-  await fetchAlleles("I", "", 0, 20));
-
 ```
