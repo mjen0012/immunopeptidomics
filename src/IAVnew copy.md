@@ -1954,7 +1954,7 @@ async function parsePeptideTable(file) {
 ```
 
 ```js
-/* committed protein id – reactive to Apply clicks */
+/* committed protein id — reactive */
 function normalizeProteinId(v) {
   if (!v) return null;
   if (typeof v === "string") return v;
@@ -1962,13 +1962,13 @@ function normalizeProteinId(v) {
   return null;
 }
 
-const committedProteinId = await (async () => {
-  // take the newest committed value (this cell re-runs on each Apply)
-  for await (const v of proteinCommitted) {
-    const id = normalizeProteinId(v);
-    return id ? String(id).trim().toUpperCase() : null;
-  }
+const committedProteinId = (() => {
+  const raw = proteinCommitted;        // ← establish reactive dependency
+  const id  = normalizeProteinId(raw);
+  const out = id ? String(id).trim().toUpperCase() : null;
+  return out;
 })();
+
 
 
 ```
@@ -2017,12 +2017,10 @@ const cachePreviewI = await (async () => {
   selectedI;           // re-run on allele picks
   committedProteinId;  // re-run on Apply (protein) changes
 
-  if (!committedProteinId) return [];                 // nothing until a protein is committed
-
   const alleles = Array.from(alleleCtrl1.value || []);
-  const peps    = peptidesICommitted;                 // <- ONLY committed-protein peptides
+  const peps    = peptidesICommitted;       // only committed-protein peptides
 
-  if (!alleles.length || !peps.length) return [];
+  if (!committedProteinId || !alleles.length || !peps.length) return [];
 
   const cacheRows = (
     await db.sql`
@@ -2045,23 +2043,24 @@ const chartRowsI = (() => {
   selectedI;           // react to allele selection
   committedProteinId;  // react to Apply (protein)
 
-  if (!committedProteinId) return [];                 // nothing until a protein is committed
+  if (!committedProteinId) return [];
 
   const allelesNow = new Set(alleleCtrl1.value || []);
-  const allowed    = new Set(peptidesICommitted);     // <- ONLY committed-protein peptides
+  if (!allelesNow.size) return [];
 
-  if (!allelesNow.size || !allowed.size) return [];
+  const allowed = new Set(peptidesICommitted);
+  if (!allowed.size) return [];
 
   const map = new Map();
 
-  // Cached rows (immediate)
+  // cached rows first (immediate preview)
   for (const r of cachePreviewI) {
     if (allowed.has(r.peptide) && allelesNow.has(r.allele)) {
       map.set(`${r.allele}|${r.peptide}`, r);
     }
   }
 
-  // API rows (augment when Run completes)
+  // then any API rows (when Run completes)
   const apiRows = Array.isArray(runResultsI) ? runResultsI : [];
   for (const r of apiRows) {
     if (allowed.has(r.peptide) && allelesNow.has(r.allele)) {
@@ -2242,11 +2241,12 @@ const downloadCSVII = makeDownloadButton("Download Class-II CSV",
 const uploadedPeptidesTable = await parsePeptideTable(peptideFile);
 
 
-/* peptides for Class I, scoped to committed protein */
+/* peptides for Class I, scoped to committed protein (reactive) */
 const peptidesICommitted = (() => {
-  if (!committedProteinId) return [];
+  const pid = committedProteinId;         // ← dependency
+  if (!pid) return [];
   return peptidesClean
-    .filter(r => (r.protein || "").toUpperCase() === committedProteinId)
+    .filter(r => (r.protein || "").toUpperCase() === pid)
     .map(r => (r.peptide || "").toUpperCase())
     .filter(p => p.length >= 8 && p.length <= 14);
 })();
@@ -2289,7 +2289,7 @@ const mhcClass = Generators.input(mhcClassInput);
 
 /* allele plot — reactive to allele picks and Apply (protein) */
 selectedI;
-committedProteinId;  // explicit dependency for re-render on Apply
+committedProteinId;
 
 const allelePlot = alleleChart({
   data      : chartRowsI,
