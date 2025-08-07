@@ -155,6 +155,7 @@ banner.className = "banner__bg";
     <br>${facetSelectInput}</br>
     <br>${colourAttrInput}</br>
     <br>${colourModeInput}</br>
+    <br>${aaKeyEl}</br>
     <br>${seqSetInput}</br>
     <br>${downloadFastaBtn}</br>
     <br>${downloadPeptideBtn}</br>
@@ -203,6 +204,8 @@ import {areaChart} from "./components/areaChart.js";
 import {sequenceCompareChart} from "./components/sequenceCompareChart.js";
 import {histogramChart} from "./components/histogramChart.js";
 import {alleleChart} from "./components/alleleChart.js";
+import {aaColourKey} from "./components/aaColourKey.js";
+import {runButton} from "./components/runButton.js";
 import * as d3 from "npm:d3";
 ```
 
@@ -793,29 +796,35 @@ function createIAVDashboard({
 
 <!-- Control Panel Buttons -->
 ```js
-const colourAttrInput = Inputs.radio(
+import { radioButtons } from "./components/radioButtons.js";
+
+/* Colour peptides by */
+const colourAttrInput = radioButtons(
   ["attribute_1", "attribute_2", "attribute_3"],
-  {label: "Colour peptides by:", value: "attribute_1"}
+  { label: "Colour peptides by:", value: "attribute_1" }
 );
 const colourAttr = Generators.input(colourAttrInput);
-```
 
-```js
-/* Switch All vs Unique Sequences Radio */
-const seqSetInput = Inputs.radio(
+/* Sequence set */
+const seqSetInput = radioButtons(
   ["All sequences", "Unique sequences"],
-  {label: "Sequence set:", value: "All sequences"}
+  { label: "Sequence set:", value: "All sequences" }
 );
 const seqSet = Generators.input(seqSetInput);
-```
 
-```js
-/* Colour Peptide Cell Plot Button */
-const colourModeInput = Inputs.radio(
+/* Cell colouring */
+const colourModeInput = radioButtons(
   ["Mismatches", "Properties"],
   { label: "Cell colouring:", value: "Mismatches" }
 );
 const colourMode = Generators.input(colourModeInput);
+
+const aaKeyEl = aaColourKey({
+  label: "Amino-acid colour key",   // or "" to hide the heading
+  square: 22,
+  gap: 6,
+  showGroupLabels: true
+});
 ```
 
 <!-- Data Source Switcher -->
@@ -1816,11 +1825,14 @@ const statusBanner = html`<div style="margin:0.5rem 0; font-style:italic;"></div
 function setBanner(msg) { statusBanner.textContent = msg; }
 
 /* ▸ RUN buttons -------------------------------------------------- */
-const runBtnI  = Inputs.button("Run Class I (EL + BA)");
-const runBtnII = Inputs.button("Run Class II (EL + BA)");
+const runBtnI  = runButton("Run Class I (EL + BA)");
+const runBtnII = runButton("Run Class II (EL + BA)");
 
+// keep your existing reactive plumbing
 const trigI  = Generators.input(runBtnI);
 const trigII = Generators.input(runBtnII);
+
+
 
 /* commit helper */
 const commitTo = (btn, element) =>
