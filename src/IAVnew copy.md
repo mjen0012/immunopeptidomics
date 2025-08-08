@@ -1324,6 +1324,21 @@ const heatmapData = rowsRaw.map(r => ({
   total     : Number(r[totCol])
 }));
 
+/* ⬇️ Debug helper — logs missing/working keys */
+peptideHeatmapDebugLogger({
+  alleleData : chartRowsI,
+  alleles    : Array.from(alleleCtrl1.value || []),
+  selected   : selectedPeptide,
+  mode       : percMode,
+  rows       : [
+    heatmapData.find(d => d.peptide === selectedPeptide),
+    ...heatmapData
+      .filter(d => d.peptide !== selectedPeptide)
+      .sort((a, b) => d3.descending(a.proportion, b.proportion))
+      .slice(0, 4)
+  ]
+});
+
 /* Create Peptide + Allele Overlay Plot */
 const heatmapSVG = peptideHeatmap({
   data        : heatmapData,
@@ -1334,23 +1349,10 @@ const heatmapSVG = peptideHeatmap({
   baseCell    : 31,
 
   // New inputs for overlay
-  alleleData  : chartRowsI,                             // ← cached results
-  alleles     : Array.from(alleleCtrl1.value || []),    // ← selected alleles
-  mode        : percMode,                               // "EL" or "BA"
-  showAlleles : true
-});
-
-peptideHeatmapDebugLogger({
   alleleData  : chartRowsI,
   alleles     : Array.from(alleleCtrl1.value || []),
-  selected    : selectedPeptide,
   mode        : percMode,
-  rows        : [
-    selectedPeptide,
-    ...heatmapData.filter(d => d.peptide !== selectedPeptide)
-                  .sort((a,b)=>d3.descending(a.proportion,b.proportion))
-                  .slice(0, 4)
-  ]
+  showAlleles : true
 });
 
 ```
