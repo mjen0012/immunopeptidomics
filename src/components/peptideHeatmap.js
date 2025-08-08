@@ -1,5 +1,5 @@
 /*****************************************************************
- *  peptideHeatmap() → HTMLElement   ·   v11
+ *  peptideHeatmap() → HTMLElement   ·   v12
  *  - Responsive peptide heatmap with optional Class I allele overlay
  *  - Integrates chartRowsI-style percentile data (EL/BA)
  *****************************************************************/
@@ -59,15 +59,17 @@ export function peptideHeatmap({
   wrapper.style.cssText = `width: 100%; height: ${height0}px; overflow: hidden;`;
 
   function draw(wrapperWidth){
+    const extraCols = (showAlleles && alleles.length) ? (alleles.length + 1) : 0;
     const fitH = Math.floor((height0 - margin.top - margin.bottom) / nRows);
-    const fitW = Math.floor((wrapperWidth - margin.left - margin.right) / (maxLen + (showAlleles ? alleles.length + 1 : 0)));
+    const fitW = Math.floor((wrapperWidth - margin.left - margin.right) / (maxLen + extraCols));
     const cell = Math.max(12, Math.min(baseCell, fitH, fitW));
 
-    const w = margin.left + maxLen*cell + (showAlleles ? (alleles.length + 1)*cell : 0) + margin.right;
-    const h = margin.top  + nRows*cell + margin.bottom;
+    const labelWidth = Math.ceil(cell * 8.5); // ← expand for long labels
+    const totalW = margin.left + maxLen*cell + labelWidth + (showAlleles ? alleles.length*cell : 0) + margin.right;
+    const h = margin.top  + nRows*cell + margin.bottom + 12;
 
     const svg = d3.create("svg")
-      .attr("viewBox", `0 0 ${w} ${h}`)
+      .attr("viewBox", `0 0 ${totalW} ${h}`)
       .attr("width",  "100%")
       .attr("height", "100%")
       .attr("preserveAspectRatio","xMinYMin meet")
@@ -77,7 +79,7 @@ export function peptideHeatmap({
     rows.forEach((row,i)=>{
       const y0 = margin.top + i*cell;
 
-      // ▸ background cells (AA)
+      // ▸ AA background
       svg.append("g")
         .attr("transform",`translate(${margin.left},${y0})`)
         .selectAll("rect")
@@ -96,7 +98,7 @@ export function peptideHeatmap({
             return (j<row.peptide.length && ch!==selected[j]) ? "#ffcccc" : "#f9f9f9";
           });
 
-      // ▸ letters (AA)
+      // ▸ AA letters
       svg.append("g")
         .attr("transform",`translate(${margin.left},${y0})`)
         .selectAll("text")
@@ -110,20 +112,20 @@ export function peptideHeatmap({
           .attr("fill", i===0?"#fff":"#000")
           .text(c=>c);
 
-      // ▸ proportion label
+      // ▸ proportion label (moved left)
       const pct = (row.proportion*100).toFixed(1);
       svg.append("text")
         .attr("font-family","'Roboto', sans-serif")
         .attr("font-size", Math.round(cell*0.4))
-        .attr("x", margin.left + maxLen*cell + 8)
+        .attr("x", margin.left + maxLen*cell + 6)
         .attr("y", y0 + cell/2)
         .attr("dy","0.35em")
         .html(`<tspan font-weight="bold">${pct}%</tspan><tspan dx="6">(${row.frequency}/${row.total})</tspan>`);
 
-      // ▸ HLA overlay cells
+      // ▸ allele overlay
       if (showAlleles && alleles.length) {
         svg.append("g")
-          .attr("transform", `translate(${margin.left + maxLen*cell + cell},${y0})`)
+          .attr("transform", `translate(${margin.left + maxLen*cell + labelWidth},${y0})`)
           .selectAll("rect")
           .data(alleles)
           .enter().append("rect")
@@ -146,12 +148,11 @@ export function peptideHeatmap({
       }
     });
 
-    // ▸ HLA allele labels (rotated)
+    // ▸ allele labels
     if (showAlleles && alleles.length) {
-      const x0 = margin.left + maxLen*cell + cell;
+      const x0 = margin.left + maxLen*cell + labelWidth;
       const y0 = margin.top - 2;
-      const xg = svg.append("g")
-                    .attr("transform", `translate(${x0},${y0})`);
+      const xg = svg.append("g").attr("transform", `translate(${x0},${y0})`);
       alleles.forEach((al, j) => {
         xg.append("text")
           .attr("transform", `translate(${j*cell + cell/2}, 0) rotate(-45)`)
