@@ -1324,12 +1324,23 @@ const heatmapData = rowsRaw.map(r => ({
   total     : Number(r[totCol])
 }));
 
-/* Create Peptide Plot */
+/* Create Peptide + Allele Overlay Plot */
 const heatmapSVG = peptideHeatmap({
-  data      : heatmapData,
-  selected  : selectedPeptide,
-  colourMode: colourMode
+  data        : heatmapData,
+  selected    : selectedPeptide,
+  colourMode  : colourMode,
+  topN        : 4,
+  height0     : 280,
+  baseCell    : 31,
+
+  // New inputs for overlay
+  alleleData  : chartRowsI,                       // <- cached results
+  alleles     : Array.from(alleleCtrl1.value || []), // <- selected alleles
+  mode        : percMode,                         // "EL" or "BA"
+  showAlleles : true
 });
+
+
 ```
 
 ```js
