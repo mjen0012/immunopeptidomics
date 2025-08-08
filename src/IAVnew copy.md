@@ -1335,22 +1335,22 @@ const heatmapSVG = peptideHeatmap({
 
   // New inputs for overlay
   alleleData  : chartRowsI,                             // ← cached results
-  peptideHeatmapDebugLogger({
-    alleleData  : chartRowsI,
-    alleles     : Array.from(alleleCtrl1.value || []),
-    selected    : selectedPeptide,
-    mode        : percMode,
-    rows        : [
-      selectedPeptide,
-      ...heatmapData.filter(d => d.peptide !== selectedPeptide)
-                    .sort((a,b)=>d3.descending(a.proportion,b.proportion))
-                    .slice(0, 4)
-    ]
-  });
-
   alleles     : Array.from(alleleCtrl1.value || []),    // ← selected alleles
   mode        : percMode,                               // "EL" or "BA"
   showAlleles : true
+});
+
+peptideHeatmapDebugLogger({
+  alleleData  : chartRowsI,
+  alleles     : Array.from(alleleCtrl1.value || []),
+  selected    : selectedPeptide,
+  mode        : percMode,
+  rows        : [
+    selectedPeptide,
+    ...heatmapData.filter(d => d.peptide !== selectedPeptide)
+                  .sort((a,b)=>d3.descending(a.proportion,b.proportion))
+                  .slice(0, 4)
+  ]
 });
 
 ```
