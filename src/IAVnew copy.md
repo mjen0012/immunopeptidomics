@@ -640,10 +640,11 @@ const peptideWindows = (() => {
 const topCandidatesByWindow = peptideWindows.length === 0 ? []
 : (await db.sql`
   WITH
-  params(start,len) AS (
-    VALUES ${joinSql(peptideWindows.map(w => sql`(${w.start}, ${w.len})`))}
+  /* Explicitly type the params as BIGINT */
+  params(start BIGINT, len BIGINT) AS (
+    VALUES ${joinSql(peptideWindows.map(w => sql`(${Math.trunc(w.start)}, ${Math.trunc(w.len)})`))}
   ),
-  /* same filtered cohort as elsewhere, fixed to the committed protein */
+
   filtered AS (
     SELECT *
     FROM   proteins
@@ -710,10 +711,10 @@ const topCandidatesByWindow = peptideWindows.length === 0 ? []
       }
   ),
 
-  /* All-sequence tallies for every (start,len) requested */
+  /* All-sequence tallies */
   ex_all AS (
     SELECT p.start, p.len,
-           SUBSTR(f.sequence, p.start, p.len) AS peptide
+           SUBSTR(f.sequence, CAST(p.start AS BIGINT), CAST(p.len AS BIGINT)) AS peptide
     FROM filtered f
     CROSS JOIN params p
   ),
@@ -732,7 +733,7 @@ const topCandidatesByWindow = peptideWindows.length === 0 ? []
   filtered_u AS ( SELECT DISTINCT sequence FROM filtered ),
   ex_u AS (
     SELECT p.start, p.len,
-           SUBSTR(u.sequence, p.start, p.len) AS peptide
+           SUBSTR(u.sequence, CAST(p.start AS BIGINT), CAST(p.len AS BIGINT)) AS peptide
     FROM filtered_u u
     CROSS JOIN params p
   ),
