@@ -1334,12 +1334,11 @@ const heatmapSVG = peptideHeatmap({
   baseCell    : 31,
 
   // New inputs for overlay
-  alleleData  : chartRowsI,                       // <- cached results
-  alleles     : Array.from(alleleCtrl1.value || []), // <- selected alleles
-  mode        : percMode,                         // "EL" or "BA"
+  alleleData  : chartRowsI,                             // ← cached results
+  alleles     : Array.from(alleleCtrl1.value || []),    // ← selected alleles
+  mode        : percMode,                               // "EL" or "BA"
   showAlleles : true
 });
-
 
 ```
 
