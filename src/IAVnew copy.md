@@ -2287,23 +2287,8 @@ const chartRowsI = (() => {
 ```
 
 ```js
-{
-  Object.defineProperty(globalThis, "debugNetMHC", {
-    configurable: true,
-    get() {
-      return {
-        get selectedI()     { return [...selectedI]; },
-        get peptidesI()     { return peptidesI; },
-        get cachePreviewI() { return cachePreviewI; },
-        get runResultsI()   { return runResultsI; },
-        get resultsI()      { return resultsArrayI.value; }, // value (array) for CSV
-        get chartRowsI()    { return chartRowsI; }
-      };
-    }
-  });
-  console.debug("debugNetMHC ready → try:", "debugNetMHC.chartRowsI.length");
-}
-
+/* ---- NetMHC batch size ---- */
+const NETMHC_CHUNK_SIZE = 1000;   // was ~25 before; now 1000 as requested
 
 ```
 
@@ -2313,7 +2298,7 @@ const runResultsI = await (async () => {
   trigI;                           // re-run when Run Class I is clicked
 
   const alleles = Array.from(alleleCtrl1.value || []);
-  const peps    = peptidesIWorkset;
+  const peps    = peptidesIWorkset;   // includes ALL user peptides + top-4 pool
 
   if (!alleles.length) { setBanner("Class I: no alleles selected."); return []; }
   if (!peps.length)    { setBanner("Class I: no peptides to run.");  return []; }
@@ -2332,7 +2317,6 @@ const runResultsI = await (async () => {
 
   const cacheKey = r => `${r.allele}|${r.peptide}`;
   const cacheSet = new Set(cacheRows.map(cacheKey));
-  const cachedConverted = cacheRows; // already snake_case
 
   /* 2 ▸ compute missing peptides per allele */
   const missingByAllele = new Map();
@@ -2345,48 +2329,56 @@ const runResultsI = await (async () => {
   }
 
   if (missingByAllele.size === 0) {
-    const merged = [...new Map(cachedConverted.map(r => [cacheKey(r), r])).values()];
+    const merged = [...new Map(cacheRows.map(r => [cacheKey(r), r])).values()];
     resultsArrayI.value = merged;
     setBanner(`Class I: all ${merged.length} rows from cache ✅`);
     return merged;
   }
 
-  /* 3 ▸ prepare API calls in chunks of 1000 peptides (union across alleles) */
+  /* 3 ▸ union missing peptides across alleles; chunk by 1000 */
   const allelesToQuery = [...missingByAllele.keys()];
-  const unionMissing = [...new Set([].concat(...allelesToQuery.map(al => missingByAllele.get(al))))];
+  const unionMissing   = [...new Set([].concat(...allelesToQuery.map(al => missingByAllele.get(al))))];
 
   const chunks = [];
-  for (let i = 0; i < unionMissing.length; i += 1000) {
-    chunks.push(unionMissing.slice(i, i + 1000));
+  for (let i = 0; i < unionMissing.length; i += NETMHC_CHUNK_SIZE) {
+    chunks.push(unionMissing.slice(i, i + NETMHC_CHUNK_SIZE));
   }
 
   const apiRowsAll = [];
   for (let i = 0; i < chunks.length; i++) {
     const chunk = chunks[i];
-    setBanner(`Class I: submitting chunk ${i+1}/${chunks.length} (${chunk.length} peptides)…`);
+    try {
+      setBanner(`Class I: submitting chunk ${i+1}/${chunks.length} (${chunk.length} peptides)…`);
+      const fasta = chunk.map((p,idx)=>`>p${idx+1}\n${p}`).join("\n");
 
-    const fasta = chunk.map((p,idx)=>`>p${idx+1}\n${p}`).join("\n");
+      const id  = await submit(buildBodyI(allelesToQuery, fasta));
+      setBanner(`Class I: polling chunk ${i+1}/${chunks.length}…`);
+      const tbl = await poll(id);
+      const apiRows = rowsFromTable(tbl);
+      apiRowsAll.push(...apiRows);
 
-    const id  = await submit(buildBodyI(allelesToQuery, fasta));
-    setBanner(`Class I: polling chunk ${i+1}/${chunks.length}…`);
-    const tbl = await poll(id);
-    const apiRows = rowsFromTable(tbl); // display headers -> we just need allele/peptide + percentiles
-    apiRowsAll.push(...apiRows);
+      // tiny delay to avoid hammering
+      await new Promise(res => setTimeout(res, 150));
+    } catch (err) {
+      console.error(`Chunk ${i+1} failed:`, err);
+      // keep going; we still merge what we have
+      setBanner(`Class I: chunk ${i+1} failed (${err.message}). Continuing…`);
+      await new Promise(res => setTimeout(res, 250));
+    }
   }
 
   /* 4 ▸ merge cache + API (API wins) */
   const map = new Map();
-  for (const r of cachedConverted) map.set(cacheKey(r), r);
-  for (const r of apiRowsAll)     map.set(`${r.allele}|${r.peptide}`, r);
+  for (const r of cacheRows)   map.set(cacheKey(r), r);
+  for (const r of apiRowsAll)  map.set(`${r.allele}|${r.peptide}`, r);
 
   const merged = [...map.values()];
   resultsArrayI.value = merged;
 
-  setBanner(`Class I done — ${merged.length} rows (cache ${cacheSet.size} + new ${merged.length - cacheSet.size}).`);
+  const uniqueApi = new Set(apiRowsAll.map(r => `${r.allele}|${r.peptide}`)).size;
+  setBanner(`Class I done — ${merged.length} rows (cache ${cacheSet.size} + new ${uniqueApi}).`);
   return merged;
 })();
-
-
 
 ```
 
