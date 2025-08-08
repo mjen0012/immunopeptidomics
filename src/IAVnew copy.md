@@ -199,7 +199,7 @@ import {metricCard} from "./components/metricCard.js";
 import {peptideChart} from "./components/peptideChart.js";
 import {stackedChart} from "./components/stackedChart.js";
 import {makePeptideScale, colourAA} from "./components/palettes.js";
-import {peptideHeatmap} from "./components/peptideHeatmap.js";
+import { peptideHeatmap } from "./components/peptideHeatmap.js";
 import {areaChart} from "./components/areaChart.js";
 import {sequenceCompareChart} from "./components/sequenceCompareChart.js";
 import {histogramChart} from "./components/histogramChart.js";
@@ -1324,22 +1324,12 @@ const heatmapData = rowsRaw.map(r => ({
   total     : Number(r[totCol])
 }));
 
-/* Create Peptide + Allele Overlay Plot */
+/* Create Peptide Plot */
 const heatmapSVG = peptideHeatmap({
-  data        : heatmapData,
-  selected    : selectedPeptide,
-  colourMode  : colourMode,
-  topN        : 4,
-  height0     : 280,
-  baseCell    : 31,
-
-  // New inputs for overlay
-  alleleData  : chartRowsI,                             // ← cached results
-  alleles     : Array.from(alleleCtrl1.value || []),    // ← selected alleles
-  mode        : percMode,                               // "EL" or "BA"
-  showAlleles : true
+  data      : heatmapData,
+  selected  : selectedPeptide,
+  colourMode: colourMode
 });
-
 ```
 
 ```js
