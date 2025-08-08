@@ -2120,7 +2120,7 @@ const chartRowsI = (() => {
 ```js
 /* ▸ RUN results – Class I  (reactive to button click; per-allele missing) */
 const runResultsI = await (async () => {
-  trigI;                           // re-run when Run Class I is clicked
+  trigI; // re-run when Run Class I is clicked
 
   if (!peptideFile) return [];
   setBanner("Class I: starting…");
@@ -2147,7 +2147,9 @@ const runResultsI = await (async () => {
 
   // cacheSet is over unique (allele|peptide) pairs
   const cacheSet = new Set(cacheRows.map(r => `${r.allele}|${r.peptide}`));
-  const cachedConverted = cacheRows.map(convertCacheRowI);
+
+  // ⬇️ FIX: cache rows are already snake_case; do not convert
+  const cachedConverted = cacheRows; // (was: cacheRows.map(convertCacheRowI))
 
   /* 2 ▸ compute missing peptides per allele */
   const missingByAllele = new Map();
@@ -2178,7 +2180,7 @@ const runResultsI = await (async () => {
     const id  = await submit(buildBodyI(allelesToQuery, fasta));
     setBanner("Class I: polling…");
     const tbl = await poll(id);
-    const apiRows = rowsFromTable(tbl);
+    const apiRows = rowsFromTable(tbl); // API returns display headers
 
     /* 4 ▸ merge cache + fresh rows (API rows win on duplicates) */
     const map = new Map();
@@ -2202,6 +2204,7 @@ const runResultsI = await (async () => {
     return [];
   }
 })();
+
 
 ```
 
