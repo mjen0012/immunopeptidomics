@@ -1,8 +1,9 @@
 /*****************************************************************
- *  peptideHeatmap() → HTMLElement   ·   v16
- *  - Snaps %/count column to whole cells
- *  - Tight right padding when allele columns are shown
- *  - Two-pass sizing; generous measured top band so labels never clip
+ *  peptideHeatmap() → HTMLElement   ·   v17
+ *  - Extra-safe top band for rotated allele labels (no clipping)
+ *  - Slight horizontal cushion for angled headers:
+ *      • between counts and first allele column
+ *      • a small right-edge pad
  *****************************************************************/
 import * as d3 from "npm:d3";
 import { aminoacidPalette } from "/components/palettes.js";
@@ -33,20 +34,17 @@ export function peptideHeatmap({
 
   // rows (selected + topN)
   const byPep = new Map(data.map(d => [d.peptide, d]));
-  const head = byPep.get(selectedNoGaps) ?? { peptide:selectedNoGaps, proportion:0, frequency:0, total:0 };
-  const rows = [
-    head,
-    ...data.filter(d => d.peptide !== selectedNoGaps)
-           .sort((a,b)=>d3.descending(a.proportion,b.proportion))
-           .slice(0, topN)
-  ];
+  const head  = byPep.get(selectedNoGaps) ?? { peptide:selectedNoGaps, proportion:0, frequency:0, total:0 };
+  const rows  = [ head, ...data.filter(d => d.peptide !== selectedNoGaps)
+                               .sort((a,b)=>d3.descending(a.proportion,b.proportion))
+                               .slice(0, topN) ];
   const nRows   = rows.length;
   const pepCols = Math.max(0, d3.max(rows, d => d.peptide.length) ?? 0);
 
-  // allele lookups
+  // allele lookup
   const scoreKey = mode === "BA" ? "netmhcpan_ba_percentile" : "netmhcpan_el_percentile";
   const pairKey  = (al, pep) => `${String(al).trim()}|${String(pep).trim()}`;
-  const lookup = new Map();
+  const lookup   = new Map();
   for (const r of alleleData || []) {
     const pep = r?.peptide, al = r?.allele, val = r?.[scoreKey];
     if (pep && al && Number.isFinite(+val)) lookup.set(pairKey(al, pep), +val);
@@ -73,8 +71,8 @@ export function peptideHeatmap({
       t.remove();
     }
     svg.remove();
-    // add a generous safety pad so no clipping across platforms
-    return Math.max(24, Math.round(maxAbove + fontPx * 0.9));
+    // extra safety: add ~1.1× font height + a few px
+    return Math.max(28, Math.round(maxAbove + fontPx * 1.1 + 4));
   }
 
   function measureMaxTextWidth(strings, fontPx = 12, fontFamily = "sans-serif") {
@@ -103,17 +101,20 @@ export function peptideHeatmap({
   const draw = (wrapperWidth) => {
     const haveAlleles = showAlleles && Array.isArray(alleles) && alleles.length > 0;
 
-    // Tighter right padding when the allele grid exists
-    const rightPad = haveAlleles ? Math.max(10, Math.min(32, Math.round(baseCell * 0.9)))
-                                 : margin.right;
+    // slightly smaller right pad when alleles exist (tuned)
+    const baseRight = haveAlleles ? Math.max(12, Math.round(baseCell * 0.75))
+                                  : margin.right;
 
-    // two-pass sizing using the final cell size for measurements
+    // two-pass sizing
     let cell = baseCell, xLabelBand = 0, labelCols = 0;
     const alleleCols = haveAlleles ? alleles.length : 0;
-    const numLabels = rows.map(r => {
+    const numLabels  = rows.map(r => {
       const pct = Number.isFinite(r.proportion) ? (r.proportion*100).toFixed(1) : "0.0";
       return `${pct}% (${r.frequency}/${r.total})`;
     });
+
+    // small extra horizontal cushion because labels are angled
+    let angleGapCols = 0;
 
     for (let pass = 0; pass < 2; pass++) {
       const labelFontPx = Math.round(cell * 0.42);
@@ -121,13 +122,20 @@ export function peptideHeatmap({
       xLabelBand = haveAlleles ? measureRotBand(Math.round(cell * 0.42), "sans-serif") : 0;
 
       const measuredNumW = measureMaxTextWidth(numLabels, labelFontPx, "'Roboto', sans-serif");
-      const pad = Math.max(6, Math.round(cell * 0.25));
-      labelCols = haveAlleles ? Math.max(1, Math.ceil((measuredNumW + pad) / cell)) : 0;
+      const pad          = Math.max(6, Math.round(cell * 0.25));
+
+      // extra “angle” cushion between counts and first allele col
+      angleGapCols = haveAlleles ? 0.25 : 0;  // ~¼ cell looks right
+
+      labelCols = haveAlleles
+        ? Math.max(1, Math.ceil((measuredNumW + pad) / cell) + angleGapCols)
+        : 0;
+
       const labelWidth = labelCols * cell;
 
       const fitH = Math.floor((height0 - margin.top - margin.bottom - xLabelBand) / Math.max(1, nRows));
       const fitW = Math.floor((
-        wrapperWidth - margin.left - rightPad - labelWidth
+        wrapperWidth - margin.left - baseRight - labelWidth
       ) / Math.max(1, pepCols + alleleCols));
 
       const next = Math.max(12, Math.min(baseCell, fitH, fitW));
@@ -135,8 +143,9 @@ export function peptideHeatmap({
       cell = next;
     }
 
-    const labelWidth = labelCols * cell;
-    const w = margin.left + pepCols*cell + labelWidth + alleleCols*cell + rightPad;
+    const labelWidth      = labelCols * cell;
+    const rightEdgeCushion= haveAlleles ? Math.round(cell * 0.35) : 0; // small extra on far right
+    const w = margin.left + pepCols*cell + labelWidth + alleleCols*cell + baseRight + rightEdgeCushion;
     const h = margin.top  + xLabelBand + nRows*cell + margin.bottom;
 
     const svg = d3.create("svg")
@@ -219,7 +228,7 @@ export function peptideHeatmap({
       }
     });
 
-    // allele headers (rotated) — band measured AFTER final cell
+    // allele headers (rotated)
     if (haveAlleles) {
       const x0 = margin.left + pepCols*cell + labelWidth;
       const xg = svg.append("g").attr("transform", `translate(${x0},${margin.top + xLabelBand})`);
