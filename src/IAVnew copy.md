@@ -199,7 +199,7 @@ import {metricCard} from "./components/metricCard.js";
 import {peptideChart} from "./components/peptideChart.js";
 import {stackedChart} from "./components/stackedChart.js";
 import {makePeptideScale, colourAA} from "./components/palettes.js";
-import {peptideHeatmap, peptideHeatmapDebugLogger} from "./components/peptideHeatmap.js";
+import {peptideHeatmap} from "./components/peptideHeatmap.js";
 import {areaChart} from "./components/areaChart.js";
 import {sequenceCompareChart} from "./components/sequenceCompareChart.js";
 import {histogramChart} from "./components/histogramChart.js";
@@ -1324,50 +1324,21 @@ const heatmapData = rowsRaw.map(r => ({
   total     : Number(r[totCol])
 }));
 
-if (
-  Array.isArray(chartRowsI) &&
-  chartRowsI.length &&
-  selectedPeptide &&
-  Array.isArray(alleleCtrl1?.value) &&
-  alleleCtrl1.value.length > 0
-) {
-  /* Run Debug Logger */
-  peptideHeatmapDebugLogger({
-    alleleData  : chartRowsI,
-    alleles     : Array.from(alleleCtrl1.value),
-    selected    : selectedPeptide,
-    mode        : percMode,
-    rows        : [
-      selectedPeptide,
-      ...heatmapData.filter(d => d.peptide !== selectedPeptide)
-                    .sort((a,b)=>d3.descending(a.proportion,b.proportion))
-                    .slice(0, 4)
-    ]
-  });
+/* Create Peptide + Allele Overlay Plot */
+const heatmapSVG = peptideHeatmap({
+  data        : heatmapData,
+  selected    : selectedPeptide,
+  colourMode  : colourMode,
+  topN        : 4,
+  height0     : 280,
+  baseCell    : 31,
 
-  /* Create Chart */
-  const heatmapSVG = peptideHeatmap({
-    data        : heatmapData,
-    selected    : selectedPeptide,
-    colourMode  : colourMode,
-    topN        : 4,
-    height0     : 280,
-    baseCell    : 31,
-
-    // overlay
-    alleleData  : chartRowsI,
-    alleles     : Array.from(alleleCtrl1.value),
-    mode        : percMode,
-    showAlleles : true
-  });
-
-  heatmapSVG; // render chart
-} else {
-  html`<div style="font-style: italic; color: gray;">
-    Awaiting input: Upload files and select alleles to display heatmap.
-  </div>`;
-}
-
+  // New inputs for overlay
+  alleleData  : chartRowsI,                             // ← cached results
+  alleles     : Array.from(alleleCtrl1.value || []),    // ← selected alleles
+  mode        : percMode,                               // "EL" or "BA"
+  showAlleles : true
+});
 
 ```
 
