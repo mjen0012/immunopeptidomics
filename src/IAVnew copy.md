@@ -1326,10 +1326,19 @@ const heatmapData = rowsRaw.map(r => ({
 
 /* Create Peptide Plot */
 const heatmapSVG = peptideHeatmap({
-  data      : heatmapData,
-  selected  : selectedPeptide,
-  colourMode: colourMode
+  data        : heatmapData,                        // peptides (ungapped)
+  selected    : selectedPeptide,                    // may include '-'
+  colourMode  : colourMode,
+  // ── NEW overlay props:
+  alleleData  : chartRowsI,                         // cache + API (snake_case)
+  alleles     : Array.from(alleleCtrl1.value || []),
+  mode        : percMode,                           // "EL" | "BA"
+  showAlleles : true,
+  baseCell    : 28,
+  height0     : 280,
+  margin      : { top:20, right:150, bottom:20, left:4 }
 });
+
 ```
 
 ```js
@@ -1986,31 +1995,30 @@ const committedProteinId = (() => {
 ```
 
 ```js
-/* ▸ shared mapping: cache → API/IEDB display names (Class I) */
-const colMapI = {
-  sequence_number           : "seq #",
-  peptide                   : "peptide",
-  start                     : "start",
-  end                       : "end",
-  length                    : "peptide length",
-  allele                    : "allele",
-  peptide_index             : "peptide index",
-  median_percentile         : "median binding percentile",
-  netmhcpan_el_core         : "netmhcpan_el core",
-  netmhcpan_el_icore        : "netmhcpan_el icore",
-  netmhcpan_el_score        : "netmhcpan_el score",
-  netmhcpan_el_percentile   : "netmhcpan_el percentile",
-  netmhcpan_ba_core         : "netmhcpan_ba core",
-  netmhcpan_ba_icore        : "netmhcpan_ba icore",
-  netmhcpan_ba_ic50         : "netmhcpan_ba IC50",
-  netmhcpan_ba_percentile   : "netmhcpan_ba percentile"
+/* ── Unified schema (snake_case) for Class I rows ─────────────── */
+const keyMapI = {
+  // API display names → snake_case
+  "peptide": "peptide",
+  "allele": "allele",
+  "netmhcpan_el percentile": "netmhcpan_el_percentile",
+  "netmhcpan_ba percentile": "netmhcpan_ba_percentile",
+  "netmhcpan_el score": "netmhcpan_el_score",
+  "netmhcpan_ba ic50": "netmhcpan_ba_ic50"
+  // add more if you need them in the UI
 };
 
-function convertCacheRowI(r) {
-  return Object.fromEntries(Object.entries(r).map(([k,v]) =>
-    [colMapI[k] ?? k, v]
-  ));
+/* Cache rows are already snake_case → pass-through */
+function normalizeRowI_cache(r) { return r; }
+
+/* API table rows (display headers) → snake_case */
+function normalizeRowI_api(r) {
+  const out = {};
+  for (const [k, v] of Object.entries(r)) {
+    out[keyMapI[k] || k] = v;
+  }
+  return out;
 }
+
 ```
 
 ```js
@@ -2024,13 +2032,12 @@ const peptidesI = await (async () => {
 ```
 
 ```js
-/* Class I cache preview for the committed protein — STRICT (no fallback) */
 const cachePreviewI = await (async () => {
-  selectedI;           // re-run on allele picks
-  committedProteinId;  // re-run on Apply (protein) changes
+  selectedI;
+  committedProteinId;
 
   const alleles = Array.from(alleleCtrl1.value || []);
-  const peps    = peptidesICommitted;       // only committed-protein peptides
+  const peps    = peptidesICommitted;
 
   if (!committedProteinId || !alleles.length || !peps.length) return [];
 
@@ -2043,45 +2050,48 @@ const cachePreviewI = await (async () => {
     `
   ).toArray();
 
-  return cacheRows.map(convertCacheRowI);
+  return cacheRows; // ← keep snake_case
 })();
+
 
 
 ```
 
 ```js
-/* merged rows for the chart — STRICT to committed protein */
+/* merged rows for the chart — STRICT to committed protein (snake_case) */
 const chartRowsI = (() => {
-  selectedI;           // react to allele selection
-  committedProteinId;  // react to Apply (protein)
+  selectedI;
+  committedProteinId;
 
   if (!committedProteinId) return [];
 
   const allelesNow = new Set(alleleCtrl1.value || []);
   if (!allelesNow.size) return [];
 
-  const allowed = new Set(peptidesICommitted);
+  const allowed = new Set(peptidesICommitted); // ungapped peptides
   if (!allowed.size) return [];
 
   const map = new Map();
 
-  // cached rows first (immediate preview)
+  // cached rows (already snake_case)
   for (const r of cachePreviewI) {
     if (allowed.has(r.peptide) && allelesNow.has(r.allele)) {
-      map.set(`${r.allele}|${r.peptide}`, r);
+      map.set(`${r.allele}|${r.peptide}`, normalizeRowI_cache(r));
     }
   }
 
-  // then any API rows (when Run completes)
+  // API rows (display → snake_case)
   const apiRows = Array.isArray(runResultsI) ? runResultsI : [];
   for (const r of apiRows) {
-    if (allowed.has(r.peptide) && allelesNow.has(r.allele)) {
-      map.set(`${r.allele}|${r.peptide}`, r);
+    const row = normalizeRowI_api(r);
+    if (allowed.has(row.peptide) && allelesNow.has(row.allele)) {
+      map.set(`${row.allele}|${row.peptide}`, row);
     }
   }
 
   return [...map.values()];
 })();
+
 
 
 ```
