@@ -1,9 +1,7 @@
 /*****************************************************************
- *  peptideHeatmap() → HTMLElement   ·   v17
+ *  peptideHeatmap() → HTMLElement   ·   v18
  *  - Extra-safe top band for rotated allele labels (no clipping)
- *  - Slight horizontal cushion for angled headers:
- *      • between counts and first allele column
- *      • a small right-edge pad
+ *  - Slightly larger horizontal cushions for angled headers
  *****************************************************************/
 import * as d3 from "npm:d3";
 import { aminoacidPalette } from "/components/palettes.js";
@@ -71,8 +69,8 @@ export function peptideHeatmap({
       t.remove();
     }
     svg.remove();
-    // extra safety: add ~1.1× font height + a few px
-    return Math.max(28, Math.round(maxAbove + fontPx * 1.1 + 4));
+    // ⬆️ more conservative headroom to avoid any clipping
+    return Math.max(32, Math.round(maxAbove + fontPx * 1.35 + 6));
   }
 
   function measureMaxTextWidth(strings, fontPx = 12, fontFamily = "sans-serif") {
@@ -101,8 +99,8 @@ export function peptideHeatmap({
   const draw = (wrapperWidth) => {
     const haveAlleles = showAlleles && Array.isArray(alleles) && alleles.length > 0;
 
-    // slightly smaller right pad when alleles exist (tuned)
-    const baseRight = haveAlleles ? Math.max(12, Math.round(baseCell * 0.75))
+    // tighter right pad when alleles exist
+    const baseRight = haveAlleles ? Math.max(12, Math.round(baseCell * 0.7))
                                   : margin.right;
 
     // two-pass sizing
@@ -113,7 +111,7 @@ export function peptideHeatmap({
       return `${pct}% (${r.frequency}/${r.total})`;
     });
 
-    // small extra horizontal cushion because labels are angled
+    // cushions because headers are angled
     let angleGapCols = 0;
 
     for (let pass = 0; pass < 2; pass++) {
@@ -124,8 +122,8 @@ export function peptideHeatmap({
       const measuredNumW = measureMaxTextWidth(numLabels, labelFontPx, "'Roboto', sans-serif");
       const pad          = Math.max(6, Math.round(cell * 0.25));
 
-      // extra “angle” cushion between counts and first allele col
-      angleGapCols = haveAlleles ? 0.25 : 0;  // ~¼ cell looks right
+      // ⬆️ slightly larger “angle” cushion between counts and first allele col
+      angleGapCols = haveAlleles ? 0.5 : 0;  // half a cell
 
       labelCols = haveAlleles
         ? Math.max(1, Math.ceil((measuredNumW + pad) / cell) + angleGapCols)
@@ -143,8 +141,8 @@ export function peptideHeatmap({
       cell = next;
     }
 
-    const labelWidth      = labelCols * cell;
-    const rightEdgeCushion= haveAlleles ? Math.round(cell * 0.35) : 0; // small extra on far right
+    const labelWidth       = labelCols * cell;
+    const rightEdgeCushion = haveAlleles ? Math.round(cell * 0.5) : 0; // ⬆️ a touch more
     const w = margin.left + pepCols*cell + labelWidth + alleleCols*cell + baseRight + rightEdgeCushion;
     const h = margin.top  + xLabelBand + nRows*cell + margin.bottom;
 
