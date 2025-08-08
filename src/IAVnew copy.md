@@ -640,8 +640,8 @@ const peptideWindows = (() => {
 const topCandidatesByWindow = peptideWindows.length === 0 ? []
 : (await db.sql`
   WITH
-  /* Explicitly type the params as BIGINT */
-  params(start BIGINT, len BIGINT) AS (
+  /* Alias names only; types handled via CAST at SUBSTR sites */
+  params(start, len) AS (
     VALUES ${joinSql(peptideWindows.map(w => sql`(${Math.trunc(w.start)}, ${Math.trunc(w.len)})`))}
   ),
 
