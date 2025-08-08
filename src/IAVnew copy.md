@@ -199,7 +199,7 @@ import {metricCard} from "./components/metricCard.js";
 import {peptideChart} from "./components/peptideChart.js";
 import {stackedChart} from "./components/stackedChart.js";
 import {makePeptideScale, colourAA} from "./components/palettes.js";
-import { peptideHeatmap } from "./components/peptideHeatmap.js";
+import {peptideHeatmap, peptideHeatmapDebugLogger} from "./components/peptideHeatmap.js";
 import {areaChart} from "./components/areaChart.js";
 import {sequenceCompareChart} from "./components/sequenceCompareChart.js";
 import {histogramChart} from "./components/histogramChart.js";
