@@ -619,6 +619,199 @@ const peptidesAligned = peptidesClean.map(d => {
   };
 });
 
+/* Distinct (start,len) windows for uploaded peptides in the committed protein */
+const peptideWindows = (() => {
+  const pid = committedProteinId; // reactive
+  if (!pid) return [];
+  const key = r => `${r.start}|${r.aligned_length}`;
+  const map = new Map();
+  for (const r of peptidesAligned) {
+    if ((r.protein || "").toUpperCase() !== pid) continue;
+    if (!r.start || !r.aligned_length) continue;
+    const k = key(r);
+    if (!map.has(k)) map.set(k, { start: +r.start, len: +r.aligned_length });
+  }
+  return [...map.values()];
+})();
+```
+
+```js
+/* Top candidates (by All and Unique) for every uploaded window in this protein */
+const topCandidatesByWindow = peptideWindows.length === 0 ? []
+: (await db.sql`
+  WITH
+  params(start,len) AS (
+    VALUES ${joinSql(peptideWindows.map(w => sql`(${w.start}, ${w.len})`))}
+  ),
+  /* same filtered cohort as elsewhere, fixed to the committed protein */
+  filtered AS (
+    SELECT *
+    FROM   proteins
+    WHERE  protein = ${proteinCommitted}
+
+      AND ${ genotypesCommitted.length
+              ? sql`genotype IN (${ genotypesCommitted })` : sql`TRUE` }
+      AND ${ hostsCommitted.length
+              ? sql`host IN (${ hostsCommitted })` : sql`TRUE` }
+      AND ${
+            hostCategoryCommitted.includes('Human') &&
+            !hostCategoryCommitted.includes('Non-human')
+              ? sql`host = 'Homo sapiens'`
+              : (!hostCategoryCommitted.includes('Human') &&
+                 hostCategoryCommitted.includes('Non-human'))
+                  ? sql`host <> 'Homo sapiens'`
+                  : sql`TRUE`
+          }
+      AND ${ countriesCommitted.length
+              ? sql`country IN (${ countriesCommitted })` : sql`TRUE` }
+
+      AND ${
+        collectionDatesCommitted.from || collectionDatesCommitted.to
+          ? sql`
+              TRY_CAST(
+                CASE
+                  WHEN collection_date IS NULL OR collection_date = '' THEN NULL
+                  WHEN LENGTH(collection_date)=4  THEN collection_date || '-01-01'
+                  WHEN LENGTH(collection_date)=7  THEN collection_date || '-01'
+                  ELSE collection_date
+                END AS DATE
+              )
+              ${
+                collectionDatesCommitted.from && collectionDatesCommitted.to
+                  ? sql`BETWEEN CAST(${collectionDatesCommitted.from} AS DATE)
+                           AND   CAST(${collectionDatesCommitted.to  } AS DATE)`
+                  : collectionDatesCommitted.from
+                      ? sql`>= CAST(${collectionDatesCommitted.from} AS DATE)`
+                      : sql`<= CAST(${collectionDatesCommitted.to   } AS DATE)`
+              }
+            ` : sql`TRUE`
+      }
+
+      AND ${
+        releaseDatesCommitted.from || releaseDatesCommitted.to
+          ? sql`
+              TRY_CAST(
+                CASE
+                  WHEN release_date IS NULL OR release_date = '' THEN NULL
+                  WHEN LENGTH(release_date)=4 THEN release_date || '-01-01'
+                  WHEN LENGTH(release_date)=7 THEN release_date || '-01'
+                  ELSE release_date
+                END AS DATE
+              )
+              ${
+                releaseDatesCommitted.from && releaseDatesCommitted.to
+                  ? sql`BETWEEN CAST(${releaseDatesCommitted.from} AS DATE)
+                           AND   CAST(${releaseDatesCommitted.to  } AS DATE)`
+                  : releaseDatesCommitted.from
+                      ? sql`>= CAST(${releaseDatesCommitted.from} AS DATE)`
+                      : sql`<= CAST(${releaseDatesCommitted.to   } AS DATE)`
+              }
+            ` : sql`TRUE`
+      }
+  ),
+
+  /* All-sequence tallies for every (start,len) requested */
+  ex_all AS (
+    SELECT p.start, p.len,
+           SUBSTR(f.sequence, p.start, p.len) AS peptide
+    FROM filtered f
+    CROSS JOIN params p
+  ),
+  cnt_all AS (
+    SELECT start, len, peptide, COUNT(*) AS cnt_all
+    FROM   ex_all
+    GROUP  BY start, len, peptide
+  ),
+  tot_all AS (
+    SELECT start, len, SUM(cnt_all) AS total_all
+    FROM   cnt_all
+    GROUP  BY start, len
+  ),
+
+  /* Unique-sequence tallies */
+  filtered_u AS ( SELECT DISTINCT sequence FROM filtered ),
+  ex_u AS (
+    SELECT p.start, p.len,
+           SUBSTR(u.sequence, p.start, p.len) AS peptide
+    FROM filtered_u u
+    CROSS JOIN params p
+  ),
+  cnt_u AS (
+    SELECT start, len, peptide, COUNT(*) AS cnt_unique
+    FROM   ex_u
+    GROUP  BY start, len, peptide
+  ),
+  tot_u AS (
+    SELECT start, len, SUM(cnt_unique) AS total_unique
+    FROM   cnt_u
+    GROUP  BY start, len
+  ),
+
+  /* Merge proportions */
+  combined AS (
+    SELECT
+      COALESCE(a.start, u.start)         AS start,
+      COALESCE(a.len,   u.len)           AS len,
+      COALESCE(a.peptide, u.peptide)     AS peptide,
+      COALESCE(a.cnt_all,   0)::INT      AS frequency_all,
+      COALESCE(tA.total_all,0)::INT      AS total_all,
+      CASE WHEN tA.total_all IS NULL OR tA.total_all = 0
+           THEN 0.0 ELSE a.cnt_all * 1.0 / tA.total_all END AS proportion_all,
+      COALESCE(u.cnt_unique,0)::INT      AS frequency_unique,
+      COALESCE(tU.total_unique,0)::INT   AS total_unique,
+      CASE WHEN tU.total_unique IS NULL OR tU.total_unique = 0
+           THEN 0.0 ELSE u.cnt_unique * 1.0 / tU.total_unique END AS proportion_unique
+    FROM        cnt_all a
+    FULL  JOIN  cnt_u   u USING (start, len, peptide)
+    LEFT  JOIN  tot_all tA USING (start, len)
+    LEFT  JOIN  tot_u   tU USING (start, len)
+  ),
+
+  ranked AS (
+    SELECT *,
+           ROW_NUMBER() OVER (PARTITION BY start, len
+                              ORDER BY proportion_all DESC, peptide)   AS r_all,
+           ROW_NUMBER() OVER (PARTITION BY start, len
+                              ORDER BY proportion_unique DESC, peptide) AS r_u
+    FROM combined
+  )
+
+  SELECT start, len, peptide, r_all, r_u,
+         proportion_all,  proportion_unique,
+         frequency_all,   total_all,
+         frequency_unique,total_unique
+  FROM   ranked
+  WHERE  r_all <= 5 OR r_u <= 5
+  ORDER  BY start, len, r_all, r_u, peptide;
+`).toArray();
+
+```
+
+```js
+/* Workset for Class I predictions (per protein):
+   uploaded peptides (8–14 aa) ∪ top 5 per window (both All & Unique) */
+const peptidesIWorkset = (() => {
+  const pid = committedProteinId; // reactive
+  if (!pid) return [];
+
+  const set = new Set();
+
+  // uploaded peptides (scoped to protein), 8–14 aa, ungapped
+  for (const r of peptidesClean) {
+    if ((r.protein || "").toUpperCase() !== pid) continue;
+    const pep = (r.peptide || "").toUpperCase().replace(/-/g,"");
+    if (pep.length >= 8 && pep.length <= 14) set.add(pep);
+  }
+
+  // top candidates from the SQL above (already ungapped substrings)
+  for (const r of topCandidatesByWindow) {
+    const p = (r.peptide || "").toUpperCase();
+    if (p.length >= 8 && p.length <= 14) set.add(p);
+  }
+
+  return [...set];
+})();
+
 ```
 
 <!-- Download Buttons -->
@@ -2032,12 +2225,13 @@ const peptidesI = await (async () => {
 ```
 
 ```js
+/* Class I cache preview for the committed protein — uses WORKSET */
 const cachePreviewI = await (async () => {
-  selectedI;
-  committedProteinId;
+  selectedI;           // re-run on allele picks
+  committedProteinId;  // re-run on Apply (protein) changes
 
   const alleles = Array.from(alleleCtrl1.value || []);
-  const peps    = peptidesICommitted;
+  const peps    = peptidesIWorkset;
 
   if (!committedProteinId || !alleles.length || !peps.length) return [];
 
@@ -2050,42 +2244,37 @@ const cachePreviewI = await (async () => {
     `
   ).toArray();
 
-  return cacheRows; // ← keep snake_case
+  return cacheRows; // snake_case as stored
 })();
+
 
 
 
 ```
 
 ```js
-/* merged rows for the chart — STRICT to committed protein (snake_case) */
+/* merged rows for the chart — STRICT to workset */
 const chartRowsI = (() => {
-  selectedI;
-  committedProteinId;
-
-  if (!committedProteinId) return [];
+  selectedI;           // react to allele selection
+  committedProteinId;  // react to Apply (protein)
 
   const allelesNow = new Set(alleleCtrl1.value || []);
-  if (!allelesNow.size) return [];
+  const allowed    = new Set(peptidesIWorkset);
 
-  const allowed = new Set(peptidesICommitted); // ungapped peptides
-  if (!allowed.size) return [];
+  if (!allelesNow.size || !allowed.size) return [];
 
   const map = new Map();
 
-  // cached rows (already snake_case)
   for (const r of cachePreviewI) {
     if (allowed.has(r.peptide) && allelesNow.has(r.allele)) {
-      map.set(`${r.allele}|${r.peptide}`, normalizeRowI_cache(r));
+      map.set(`${r.allele}|${r.peptide}`, r);
     }
   }
 
-  // API rows (display → snake_case)
   const apiRows = Array.isArray(runResultsI) ? runResultsI : [];
   for (const r of apiRows) {
-    const row = normalizeRowI_api(r);
-    if (allowed.has(row.peptide) && allelesNow.has(row.allele)) {
-      map.set(`${row.allele}|${row.peptide}`, row);
+    if (allowed.has(r.peptide) && allelesNow.has(r.allele)) {
+      map.set(`${r.allele}|${r.peptide}`, r);
     }
   }
 
@@ -2118,92 +2307,84 @@ const chartRowsI = (() => {
 ```
 
 ```js
-/* ▸ RUN results – Class I  (reactive to button click; per-allele missing) */
+/* ▸ RUN results – Class I (per-protein workset; batch missing by 1000) */
 const runResultsI = await (async () => {
-  trigI; // re-run when Run Class I is clicked
+  trigI;                           // re-run when Run Class I is clicked
 
-  if (!peptideFile) return [];
-  setBanner("Class I: starting…");
-
-  const alleles = Array.from(alleleCtrl1.value || []);  // Class I
-  const allPeps = await parsePeptides(peptideFile);
-  const okPeps  = allPeps.filter(p => p.length >= 8 && p.length <= 14);
-  excludedI.value = allPeps.filter(p => p.length < 8 || p.length > 14);
+  const alleles = Array.from(alleleCtrl1.value || []);
+  const peps    = peptidesIWorkset;
 
   if (!alleles.length) { setBanner("Class I: no alleles selected."); return []; }
-  if (!okPeps.length)  { setBanner("Class I: no peptides in 8-14 range."); return []; }
+  if (!peps.length)    { setBanner("Class I: no peptides to run.");  return []; }
 
-  console.debug("Run I start", { alleles, okPeps: okPeps.length });
+  setBanner(`Class I: checking cache for ${peps.length} peptides…`);
 
-  /* 1 ▸ pull any existing predictions from netmhccalc */
+  /* 1 ▸ get cached predictions */
   const cacheRows = (
     await db.sql`
       SELECT *
       FROM   netmhccalc
       WHERE  allele IN (${alleles})
-        AND  peptide IN (${okPeps})
+        AND  peptide IN (${peps})
     `
   ).toArray();
 
-  // cacheSet is over unique (allele|peptide) pairs
-  const cacheSet = new Set(cacheRows.map(r => `${r.allele}|${r.peptide}`));
-
-  // ⬇️ FIX: cache rows are already snake_case; do not convert
-  const cachedConverted = cacheRows; // (was: cacheRows.map(convertCacheRowI))
+  const cacheKey = r => `${r.allele}|${r.peptide}`;
+  const cacheSet = new Set(cacheRows.map(cacheKey));
+  const cachedConverted = cacheRows; // already snake_case
 
   /* 2 ▸ compute missing peptides per allele */
   const missingByAllele = new Map();
   for (const al of alleles) {
     const miss = [];
-    for (const p of okPeps) {
+    for (const p of peps) {
       if (!cacheSet.has(`${al}|${p}`)) miss.push(p);
     }
     if (miss.length) missingByAllele.set(al, miss);
   }
 
-  // If everything is cached for all alleles, we’re done.
   if (missingByAllele.size === 0) {
-    const merged = [...new Map(cachedConverted.map(r => [`${r.allele}|${r.peptide}`, r])).values()];
+    const merged = [...new Map(cachedConverted.map(r => [cacheKey(r), r])).values()];
     resultsArrayI.value = merged;
     setBanner(`Class I: all ${merged.length} rows from cache ✅`);
-    console.debug("resultsArrayI after run", { len: resultsArrayI.value.length, sample: resultsArrayI.value[0] });
     return merged;
   }
 
-  /* 3 ▸ build API request only for alleles that have missing peptides */
+  /* 3 ▸ prepare API calls in chunks of 1000 peptides (union across alleles) */
   const allelesToQuery = [...missingByAllele.keys()];
-  const unionMissingPeps = [...new Set([].concat(...allelesToQuery.map(al => missingByAllele.get(al))))];
+  const unionMissing = [...new Set([].concat(...allelesToQuery.map(al => missingByAllele.get(al))))];
 
-  const fasta = unionMissingPeps.map((p,i)=>`>p${i+1}\n${p}`).join("\n");
-
-  try {
-    const id  = await submit(buildBodyI(allelesToQuery, fasta));
-    setBanner("Class I: polling…");
-    const tbl = await poll(id);
-    const apiRows = rowsFromTable(tbl); // API returns display headers
-
-    /* 4 ▸ merge cache + fresh rows (API rows win on duplicates) */
-    const map = new Map();
-    for (const r of cachedConverted) map.set(`${r.allele}|${r.peptide}`, r);
-    for (const r of apiRows)       map.set(`${r.allele}|${r.peptide}`, r);
-
-    // Accurate counts:
-    const apiKeySet = new Set(apiRows.map(r => `${r.allele}|${r.peptide}`));
-    const newCount  = [...apiKeySet].filter(k => !cacheSet.has(k)).length;   // truly new pairs
-    const cacheHit  = cacheSet.size;                                         // unique cached pairs
-    const totalRows = map.size;
-
-    const merged = [...map.values()];
-    resultsArrayI.value = merged;  // keep CSV button working
-
-    setBanner(`Class I done — ${totalRows} rows (cache ${cacheHit} + new ${newCount}).`);
-    console.debug("resultsArrayI after run", { len: resultsArrayI.value.length, sample: resultsArrayI.value[0] });
-    return merged;
-  } catch (err) {
-    setBanner(`Class I error: ${err.message}`);
-    return [];
+  const chunks = [];
+  for (let i = 0; i < unionMissing.length; i += 1000) {
+    chunks.push(unionMissing.slice(i, i + 1000));
   }
+
+  const apiRowsAll = [];
+  for (let i = 0; i < chunks.length; i++) {
+    const chunk = chunks[i];
+    setBanner(`Class I: submitting chunk ${i+1}/${chunks.length} (${chunk.length} peptides)…`);
+
+    const fasta = chunk.map((p,idx)=>`>p${idx+1}\n${p}`).join("\n");
+
+    const id  = await submit(buildBodyI(allelesToQuery, fasta));
+    setBanner(`Class I: polling chunk ${i+1}/${chunks.length}…`);
+    const tbl = await poll(id);
+    const apiRows = rowsFromTable(tbl); // display headers -> we just need allele/peptide + percentiles
+    apiRowsAll.push(...apiRows);
+  }
+
+  /* 4 ▸ merge cache + API (API wins) */
+  const map = new Map();
+  for (const r of cachedConverted) map.set(cacheKey(r), r);
+  for (const r of apiRowsAll)     map.set(`${r.allele}|${r.peptide}`, r);
+
+  const merged = [...map.values()];
+  resultsArrayI.value = merged;
+
+  setBanner(`Class I done — ${merged.length} rows (cache ${cacheSet.size} + new ${merged.length - cacheSet.size}).`);
+  return merged;
 })();
+
 
 
 ```
