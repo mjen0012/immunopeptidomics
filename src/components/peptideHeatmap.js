@@ -1,8 +1,8 @@
 /*****************************************************************
- *  peptideHeatmap() → HTMLElement   ·   v13
+ *  peptideHeatmap() → HTMLElement   ·   v14
  *  - Responsive peptide heatmap with optional Class I allele overlay
- *  - Integrates cache+API (chartRowsI) in a single overlay
- *  - IMPORTANT: compares against *ungapped* selected peptide
+ *  - Fixes: rotated allele labels never clip; allele block sits
+ *    immediately after the %/count label (no excessive gap)
  *****************************************************************/
 import * as d3 from "npm:d3";
 import { aminoacidPalette } from "/components/palettes.js";
@@ -29,18 +29,16 @@ export function peptideHeatmap({
     return span;
   }
 
-  // Always use ungapped selected for keying & mismatch logic
+  // helpers
+  const keyOf = (al, pep) => `${String(al).trim()}|${String(pep).trim()}`;
   const selectedNoGaps = String(selected).replace(/-/g, "");
+  const aaCols = aminoacidPalette;
 
-  /* ── peptide rows (selected + topN alternatives) ─────────────── */
-  const map  = new Map(data.map(d => [d.peptide, d])); // data peptides are ungapped
+  // build rows (selected + topN)
+  const map = new Map(data.map(d => [d.peptide, d])); // data peptides are ungapped
   const head = map.get(selectedNoGaps) ?? {
-    peptide    : selectedNoGaps,
-    proportion : 0,
-    frequency  : 0,
-    total      : 0
+    peptide: selectedNoGaps, proportion: 0, frequency: 0, total: 0
   };
-
   const rows = [
     head,
     ...data
@@ -48,49 +46,107 @@ export function peptideHeatmap({
       .sort((a,b)=>d3.descending(a.proportion,b.proportion))
       .slice(0, topN)
   ];
+  const nRows  = rows.length;
+  const maxLen = d3.max(rows, d => d.peptide.length) ?? 0;
 
-  const nRows   = rows.length;
-  const maxLen  = d3.max(rows, d => d.peptide.length) ?? 0;
-  const aaCols  = aminoacidPalette;
-
-  /* ── allele value lookup (Class I) ───────────────────────────── */
-  const keyOf = (al, pep) => `${String(al).trim()}|${String(pep).trim()}`;
+  // allele lookups
   const scoreKey = mode === "BA" ? "netmhcpan_ba_percentile"
                                  : "netmhcpan_el_percentile";
-
   const lookup = new Map();
   for (const r of alleleData || []) {
     const pep = r?.peptide;
     const al  = r?.allele;
     const val = r?.[scoreKey];
-    if (pep && al && Number.isFinite(+val)) {
-      lookup.set(keyOf(al, pep), +val);
-    }
+    if (pep && al && Number.isFinite(+val)) lookup.set(keyOf(al, pep), +val);
   }
 
   const colourPct = d3.scaleLinear()
     .domain([0, 50, 100])
     .range(["#0074D9", "#ffffff", "#e60000"]);
 
-  /* ── wrapper with fixed height + responsive renderer ─────────── */
+  // ── measurement helpers ─────────────────────────────────────────
+  function measureLabelBand(fontSize = 12, fontFamily = "sans-serif") {
+    if (!showAlleles || !alleles?.length) return 0;
+    const temp = d3.create("svg")
+      .attr("width", 10).attr("height", 10)
+      .style("position", "absolute")
+      .style("left", "-20000px")
+      .style("top",  "-20000px")
+      .style("visibility", "hidden");
+    document.body.appendChild(temp.node());
+    let maxAbove = 0;
+    for (const text of alleles) {
+      const t = temp.append("text")
+        .text(text)
+        .attr("transform", "rotate(-45)")
+        .style("font-family", fontFamily)
+        .style("font-size", `${fontSize}px`);
+      const b = t.node().getBBox();
+      maxAbove = Math.max(maxAbove, -b.y);
+      t.remove();
+    }
+    temp.remove();
+    return Math.max(18, Math.round(maxAbove + 4)); // padding
+  }
+
+  function measureMaxTextWidth(strings, fontSize = 12, fontFamily = "sans-serif") {
+    if (!strings?.length) return 0;
+    const temp = d3.create("svg")
+      .attr("width", 10).attr("height", 10)
+      .style("position", "absolute")
+      .style("left", "-20000px")
+      .style("top",  "-20000px")
+      .style("visibility", "hidden");
+    document.body.appendChild(temp.node());
+    let maxW = 0;
+    for (const s of strings) {
+      const t = temp.append("text")
+        .text(s)
+        .style("font-family", fontFamily)
+        .style("font-size", `${fontSize}px`);
+      const b = t.node().getBBox();
+      maxW = Math.max(maxW, b.width);
+      t.remove();
+    }
+    temp.remove();
+    return Math.ceil(maxW);
+  }
+
+  // wrapper
   const wrapper = document.createElement("div");
   wrapper.style.cssText = `width:100%; height:${height0}px; overflow:hidden;`;
 
   const draw = (wrapperWidth) => {
     const haveAlleles = showAlleles && Array.isArray(alleles) && alleles.length > 0;
 
-    const labelWidth  = Math.ceil(baseCell * 8.5);             // room for counts
-    const pepCols     = maxLen;
-    const alleleCols  = haveAlleles ? alleles.length : 0;
+    // dynamic sizing
+    const labelFontPx = Math.round(baseCell * 0.40);
+    const cellFontPx  = Math.round(baseCell * 0.50);
+    const xLabelBand  = haveAlleles ? measureLabelBand(Math.round(baseCell * 0.42), "sans-serif") : 0;
 
-    const fitH = Math.floor((height0 - margin.top - margin.bottom) / Math.max(1, nRows));
+    // % + counts label text widths
+    const numLabels = rows.map(r => {
+      const pct = Number.isFinite(r.proportion) ? (r.proportion * 100).toFixed(1) : "0.0";
+      return `${pct}% (${r.frequency}/${r.total})`;
+    });
+    const measuredNumW = measureMaxTextWidth(numLabels, labelFontPx, "'Roboto', sans-serif");
+
+    // small padding so text doesn't touch the allele grid
+    const labelWidth = haveAlleles ? Math.max(6, measuredNumW + 10) : 0;
+
+    // determine cell size from available area (respect new band & labelWidth)
+    const fitH = Math.floor((height0 - margin.top - margin.bottom - xLabelBand) / Math.max(1, nRows));
     const fitW = Math.floor((
       wrapperWidth - margin.left - margin.right - labelWidth
-    ) / Math.max(1, pepCols + alleleCols));
+    ) / Math.max(1, maxLen + (haveAlleles ? alleles.length : 0)));
 
     const cell = Math.max(12, Math.min(baseCell, fitH, fitW));
-    const w = margin.left + (pepCols + alleleCols)*cell + labelWidth + margin.right;
-    const h = margin.top  + nRows*cell + margin.bottom + 12;
+
+    const pepCols    = maxLen;
+    const alleleCols = haveAlleles ? alleles.length : 0;
+
+    const w = margin.left + pepCols*cell + labelWidth + alleleCols*cell + margin.right;
+    const h = margin.top  + xLabelBand + nRows*cell + margin.bottom;
 
     const svg = d3.create("svg")
       .attr("viewBox", `0 0 ${w} ${h}`)
@@ -98,12 +154,14 @@ export function peptideHeatmap({
       .attr("height", "100%")
       .attr("preserveAspectRatio","xMinYMin meet")
       .style("font-family","'Roboto', sans-serif")
-      .style("font-size", `${Math.round(cell*0.5)}px`);
+      .style("font-size", `${cellFontPx}px`);
+
+    const yBase = margin.top + xLabelBand; // everything sits below the header band
 
     rows.forEach((row, i) => {
-      const y0 = margin.top + i*cell;
+      const y0 = yBase + i*cell;
 
-      // AA background cells
+      // AA background
       const gBG = svg.append("g").attr("transform",`translate(${margin.left},${y0})`);
       gBG.selectAll("rect")
         .data(d3.range(pepCols))
@@ -136,17 +194,16 @@ export function peptideHeatmap({
           .attr("fill", i===0 ? "#fff" : "#000")
           .text(c=>c);
 
-      // proportion + counts
-      const pct = (row.proportion*100);
-      const label = svg.append("text")
+      // proportion + counts (measured upfront)
+      const pct = Number.isFinite(row.proportion) ? (row.proportion * 100).toFixed(1) : "0.0";
+      svg.append("text")
         .attr("x", margin.left + pepCols*cell + 6)
         .attr("y", y0 + cell/2)
         .attr("dy","0.35em")
-        .style("font-size", Math.round(cell*0.42))
-        .text(`${Number.isFinite(pct) ? pct.toFixed(1) : "0.0"}%  (${row.frequency}/${row.total})`);
-      label.selectAll("tspan").attr("font-weight", "bold");
+        .style("font-size", `${Math.round(cell*0.42)}px`)
+        .text(`${pct}% (${row.frequency}/${row.total})`);
 
-      // allele overlay (Class I)
+      // allele overlay
       if (haveAlleles) {
         const gA = svg.append("g")
           .attr("transform", `translate(${margin.left + pepCols*cell + labelWidth},${y0})`);
@@ -172,16 +229,15 @@ export function peptideHeatmap({
       }
     });
 
-    // allele column labels (rotated, diagonal)
+    // allele column labels (rotated, now with reserved band so never clipped)
     if (haveAlleles) {
       const x0 = margin.left + pepCols*cell + labelWidth;
-      const y0 = margin.top - 2;
-      const xg = svg.append("g").attr("transform", `translate(${x0},${y0})`);
+      const xg = svg.append("g").attr("transform", `translate(${x0},${margin.top + xLabelBand - 2})`);
       alleles.forEach((al, j) => {
         xg.append("text")
           .attr("transform", `translate(${j*cell + cell/2}, 0) rotate(-45)`)
           .attr("text-anchor", "start")
-          .style("font-size", Math.round(cell*0.42))
+          .style("font-size", `${Math.round(cell*0.42)}px`)
           .text(al);
       });
     }
