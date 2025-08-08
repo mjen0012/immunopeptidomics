@@ -199,3 +199,59 @@ export function peptideHeatmap({
   draw(wrapper.getBoundingClientRect().width);
   return wrapper;
 }
+
+
+// Debugging additions for peptideHeatmap()
+
+export function peptideHeatmapDebugLogger({
+  alleleData = [],
+  alleles    = [],
+  selected,
+  mode       = "EL",
+  rows       = []
+}) {
+  console.group("🧪 peptideHeatmap Debug Info");
+
+  console.log("Selected peptide:", selected);
+  console.log("Selected alleles:", alleles);
+  console.log("Mode:", mode);
+
+  console.log("Allele data sample:", alleleData.slice(0, 5));
+  const missingPeptides = rows.filter(row => {
+    return alleles.some(al => {
+      const key = `${al}|${row.peptide}`;
+      return !alleleData.some(r => r.peptide === row.peptide && r.allele === al);
+    });
+  });
+  console.log("Rows missing data:", missingPeptides);
+
+  const keys = new Set(alleleData.map(r => `${r.allele}|${r.peptide}`));
+  console.log("Total keys in lookup:", keys.size);
+
+  for (const al of alleles) {
+    for (const row of rows) {
+      const key = `${al}|${row.peptide}`;
+      if (!keys.has(key)) {
+        console.warn("Missing key:", key);
+      } else {
+        const match = alleleData.find(r => r.allele === al && r.peptide === row.peptide);
+        console.log("✅ Found:", key, "->", match);
+      }
+    }
+  }
+  console.groupEnd();
+}
+
+/* Add this call inside your chart setup cell after `rows` is defined */
+peptideHeatmapDebugLogger({
+  alleleData  : chartRowsI,
+  alleles     : Array.from(alleleCtrl1.value || []),
+  selected    : selectedPeptide,
+  mode        : percMode,
+  rows        : [
+    selectedPeptide,
+    ...heatmapData.filter(d => d.peptide !== selectedPeptide)
+                  .sort((a,b)=>d3.descending(a.proportion,b.proportion))
+                  .slice(0, 4)
+  ]
+});
