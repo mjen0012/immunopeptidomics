@@ -2257,8 +2257,8 @@ const chartRowsI = (() => {
   selectedI;
   committedProteinId;
 
-  const allelesNow = new Set((alleleCtrl1.value || []).map(a => String(a).toUpperCase()));
-  const allowed    = new Set(peptidesIWorkset.map(p => String(p).toUpperCase()));
+  const allelesNow = new Set((alleleCtrl1?.value || []).map(a => String(a).toUpperCase()));
+  const allowed    = new Set((peptidesIWorkset || []).map(p => String(p).toUpperCase()));
   if (!allelesNow.size || !allowed.size) return [];
 
   const map = new Map();
@@ -2270,7 +2270,6 @@ const chartRowsI = (() => {
       map.set(`${al}|${pp}`, r);
     }
   }
-
   const apiRows = Array.isArray(runResultsI) ? runResultsI : [];
   for (const r of apiRows) {
     const al = String(r.allele || "").toUpperCase();
@@ -2279,7 +2278,6 @@ const chartRowsI = (() => {
       map.set(`${al}|${pp}`, r);
     }
   }
-
   return [...map.values()];
 })();
 
@@ -2294,10 +2292,10 @@ const NETMHC_CHUNK_SIZE = 1000;   // was ~25 before; now 1000 as requested
 ```js
 /* ▸ RUN results – Class I (per-protein workset; batch missing by 1000) */
 const runResultsI = await (async () => {
-  trigI;
+  trigI;  // fires only when Run is clicked
 
-  const alleles = Array.from(committedI || []);     // you already have committedI from earlier
-  const peps    = committedWorksetI || [];
+  const alleles = Array.from(committedI || []);            // concrete array
+  const peps    = Array.from(committedWorksetI || []);     // concrete array
 
   if (!alleles.length) { setBanner("Class I: no alleles selected."); return []; }
   if (!peps.length)    { setBanner("Class I: no peptides to run.");  return []; }
@@ -2532,35 +2530,54 @@ const PAGE_LIMIT_INITIAL = 20;  // first display when q === ""
 
 /* cls: "I" | "II"; q: string; offset/limit: paging */
 async function fetchAlleles(cls, q = "", offset = 0, limit = PAGE_LIMIT_DEFAULT) {
-  const like = `%${q}%`;
-  const filterLike = q.length >= 2 ? sql`AND allele ILIKE ${like}` : sql``;
+  const clsNorm = (cls === "II" ? "II" : "I");
 
+  if (!q || q.trim().length < 2) {
+    // Initial list (no filter): fast DISTINCT over the pre-trimmed set
+    const rows = (await db.sql`
+      WITH base AS (
+        SELECT 'I'  AS class, TRIM("Class I")  AS allele FROM hla
+        WHERE "Class I" IS NOT NULL AND LENGTH(TRIM("Class I")) > 0
+        UNION ALL
+        SELECT 'II' AS class, TRIM("Class II") AS allele FROM hla
+        WHERE "Class II" IS NOT NULL AND LENGTH(TRIM("Class II")) > 0
+      ),
+      dedup AS (
+        SELECT DISTINCT class, allele FROM base
+      )
+      SELECT allele
+      FROM dedup
+      WHERE class = ${clsNorm}
+      ORDER BY allele
+      LIMIT ${PAGE_LIMIT_INITIAL} OFFSET ${offset}
+    `).toArray();
+
+    return rows.map(r => r.allele).filter(s => s && s.trim().length);
+  }
+
+  // Search path (q.length >= 2)
+  const like = `%${q}%`;
   const rows = (await db.sql`
     WITH base AS (
-      SELECT 'I'  AS class, TRIM("Class I")  AS allele
-      FROM   hla
-      WHERE  "Class I"  IS NOT NULL
-         AND LENGTH(TRIM("Class I"))  > 0
-
+      SELECT 'I'  AS class, TRIM("Class I")  AS allele FROM hla
+      WHERE "Class I" IS NOT NULL AND LENGTH(TRIM("Class I")) > 0
       UNION ALL
-
-      SELECT 'II' AS class, TRIM("Class II") AS allele
-      FROM   hla
-      WHERE  "Class II" IS NOT NULL
-         AND LENGTH(TRIM("Class II")) > 0
+      SELECT 'II' AS class, TRIM("Class II") AS allele FROM hla
+      WHERE "Class II" IS NOT NULL AND LENGTH(TRIM("Class II")) > 0
     ),
-    dedup AS ( SELECT DISTINCT class, allele FROM base )
-
+    dedup AS (
+      SELECT DISTINCT class, allele FROM base
+    )
     SELECT allele
-    FROM   dedup
-    WHERE  class = ${cls} ${filterLike}
-    ORDER  BY allele
-    LIMIT  ${limit} OFFSET ${offset}
+    FROM dedup
+    WHERE class = ${clsNorm} AND allele ILIKE ${like}
+    ORDER BY allele
+    LIMIT ${limit} OFFSET ${offset}
   `).toArray();
 
-  // extra guard (in case)
   return rows.map(r => r.allele).filter(s => s && s.trim().length);
 }
+
 ```
 
 ```js
@@ -2571,8 +2588,8 @@ const alleleCtrl1 = comboSelectLazy({
   label: "Class I alleles (MHCI)",
   placeholder: "Type class-I allele…",
   fontFamily: "'Roboto', sans-serif",
-  initialLimit: 20,          // show 20 on focus
-  pageLimit: 50,             // fetch 50 at a time when q ≥ 2
+  initialLimit: 20,
+  pageLimit: 50,
   fetch: ({ q, offset, limit }) => fetchAlleles("I", q, offset, limit)
 });
 const selectedI = Generators.input(alleleCtrl1);
@@ -2588,11 +2605,16 @@ const alleleCtrl2 = comboSelectLazy({
 const selectedII = Generators.input(alleleCtrl2);
 
 /* commit helper must run AFTER the controls exist */
-const committedI  = commitTo(runBtnI , alleleCtrl1);
-const committedII = commitTo(runBtnII, alleleCtrl2);
+const committedI_gen  = commitTo(runBtnI , alleleCtrl1);
+const committedII_gen = commitTo(runBtnII, alleleCtrl2);
 
 /* Snapshots captured only when Run Class I is clicked */
-const committedWorksetI = commitTo(runBtnI, { get value() { return peptidesIWorkset; } });
-const committedProteinI = commitTo(runBtnI, { get value() { return committedProteinId; } });
+const committedWorksetI_gen = commitTo(runBtnI, { get value() { return peptidesIWorkset; } });
+const committedProteinI_gen = commitTo(runBtnI, { get value() { return committedProteinId; } });
+
+/* Turn the commit generators into concrete values at run time */
+const committedI          = Generators.input(committedI_gen);
+const committedWorksetI   = Generators.input(committedWorksetI_gen);
+const committedProteinI   = Generators.input(committedProteinI_gen);
 
 ```
