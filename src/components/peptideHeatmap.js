@@ -1,5 +1,5 @@
 /*****************************************************************
- *  peptideHeatmap() → HTMLElement   ·   v21
+ *  peptideHeatmap() → HTMLElement   ·   v21a
  *  - v19 layout/reflow (no clipping; same spacing & sizing)
  *  - Dash template: clicked row shows aligned peptide with '-';
  *    alternates use the same gap template; overlay lookups use
@@ -19,7 +19,7 @@ export function peptideHeatmap({
 
   alleleData = [],          // snake_case rows (cache + API)
   alleles    = [],          // selected alleles
-  mode       = "EL",        // "EL" | "BA" | radio element
+  mode       = "EL",        // "EL" | "BA" | reactive value string
   showAlleles = true
 } = {}) {
 
@@ -49,12 +49,12 @@ export function peptideHeatmap({
     return out.join("");
   };
 
-  // mode: accept element or string
+  // mode is a reactive value or string; compute once per render
   const resolveMode = () => {
     const m = (mode && mode.value !== undefined ? String(mode.value) : String(mode)).toUpperCase();
     return m.includes("BA") ? "BA" : "EL";
   };
-  let currentMode = resolveMode();
+  const currentMode = resolveMode();
   const scoreKey = () =>
     currentMode === "BA" ? "netmhcpan_ba_percentile" : "netmhcpan_el_percentile";
 
@@ -93,7 +93,7 @@ export function peptideHeatmap({
     }
     return map;
   }
-  let lookup = buildLookup();
+  const lookup = buildLookup();
 
   const colourPct = d3.scaleLinear().domain([0,50,100]).range(["#0074D9","#ffffff","#e60000"]);
 
@@ -298,14 +298,9 @@ export function peptideHeatmap({
   ro.observe(wrapper);
   draw(wrapper.getBoundingClientRect().width || wrapper.clientWidth || 800);
 
-  // keep in sync with mode radio if provided
-  if (mode && typeof mode.addEventListener === "function") {
-    mode.addEventListener("input", () => {
-      currentMode = resolveMode();
-      lookup = buildLookup(); // rebuild because active percentile column changes
-      draw(wrapper.getBoundingClientRect().width || 800);
-    });
-  }
+  // NOTE: No event listeners on `mode` here.
+  // Observable will re-run the calling cell when `mode` changes,
+  // which will rebuild this component with the new value.
 
   return wrapper;
 }
