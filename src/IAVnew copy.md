@@ -2627,15 +2627,11 @@ const selectedII = Generators.input(alleleCtrl2);
 
 
 /* snapshots captured only when the Run button fires */
-const committedI_gen        = commitTo(trigI, alleleCtrl1);
-const committedII_gen       = commitTo(trigII, alleleCtrl2);
-const committedWorksetI_gen = commitTo(trigI, { get value() { return peptidesIWorkset; } });
-const committedProteinI_gen = commitTo(trigI, { get value() { return committedProteinId; } });
+const committedI        = snapshotOn(runBtnI,  () => Array.from(alleleCtrl1.value || []));
+const committedWorksetI = snapshotOn(runBtnI,  () => Array.from(peptidesIWorkset || []));
+const committedProteinI = snapshotOn(runBtnI,  () => committedProteinId);
+const committedII       = snapshotOn(runBtnII, () => Array.from(alleleCtrl2.value || []));
 
-/* realize the snapshots as concrete values */
-const committedI        = Generators.input(committedI_gen);
-const committedWorksetI = Generators.input(committedWorksetI_gen);
-const committedProteinI = Generators.input(committedProteinI_gen);
 
 
 ```
