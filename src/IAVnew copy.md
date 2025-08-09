@@ -2302,10 +2302,10 @@ const NETMHC_CHUNK_SIZE = 1000;   // was ~25 before; now 1000 as requested
 ```js
 /* ▸ RUN results – Class I (per-protein workset; batch missing by 1000) */
 const runResultsI = await (async () => {
-  trigI; // still gate on the run click
+  trigI; // gate on the run click
 
-  const alleles = Array.from(committedI || []);
-  const peps    = Array.from(committedWorksetI || []);
+  const alleles = committedI;           // already an Array
+  const peps    = committedWorksetI;    // already an Array
 
   if (!alleles.length) { setBanner("Class I: no alleles selected."); return []; }
   if (!peps.length)    { setBanner("Class I: no peptides to run.");  return []; }
@@ -2618,14 +2618,25 @@ const selectedII = Generators.input(alleleCtrl2);
 ```
 
 ```js
-const committedI        = snapshotOn(runBtnI,  () => Array.from(alleleCtrl1.value || []));
-const committedWorksetI = snapshotOn(runBtnI, () => {
-  const base   = Array.from(peptidesIWorkset || []);                              // existing workset
-  const extras = (heatmapData || []).map(r => String(r.peptide).toUpperCase());   // click window (ungapped)
-  return Array.from(new Set([...base, ...extras]));                               // de-dupe
-});
+/* snapshots captured only when the Run buttons fire */
+const committedI = Generators.input(
+  snapshotOn(runBtnI, () => Array.from(alleleCtrl1.value || []))
+);
 
-const committedProteinI = snapshotOn(runBtnI,  () => committedProteinId);
-const committedII       = snapshotOn(runBtnII, () => Array.from(alleleCtrl2.value || []));
+const committedWorksetI = Generators.input(
+  snapshotOn(runBtnI, () => {
+    const base   = Array.from(peptidesIWorkset || []);                 // existing workset (ungapped)
+    const extras = (heatmapData || []).map(r => String(r.peptide).toUpperCase()); // clicked window
+    return Array.from(new Set([...base, ...extras]));                   // de-dupe
+  })
+);
+
+const committedProteinI = Generators.input(
+  snapshotOn(runBtnI, () => committedProteinId)
+);
+
+const committedII = Generators.input(
+  snapshotOn(runBtnII, () => Array.from(alleleCtrl2.value || []))
+);
 
 ```
