@@ -2267,7 +2267,8 @@ const chartRowsI = (() => {
   committedProteinId;
 
   const allelesNow = new Set((alleleCtrl1?.value || []).map(a => String(a).toUpperCase()));
-  const allowed    = new Set((peptidesIWorkset || []).map(p => String(p).toUpperCase()));
+  const clickPeps = new Set((heatmapData || []).map(r => String(r.peptide).toUpperCase()));
+  const allowed   = new Set([...(peptidesIWorkset || []), ...clickPeps].map(p => String(p).toUpperCase()));
   if (!allelesNow.size || !allowed.size) return [];
 
   const map = new Map();
@@ -2618,7 +2619,12 @@ const selectedII = Generators.input(alleleCtrl2);
 
 ```js
 const committedI        = snapshotOn(runBtnI,  () => Array.from(alleleCtrl1.value || []));
-const committedWorksetI = snapshotOn(runBtnI,  () => Array.from(peptidesIWorkset || []));
+const committedWorksetI = snapshotOn(runBtnI, () => {
+  const base   = Array.from(peptidesIWorkset || []);                              // existing workset
+  const extras = (heatmapData || []).map(r => String(r.peptide).toUpperCase());   // click window (ungapped)
+  return Array.from(new Set([...base, ...extras]));                               // de-dupe
+});
+
 const committedProteinI = snapshotOn(runBtnI,  () => committedProteinId);
 const committedII       = snapshotOn(runBtnII, () => Array.from(alleleCtrl2.value || []));
 
