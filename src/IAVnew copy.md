@@ -2037,14 +2037,34 @@ const trigII = Generators.input(runBtnII);
 
 
 
-/* commit helper */
-const commitTo = (btn, element) =>
+/* commit helper — works with a DOM input OR an async generator trigger */
+const commitTo = (trigger, source) =>
   Generators.observe(change => {
-    const update = () => change(element.value);
-    update();
-    btn.addEventListener("input", update);
-    return () => btn.removeEventListener("input", update);
+    const push = () => change(source?.value);
+
+    // push initial snapshot
+    push();
+
+    // 1) DOM/EventTarget trigger
+    if (trigger && typeof trigger.addEventListener === "function") {
+      const onInput = () => push();
+      trigger.addEventListener("input", onInput);
+      return () => trigger.removeEventListener("input", onInput);
+    }
+
+    // 2) Async generator trigger (e.g. Generators.input(...))
+    if (trigger && typeof trigger[Symbol.asyncIterator] === "function") {
+      let stop = false;
+      (async () => {
+        for await (const _ of trigger) { if (stop) break; push(); }
+      })();
+      return () => { stop = true; };
+    }
+
+    // 3) Fallback: nothing to subscribe to
+    return () => {};
   });
+
 ```
 
 ```js
@@ -2604,17 +2624,18 @@ const alleleCtrl2 = comboSelectLazy({
 });
 const selectedII = Generators.input(alleleCtrl2);
 
-/* commit helper must run AFTER the controls exist */
-const committedI_gen  = commitTo(runBtnI , alleleCtrl1);
-const committedII_gen = commitTo(runBtnII, alleleCtrl2);
 
-/* Snapshots captured only when Run Class I is clicked */
-const committedWorksetI_gen = commitTo(runBtnI, { get value() { return peptidesIWorkset; } });
-const committedProteinI_gen = commitTo(runBtnI, { get value() { return committedProteinId; } });
 
-/* Turn the commit generators into concrete values at run time */
-const committedI          = Generators.input(committedI_gen);
-const committedWorksetI   = Generators.input(committedWorksetI_gen);
-const committedProteinI   = Generators.input(committedProteinI_gen);
+/* snapshots captured only when the Run button fires */
+const committedI_gen        = commitTo(trigI, alleleCtrl1);
+const committedII_gen       = commitTo(trigII, alleleCtrl2);
+const committedWorksetI_gen = commitTo(trigI, { get value() { return peptidesIWorkset; } });
+const committedProteinI_gen = commitTo(trigI, { get value() { return committedProteinId; } });
+
+/* realize the snapshots as concrete values */
+const committedI        = Generators.input(committedI_gen);
+const committedWorksetI = Generators.input(committedWorksetI_gen);
+const committedProteinI = Generators.input(committedProteinI_gen);
+
 
 ```
