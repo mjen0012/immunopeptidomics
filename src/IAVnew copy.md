@@ -2261,33 +2261,35 @@ const cachePreviewI = await (async () => {
 ```
 
 ```js
-/* merged rows for the chart — STRICT to workset */
+/* merged rows for the chart — STRICT to workset (no direct dep on runResultsI) */
 const chartRowsI = (() => {
   selectedI;
   committedProteinId;
 
   const allelesNow = new Set((alleleCtrl1?.value || []).map(a => String(a).toUpperCase()));
-  const clickPeps = new Set((heatmapData || []).map(r => String(r.peptide).toUpperCase()));
-  const allowed   = new Set([...(peptidesIWorkset || []), ...clickPeps].map(p => String(p).toUpperCase()));
+
+  // include workset + any clicked-window peptides (ungapped)
+  const clickPeps  = new Set((heatmapData || []).map(r => String(r.peptide).toUpperCase()));
+  const allowed    = new Set([...(peptidesIWorkset || []), ...clickPeps].map(p => String(p).toUpperCase()));
   if (!allelesNow.size || !allowed.size) return [];
 
   const map = new Map();
 
+  // 1) cached rows
   for (const r of cachePreviewI) {
     const al = String(r.allele || "").toUpperCase();
     const pp = String(r.peptide|| "").toUpperCase();
-    if (allowed.has(pp) && allelesNow.has(al)) {
-      map.set(`${al}|${pp}`, r);
-    }
+    if (allowed.has(pp) && allelesNow.has(al)) map.set(`${al}|${pp}`, r);
   }
-  const apiRows = Array.isArray(runResultsI) ? runResultsI : [];
+
+  // 2) NEW rows from the API (pull from the mutable that runResultsI writes)
+  const apiRows = Array.isArray(resultsArrayI) ? resultsArrayI : (Array.isArray(resultsArrayI?.value) ? resultsArrayI.value : []);
   for (const r of apiRows) {
     const al = String(r.allele || "").toUpperCase();
     const pp = String(r.peptide|| "").toUpperCase();
-    if (allowed.has(pp) && allelesNow.has(al)) {
-      map.set(`${al}|${pp}`, r);
-    }
+    if (allowed.has(pp) && allelesNow.has(al)) map.set(`${al}|${pp}`, r);
   }
+
   return [...map.values()];
 })();
 
