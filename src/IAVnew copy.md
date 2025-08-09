@@ -2617,10 +2617,9 @@ const selectedII = Generators.input(alleleCtrl2);
 ```
 
 ```js
-/* snapshots captured only when the Run buttons fire */
-const committedI        = Generators.input(snapshotOn(runBtnI,  () => Array.from(alleleCtrl1.value || [])));
-const committedWorksetI = Generators.input(snapshotOn(runBtnI,  () => Array.from(peptidesIWorkset || [])));
-const committedProteinI = Generators.input(snapshotOn(runBtnI,  () => committedProteinId));
-const committedII       = Generators.input(snapshotOn(runBtnII, () => Array.from(alleleCtrl2.value || [])));
+const committedI        = snapshotOn(runBtnI,  () => Array.from(alleleCtrl1.value || []));
+const committedWorksetI = snapshotOn(runBtnI,  () => Array.from(peptidesIWorkset || []));
+const committedProteinI = snapshotOn(runBtnI,  () => committedProteinId);
+const committedII       = snapshotOn(runBtnII, () => Array.from(alleleCtrl2.value || []));
 
 ```
