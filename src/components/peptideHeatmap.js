@@ -1,8 +1,8 @@
 /*****************************************************************
- *  peptideHeatmap() → HTMLElement   ·   v19
- *  - Two-phase layout: render → measure → auto-reflow
- *  - Guarantees no clipping of rotated allele labels (top/right)
- *  - %/count column snaps to whole cells; small angled-gap included
+ *  peptideHeatmap() → HTMLElement   ·   v20
+ *  - Responsive peptide heatmap with optional Class I allele overlay
+ *  - Matches allele cache/API rows even when display uses gapped peptides
+ *  - Accurate top band for rotated allele labels; compact right spacing
  *****************************************************************/
 import * as d3 from "npm:d3";
 import { aminoacidPalette } from "/components/palettes.js";
@@ -16,11 +16,16 @@ export function peptideHeatmap({
   height0    = 280,
   margin     = { top:20, right:150, bottom:20, left:4 },
 
-  alleleData = [],          // snake_case
-  alleles    = [],          // selected alleles (strings)
-  mode       = "EL",        // "EL" | "BA"
+  alleleData = [],          // chartRowsI-style rows (snake_case keys)
+  alleles    = [],          // currently selected alleles
+  mode       = "EL",        // EL | BA | HTMLInput-like
   showAlleles = true
 } = {}) {
+
+  const isEventTarget = (v) => v && typeof v.addEventListener === "function" && "value" in v;
+  const curMode = isEventTarget(mode) ? (String(mode.value).toUpperCase().includes("BA") ? "BA" : "EL")
+                                      : (String(mode).toUpperCase().includes("BA") ? "BA" : "EL");
+
   if (!selected || !data?.length) {
     const span = document.createElement("span");
     span.textContent = "Click a peptide in the viewer to see its proportions.";
@@ -28,237 +33,214 @@ export function peptideHeatmap({
     return span;
   }
 
-  const selectedNoGaps = String(selected).replace(/-/g, "");
-  const aaCols = aminoacidPalette;
+  /* ── helpers ─────────────────────────────────────────────────── */
+  const normPep = s => String(s || "").toUpperCase().replace(/-/g, "").trim();
+  const scoreKey = curMode === "BA" ? "netmhcpan_ba_percentile" : "netmhcpan_el_percentile";
+  const colour = d3.scaleLinear().domain([0, 50, 100]).range(["#0074D9", "#ffffff", "#e60000"]);
+  const aaColours = aminoacidPalette;
 
-  // rows (selected + topN)
-  const byPep = new Map(data.map(d => [d.peptide, d]));
-  const head  = byPep.get(selectedNoGaps) ?? { peptide:selectedNoGaps, proportion:0, frequency:0, total:0 };
-  const rows  = [ head, ...data.filter(d => d.peptide !== selectedNoGaps)
-                               .sort((a,b)=>d3.descending(a.proportion,b.proportion))
-                               .slice(0, topN) ];
-  const nRows   = rows.length;
-  const pepCols = Math.max(0, d3.max(rows, d => d.peptide.length) ?? 0);
+  // dash template from the clicked peptide (aligned)
+  const selAligned   = String(selected || "");
+  const dashIdx      = [];
+  for (let i=0;i<selAligned.length;i++) if (selAligned[i] === "-") dashIdx.push(i);
+  const selUngapped  = normPep(selAligned);
 
-  // allele lookup
-  const scoreKey = mode === "BA" ? "netmhcpan_ba_percentile" : "netmhcpan_el_percentile";
-  const pairKey  = (al, pep) => `${String(al).trim()}|${String(pep).trim()}`;
-  const lookup   = new Map();
-  for (const r of alleleData || []) {
-    const pep = r?.peptide, al = r?.allele, val = r?.[scoreKey];
-    if (pep && al && Number.isFinite(+val)) lookup.set(pairKey(al, pep), +val);
+  // insert dashes into an ungapped peptide at the selected dash positions
+  function withTemplateDashes(ungapped) {
+    const arr = ungapped.split("");
+    const out = [];
+    let k = 0;
+    for (let i = 0; i < selAligned.length; i++) {
+      if (selAligned[i] === "-") out.push("-");
+      else                       out.push(arr[k++] ?? "");
+    }
+    return out.join("");
   }
-  const colourPct = d3.scaleLinear().domain([0,50,100]).range(["#0074D9","#ffffff","#e60000"]);
 
-  // measurement helpers
-  function measureMaxTextWidth(strings, fontPx = 12, fontFamily = "sans-serif") {
-    if (!strings?.length) return 0;
-    const svg = d3.create("svg")
-      .attr("width",10).attr("height",10)
-      .style("position","absolute").style("left","-20000px").style("top","-20000px").style("visibility","hidden");
+  /* ── prepare rows (clicked + topN) ───────────────────────────── */
+  // index data by UNGAPPED peptide (from SQL/counted substrings)
+  const byUngapped = new Map(data.map(d => [normPep(d.peptide), d]));
+
+  // head: use the SQL row when available (by ungapped), but display aligned
+  const headBase = byUngapped.get(selUngapped)
+               ?? { peptide: selUngapped, proportion: 0, frequency: 0, total: 0 };
+  const headDisp = { ...headBase, displayPeptide: selAligned };
+
+  // next topN (by proportion) – exclude the clicked peptide’s ungapped form
+  const others = data
+    .filter(d => normPep(d.peptide) !== selUngapped)
+    .sort((a,b)=>d3.descending(a.proportion,b.proportion))
+    .slice(0, topN)
+    .map(d => ({ ...d, displayPeptide: withTemplateDashes(normPep(d.peptide)) }));
+
+  const rows = [headDisp, ...others];
+  const nRows  = rows.length;
+  const maxLen = d3.max(rows, d => d.displayPeptide.length);
+
+  /* ── allele value lookup (keys = ALLELE|UNGAPPED_PEPTIDE) ─────── */
+  const lookup = new Map();
+  for (const r of alleleData) {
+    const pep = normPep(r.peptide);
+    const al  = String(r.allele || "").toUpperCase().trim();
+    if (pep && al && typeof r[scoreKey] === "number") {
+      lookup.set(`${al}|${pep}`, +r[scoreKey]);
+    }
+  }
+
+  /* ── wrapper div (fixed height) ──────────────────────────────── */
+  const wrapper = document.createElement("div");
+  wrapper.style.cssText = `position:relative; width: 100%; height: ${height0}px; overflow: hidden;`;
+
+  function measureRotatedBand(texts, cell, fontSize = 12) {
+    if (!texts?.length) return 34;
+    const svg = d3.create("svg").attr("width", 1).attr("height", 1)
+      .style("position","absolute").style("left","-99999px").style("top","-99999px");
     document.body.appendChild(svg.node());
-    let maxW = 0;
-    for (const s of strings) {
-      const t = svg.append("text")
-        .text(s)
-        .style("font-family",fontFamily)
-        .style("font-size",`${fontPx}px`);
-      const b = t.node().getBBox();
-      maxW = Math.max(maxW, b.width);
-      t.remove();
+    let maxAbove = 0;
+    for (const t of texts) {
+      const n = svg.append("text").text(t)
+        .attr("transform","rotate(-45)")
+        .style("font-family","sans-serif")
+        .style("font-size", `${fontSize}px`);
+      const b = n.node().getBBox();
+      maxAbove = Math.max(maxAbove, -b.y);
+      n.remove();
     }
     svg.remove();
-    return Math.ceil(maxW);
+    // a little extra headroom for the diagonal
+    return Math.min(96, Math.max(28, Math.round(maxAbove + 6)));
   }
 
-  const wrapper = document.createElement("div");
-  wrapper.style.cssText = `width:100%; height:${height0}px; overflow:hidden;`;
+  function draw(wrapperWidth){
+    const anyAlleles = (showAlleles && alleles.length);
+    const labelFont  = Math.round(baseCell*0.42);
+    const topLabelBand = anyAlleles ? measureRotatedBand(alleles, baseCell, labelFont) : 0;
 
-  // ---- core draw (returns the svg and layout metrics we used) ----
-  function drawCore(wrapperWidth, opts) {
-    const {
-      cell, xLabelBand, labelCols, rightPad, angleGapCols
-    } = opts;
+    // width for the percentage/count label block (measure roughly from text length)
+    const example = `${(rows[0].proportion*100).toFixed(1)}% (${rows[0].frequency}/${rows[0].total})`;
+    const estLabel = Math.ceil(Math.max(90, example.length * Math.max(7, baseCell*0.32)));
 
-    const haveAlleles = showAlleles && Array.isArray(alleles) && alleles.length > 0;
-    const alleleCols  = haveAlleles ? alleles.length : 0;
+    const fitH = Math.floor((height0 - margin.top - margin.bottom - topLabelBand) / nRows);
+    const fitW = Math.floor((wrapperWidth - margin.left - margin.right - estLabel - (anyAlleles ? alleles.length*baseCell : 0)) / maxLen);
+    const cell = Math.max(12, Math.min(baseCell, fitH, fitW));
 
-    const labelWidth = (haveAlleles ? (labelCols + angleGapCols) : 0) * cell;
-    const w = margin.left + pepCols*cell + labelWidth + alleleCols*cell + rightPad;
-    const h = margin.top  + xLabelBand + nRows*cell + margin.bottom;
+    const labelWidth = estLabel; // adapt to text size
+    const gridW = maxLen*cell;
+    const alleleW = anyAlleles ? alleles.length*cell : 0;
+    const totalW = margin.left + gridW + labelWidth + alleleW + margin.right;
+    const h = margin.top  + topLabelBand + nRows*cell + margin.bottom + 6;
 
     const svg = d3.create("svg")
-      .attr("viewBox", `0 0 ${w} ${h}`)
+      .attr("viewBox", `0 0 ${totalW} ${h}`)
       .attr("width",  "100%")
       .attr("height", "100%")
       .attr("preserveAspectRatio","xMinYMin meet")
-      .style("font-family","'Roboto', sans-serif")
-      .style("font-size", `${Math.round(cell*0.5)}px`);
+      .attr("font-family","'Roboto Mono', monospace")
+      .attr("font-size", Math.round(cell*0.52));
 
-    const yBase = margin.top + xLabelBand;
+    rows.forEach((row,i)=>{
+      const y0 = margin.top + topLabelBand + i*cell;
 
-    rows.forEach((row, i) => {
-      const y0 = yBase + i*cell;
-
-      // AA background
-      const gBG = svg.append("g").attr("transform",`translate(${margin.left},${y0})`);
-      gBG.selectAll("rect")
-        .data(d3.range(pepCols))
+      // ▸ AA background (display string with template dashes)
+      svg.append("g")
+        .attr("transform",`translate(${margin.left},${y0})`)
+        .selectAll("rect")
+        .data(d3.range(maxLen))
         .enter().append("rect")
           .attr("x", j=>j*cell+0.5)
           .attr("y", 0.5)
-          .attr("width",  cell-1)
-          .attr("height", cell-1)
+          .attr("width", cell-1)
+          .attr("height",cell-1)
           .attr("rx",6).attr("ry",6)
           .attr("stroke","#fff")
-          .attr("fill", j => {
-            const ch = row.peptide[j] ?? "";
-            if (colourMode === "Properties") return aaCols[ch] ?? "#f9f9f9";
+          .attr("fill", j=>{
+            const ch = row.displayPeptide[j] ?? "";
+            if (ch === "-") return "#f9f9f9";
+            if (colourMode === "Properties") return aaColours[ch] ?? "#f9f9f9";
             if (i === 0) return "#006DAE";
-            return (j < selectedNoGaps.length && j < row.peptide.length && ch !== selectedNoGaps[j])
-              ? "#ffcccc" : "#f9f9f9";
+            return (j<row.displayPeptide.length && ch!==selAligned[j]) ? "#ffcccc" : "#f9f9f9";
           });
 
-      // AA letters
-      const gTxt = svg.append("g").attr("transform",`translate(${margin.left},${y0})`);
-      gTxt.selectAll("text")
-        .data(row.peptide.split(""))
+      // ▸ AA letters
+      svg.append("g")
+        .attr("transform",`translate(${margin.left},${y0})`)
+        .selectAll("text")
+        .data(row.displayPeptide.split(""))
         .enter().append("text")
           .attr("x", (_,j)=>j*cell+cell/2)
           .attr("y", cell/2)
           .attr("dy","0.35em")
           .attr("text-anchor","middle")
-          .attr("font-weight", i===0 ? "bold" : null)
-          .attr("fill", i===0 ? "#fff" : "#000")
+          .attr("font-weight", i===0?"bold":null)
+          .attr("fill", i===0?"#fff":"#000")
           .text(c=>c);
 
-      // % + counts
-      const pct = Number.isFinite(row.proportion) ? (row.proportion * 100).toFixed(1) : "0.0";
+      // ▸ proportion/count label (tight to grid)
+      const pct = (row.proportion*100).toFixed(1);
       svg.append("text")
-        .attr("x", margin.left + pepCols*cell + 6)
+        .attr("font-family","'Roboto', sans-serif")
+        .attr("font-size", Math.round(cell*0.4))
+        .attr("x", margin.left + gridW + 6)
         .attr("y", y0 + cell/2)
         .attr("dy","0.35em")
-        .style("font-size", `${Math.round(cell*0.42)}px`)
-        .text(`${pct}% (${row.frequency}/${row.total})`);
+        .html(`<tspan font-weight="bold">${pct}%</tspan><tspan dx="6">(${row.frequency}/${row.total})</tspan>`);
 
-      // allele overlay
-      if (haveAlleles) {
-        const gA = svg.append("g")
-          .attr("transform", `translate(${margin.left + pepCols*cell + labelWidth},${y0})`);
-        gA.selectAll("rect")
+      // ▸ allele overlay (keys use ungapped peptide)
+      if (anyAlleles) {
+        const pepKey = normPep(row.peptide); // original ungapped key from data
+        const xAllele = margin.left + gridW + labelWidth;
+
+        svg.append("g")
+          .attr("transform", `translate(${xAllele},${y0})`)
+          .selectAll("rect")
           .data(alleles)
           .enter().append("rect")
-            .attr("x", (_,j)=>j*cell + 0.5)
+            .attr("x", (_d,j)=>j*cell + 0.5)
             .attr("y", 0.5)
-            .attr("width",  cell - 1)
+            .attr("width", cell - 1)
             .attr("height", cell - 1)
             .attr("rx",4).attr("ry",4)
             .attr("stroke","#fff")
             .attr("fill", al => {
-              const val = lookup.get(pairKey(al, row.peptide));
-              return Number.isFinite(val) ? colourPct(val) : "#f0f0f0";
-            });
+              const key = `${String(al).toUpperCase()}|${pepKey}`;
+              return lookup.has(key) ? colour(lookup.get(key)) : "#f0f0f0";
+            })
+            .append("title")
+              .text(al => {
+                const key = `${String(al).toUpperCase()}|${pepKey}`;
+                const val = lookup.get(key);
+                return `${row.displayPeptide} | ${al}\n${curMode} percentile: ${val != null ? (+val).toFixed(1) : "—"}`;
+              });
       }
     });
 
-    // allele headers
-    let labelsBBox = null;
-    if (haveAlleles) {
-      const labelFont = Math.round(cell*0.42);
-      const x0 = margin.left + pepCols*cell + labelWidth;
-      const xg = svg.append("g").attr("transform", `translate(${x0},${margin.top + xLabelBand})`)
-                    .attr("data-role","allele-labels");
-
+    // ▸ allele labels (diagonal) — start right after the count label
+    if (anyAlleles) {
+      const x0 = margin.left + gridW + labelWidth;
+      const y0 = margin.top + topLabelBand - 2;
+      const xg = svg.append("g").attr("transform", `translate(${x0},${y0})`);
       alleles.forEach((al, j) => {
         xg.append("text")
           .attr("transform", `translate(${j*cell + cell/2}, 0) rotate(-45)`)
           .attr("text-anchor", "start")
-          .style("font-size", `${labelFont}px`)
+          .attr("font-family", "sans-serif")
+          .attr("font-size", Math.round(cell*0.42))
           .text(al);
       });
-
-      // **measure AFTER rendering in the real SVG**
-      labelsBBox = xg.node().getBBox();
-      // add titles (after bbox) if you want
     }
 
-    return { svg, labelsBBox, w, h, labelWidth };
+    wrapper.innerHTML = "";
+    wrapper.appendChild(svg.node());
   }
 
-  // ---- outer draw that may reflow once if clipping is detected ----
-  const draw = (wrapperWidth) => {
-    const haveAlleles = showAlleles && Array.isArray(alleles) && alleles.length > 0;
-    const alleleCols  = haveAlleles ? alleles.length : 0;
-
-    // initial guesses
-    let cell = baseCell;
-    let rightPad = haveAlleles ? Math.max(12, Math.round(baseCell * 0.7)) : margin.right;
-    let angleGapCols = haveAlleles ? 0.5 : 0; // small angled gap
-    let xLabelBand = 0;
-    let labelCols = 0;
-
-    // %/count text measurement (snapped to whole cells)
-    const numLabels = rows.map(r => {
-      const pct = Number.isFinite(r.proportion) ? (r.proportion*100).toFixed(1) : "0.0";
-      return `${pct}% (${r.frequency}/${r.total})`;
-    });
-
-    // pre-pass to settle cell size based on height/width constraints
-    for (let pass = 0; pass < 2; pass++) {
-      const labelFontPx = Math.round(cell * 0.42);
-
-      xLabelBand = haveAlleles ? Math.round(cell * 1.6) : 0; // a safe starting band
-      const measuredNumW = measureMaxTextWidth(numLabels, labelFontPx, "'Roboto', sans-serif");
-      const pad = Math.max(6, Math.round(cell * 0.25));
-
-      labelCols = haveAlleles ? Math.max(1, Math.ceil((measuredNumW + pad) / cell)) : 0;
-
-      const labelW = (haveAlleles ? (labelCols + angleGapCols) : 0) * cell;
-      const fitH = Math.floor((height0 - margin.top - margin.bottom - xLabelBand) / Math.max(1, nRows));
-      const fitW = Math.floor((
-        wrapperWidth - margin.left - rightPad - labelW
-      ) / Math.max(1, pepCols + alleleCols));
-
-      const next = Math.max(12, Math.min(baseCell, fitH, fitW));
-      if (Math.abs(next - cell) < 0.5) break;
-      cell = next;
-    }
-
-    // First render
-    let { svg, labelsBBox, w } = drawCore(wrapperWidth, {
-      cell, xLabelBand, labelCols, rightPad, angleGapCols
-    });
-
-    // Post-measure: if labels would clip or crowd, bump band/rightPad and redraw once
-    if (haveAlleles && labelsBBox) {
-      // absolute top of labels in SVG coords
-      const groupTop = margin.top + xLabelBand + labelsBBox.y;
-      const needTop  = groupTop < 0 ? Math.ceil(-groupTop + 2) : 0;
-
-      // absolute right of labels in SVG coords
-      const labelGroupX = margin.left + pepCols*cell + (labelCols + angleGapCols)*cell;
-      const labelsRight = labelGroupX + labelsBBox.width;
-      const needRight   = labelsRight > (w - rightPad) ? Math.ceil(labelsRight - (w - rightPad) + 2) : 0;
-
-      if (needTop > 0 || needRight > 0) {
-        // recompute using larger band/pad and render again
-        xLabelBand += needTop;
-        rightPad   += needRight;
-
-        // rebuild with updated metrics
-        ({ svg } = drawCore(wrapperWidth, {
-          cell, xLabelBand, labelCols, rightPad, angleGapCols
-        }));
-      }
-    }
-
-    wrapper.replaceChildren(svg.node());
-  };
-
-  const ro = new ResizeObserver(entries => {
-    for (const e of entries) draw(e.contentRect.width);
+  const ro = new ResizeObserver(entries=>{
+    for (const e of entries){ draw(e.contentRect.width); }
   });
   ro.observe(wrapper);
-  draw(wrapper.getBoundingClientRect().width || wrapper.clientWidth || 800);
+  draw(wrapper.getBoundingClientRect().width);
+
+  // keep in sync with radio toggle if provided
+  if (isEventTarget(mode)) mode.addEventListener("input", () => draw(wrapper.getBoundingClientRect().width));
+
   return wrapper;
 }
