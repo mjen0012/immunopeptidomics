@@ -877,18 +877,11 @@ function createIAVDashboard({
     xScale     : xCurrent,
     rowHeight, gap, sizeFactor, margin, colourScale,
 
-    onClick : d => {
-      setSelectedPeptide(d.peptide_aligned);
+    /* align-aware click handler */
+    onClick    : d => {
+      setSelectedPeptide(d.peptide_aligned); // always the aligned string
       setSelectedStart  (d.start);
-      setSelectedLength (d.length);
-
-      // NEW: capture ungapped peptide for workset
-      const ungapped = String(d.peptide_aligned || "").replace(/-/g, "").toUpperCase();
-      const cur = new Set(clickExtras.value || []);
-      if (ungapped && ungapped.length >= 8 && ungapped.length <= 14) {
-        cur.add(ungapped);
-        clickExtras.value = [...cur];
-      }
+      setSelectedLength (d.length);          // aligned span
     }
   });
   yOff += pep.height;
@@ -2268,37 +2261,34 @@ const cachePreviewI = await (async () => {
 ```
 
 ```js
+/* merged rows for the chart — STRICT to workset */
 const chartRowsI = (() => {
-  traceCellStart("chartRowsI", {
-    heatmapData_len: (heatmapData || []).length,
-    peptidesIWorkset_len: (peptidesIWorkset || []).length,
-    resultsArrayI_type: Array.isArray(resultsArrayI) ? "Array" : (resultsArrayI?.value ? "Mutable" : typeof resultsArrayI)
-  });
-
   selectedI;
   committedProteinId;
 
   const allelesNow = new Set((alleleCtrl1?.value || []).map(a => String(a).toUpperCase()));
-  const allowed    = new Set((peptidesIWorkset || []).map(p => String(p).toUpperCase())); // ← no heatmapData here
+  const clickPeps = new Set((heatmapData || []).map(r => String(r.peptide).toUpperCase()));
+  const allowed   = new Set([...(peptidesIWorkset || []), ...clickPeps].map(p => String(p).toUpperCase()));
+  if (!allelesNow.size || !allowed.size) return [];
+
   const map = new Map();
 
-  if (allelesNow.size && allowed.size) {
-    for (const r of cachePreviewI) {
-      const al = String(r.allele || "").toUpperCase();
-      const pp = String(r.peptide|| "").toUpperCase();
-      if (allowed.has(pp) && allelesNow.has(al)) map.set(`${al}|${pp}`, r);
-    }
-    const apiRows = safeArray(resultsArrayI);
-    for (const r of apiRows) {
-      const al = String(r.allele || "").toUpperCase();
-      const pp = String(r.peptide|| "").toUpperCase();
-      if (allowed.has(pp) && allelesNow.has(al)) map.set(`${al}|${pp}`, r);
+  for (const r of cachePreviewI) {
+    const al = String(r.allele || "").toUpperCase();
+    const pp = String(r.peptide|| "").toUpperCase();
+    if (allowed.has(pp) && allelesNow.has(al)) {
+      map.set(`${al}|${pp}`, r);
     }
   }
-
-  const out = [...map.values()];
-  traceCellEnd("chartRowsI", { result_len: out.length });
-  return out;
+  const apiRows = Array.isArray(runResultsI) ? runResultsI : [];
+  for (const r of apiRows) {
+    const al = String(r.allele || "").toUpperCase();
+    const pp = String(r.peptide|| "").toUpperCase();
+    if (allowed.has(pp) && allelesNow.has(al)) {
+      map.set(`${al}|${pp}`, r);
+    }
+  }
+  return [...map.values()];
 })();
 
 ```
@@ -2312,13 +2302,10 @@ const NETMHC_CHUNK_SIZE = 1000;   // was ~25 before; now 1000 as requested
 ```js
 /* ▸ RUN results – Class I (per-protein workset; batch missing by 1000) */
 const runResultsI = await (async () => {
-  traceCellStart("runResultsI:init");
   trigI; // gate on the run click
 
   const alleles = committedI;           // already an Array
   const peps    = committedWorksetI;    // already an Array
-  console.log("alleles(len) =", (alleles || []).length, alleles);
-  console.log("peptides(len)=", (peps    || []).length);
 
   if (!alleles.length) { setBanner("Class I: no alleles selected."); return []; }
   if (!peps.length)    { setBanner("Class I: no peptides to run.");  return []; }
@@ -2604,6 +2591,7 @@ async function fetchAlleles(cls, q = "", offset = 0, limit = PAGE_LIMIT_DEFAULT)
 ```
 
 ```js
+import {comboSelectLazy} from "./components/comboSelectLazy.js";
 
 /* ▸ allele lists (lazy) ----------------------------------------- */
 const alleleCtrl1 = comboSelectLazy({
@@ -2630,12 +2618,6 @@ const selectedII = Generators.input(alleleCtrl2);
 ```
 
 ```js
-// --- debug/killswitch (define BEFORE committedWorksetI is defined)
-const DEBUG_DISABLE_CLICK_EXTRAS = true;   // start with true to break the loop
-
-```
-
-```js
 /* snapshots captured only when the Run buttons fire */
 const committedI = Generators.input(
   snapshotOn(runBtnI, () => Array.from(alleleCtrl1.value || []))
@@ -2643,11 +2625,9 @@ const committedI = Generators.input(
 
 const committedWorksetI = Generators.input(
   snapshotOn(runBtnI, () => {
-    const base   = Array.from(peptidesIWorkset || []);
-    const extras = DEBUG_DISABLE_CLICK_EXTRAS ? [] : Array.from(clickExtras.value || []);
-    const out = Array.from(new Set([...base, ...extras]));
-    console.log("committedWorksetI snapshot → base", base.length, "extras(clickExtras)", extras.length, "total", out.length);
-    return out;
+    const base   = Array.from(peptidesIWorkset || []);                 // existing workset (ungapped)
+    const extras = (heatmapData || []).map(r => String(r.peptide).toUpperCase()); // clicked window
+    return Array.from(new Set([...base, ...extras]));                   // de-dupe
   })
 );
 
@@ -2658,49 +2638,5 @@ const committedProteinI = Generators.input(
 const committedII = Generators.input(
   snapshotOn(runBtnII, () => Array.from(alleleCtrl2.value || []))
 );
-
-```
-
-```js
-/* ── global trace helpers (safe to include once) ───────────────── */
-window.__TRACE_ON__ = true; // flip to false to silence
-
-function traceCellStart(name, extra = {}) {
-  if (!window.__TRACE_ON__) return;
-  console.groupCollapsed(`▶ ${name}`);
-  try { console.log({ ...extra }); } catch {}
-}
-
-function traceCellEnd(name, extra = {}) {
-  if (!window.__TRACE_ON__) return;
-  try { console.log("done", { ...extra }); } catch {}
-  console.groupEnd();
-}
-
-/* Wrap any expression so you can see its type/size at the moment you read it */
-function snap(name, v) {
-  if (!window.__TRACE_ON__) return v;
-  const t =
-    v == null ? "nullish" :
-    Array.isArray(v) ? `Array(len=${v.length})` :
-    (typeof v === "object" && "value" in v && Array.isArray(v.value)) ? `Mutable(Array len=${v.value.length})` :
-    typeof v;
-  console.log(`snap(${name}) →`, t, v && v.length != null ? `(len=${v.length})` : "");
-  return v;
-}
-
-```
-
-```js
-function rowsFromMutable(m) {
-  if (!m) return [];
-  if (Array.isArray(m)) return m;
-  if (Array.isArray(m.value)) return m.value;
-  return [];
-}
-```
-
-```js
-function safeArray(x){ return Array.isArray(x) ? x : (Array.isArray(x?.value) ? x.value : []); }
 
 ```
