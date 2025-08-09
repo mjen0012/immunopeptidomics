@@ -2296,8 +2296,8 @@ const NETMHC_CHUNK_SIZE = 1000;   // was ~25 before; now 1000 as requested
 const runResultsI = await (async () => {
   trigI;
 
-  const alleles = Array.from(alleleCtrl1.value || []);
-  const peps    = peptidesIWorkset;
+  const alleles = Array.from(committedI || []);     // you already have committedI from earlier
+  const peps    = committedWorksetI || [];
 
   if (!alleles.length) { setBanner("Class I: no alleles selected."); return []; }
   if (!peps.length)    { setBanner("Class I: no peptides to run.");  return []; }
@@ -2590,4 +2590,9 @@ const selectedII = Generators.input(alleleCtrl2);
 /* commit helper must run AFTER the controls exist */
 const committedI  = commitTo(runBtnI , alleleCtrl1);
 const committedII = commitTo(runBtnII, alleleCtrl2);
+
+/* Snapshots captured only when Run Class I is clicked */
+const committedWorksetI = commitTo(runBtnI, { get value() { return peptidesIWorkset; } });
+const committedProteinI = commitTo(runBtnI, { get value() { return committedProteinId; } });
+
 ```
