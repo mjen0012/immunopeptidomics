@@ -2035,36 +2035,24 @@ const runBtnII = runButton("Run Class II (EL + BA)");
 const trigI  = Generators.input(runBtnI);
 const trigII = Generators.input(runBtnII);
 
+```
 
-
-/* commit helper — works with a DOM input OR an async generator trigger */
-const commitTo = (trigger, source) =>
-  Generators.observe(change => {
-    const push = () => change(source?.value);
-
-    // push initial snapshot
+```js
+// Snapshot `getValue()` right now and again every time `view` fires.
+// No addEventListener anywhere — we rely purely on Generators.input(view).
+function snapshotOn(view, getValue) {
+  return Generators.observe(change => {
+    const push = () => change(getValue());
+    // initial snapshot
     push();
-
-    // 1) DOM/EventTarget trigger
-    if (trigger && typeof trigger.addEventListener === "function") {
-      const onInput = () => push();
-      trigger.addEventListener("input", onInput);
-      return () => trigger.removeEventListener("input", onInput);
-    }
-
-    // 2) Async generator trigger (e.g. Generators.input(...))
-    if (trigger && typeof trigger[Symbol.asyncIterator] === "function") {
-      let stop = false;
-      (async () => {
-        for await (const _ of trigger) { if (stop) break; push(); }
-      })();
-      return () => { stop = true; };
-    }
-
-    // 3) Fallback: nothing to subscribe to
+    // re-snapshot whenever the view emits
+    (async () => {
+      for await (const _ of Generators.input(view)) push();
+    })();
+    // no teardown necessary for Generators.input
     return () => {};
   });
-
+}
 ```
 
 ```js
@@ -2242,7 +2230,6 @@ const peptidesI = await (async () => {
   const all = await parsePeptides(peptideFile);
   return all.filter(p => p.length >= 8 && p.length <= 14);
 })();
-
 ```
 
 ```js
@@ -2268,7 +2255,6 @@ const cachePreviewI = await (async () => {
   // cache is already snake_case; still normalize for safety
   return cacheRows.map(normalizeRowI_cache);
 })();
-
 ```
 
 ```js
@@ -2300,7 +2286,6 @@ const chartRowsI = (() => {
   }
   return [...map.values()];
 })();
-
 ```
 
 ```js
@@ -2312,10 +2297,10 @@ const NETMHC_CHUNK_SIZE = 1000;   // was ~25 before; now 1000 as requested
 ```js
 /* ▸ RUN results – Class I (per-protein workset; batch missing by 1000) */
 const runResultsI = await (async () => {
-  trigI;  // fires only when Run is clicked
+  trigI; // still gate on the run click
 
-  const alleles = Array.from(committedI || []);            // concrete array
-  const peps    = Array.from(committedWorksetI || []);     // concrete array
+  const alleles = Array.from(committedI || []);
+  const peps    = Array.from(committedWorksetI || []);
 
   if (!alleles.length) { setBanner("Class I: no alleles selected."); return []; }
   if (!peps.length)    { setBanner("Class I: no peptides to run.");  return []; }
@@ -2527,14 +2512,6 @@ const allelePlot = alleleChart({
   margin    : { top: 40, right: 20, bottom: 20, left: 140 },
   showNumbers: false
 });
-
-
-
-
-// Build the allele-chart element reactively (preview from cache, then API)
-
-
-
 ```
 
 
@@ -2601,8 +2578,6 @@ async function fetchAlleles(cls, q = "", offset = 0, limit = PAGE_LIMIT_DEFAULT)
 ```
 
 ```js
-import {comboSelectLazy} from "./components/comboSelectLazy.js";
-
 /* ▸ allele lists (lazy) ----------------------------------------- */
 const alleleCtrl1 = comboSelectLazy({
   label: "Class I alleles (MHCI)",
