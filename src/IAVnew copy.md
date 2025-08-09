@@ -2263,6 +2263,13 @@ const cachePreviewI = await (async () => {
 ```js
 /* merged rows for the chart — STRICT to workset (no direct dep on runResultsI) */
 const chartRowsI = (() => {
+  traceCellStart("chartRowsI", {
+    uses_selectedI: true,
+    uses_committedProteinId: true,
+    heatmapData_len: (heatmapData || []).length,
+    peptidesIWorkset_len: (peptidesIWorkset || []).length,
+    resultsArrayI_type: Array.isArray(resultsArrayI) ? "Array" : (resultsArrayI?.value ? "Mutable" : typeof resultsArrayI)
+  });
   selectedI;
   committedProteinId;
 
@@ -2282,13 +2289,15 @@ const chartRowsI = (() => {
     if (allowed.has(pp) && allelesNow.has(al)) map.set(`${al}|${pp}`, r);
   }
 
-  // 2) NEW rows from the API (pull from the mutable that runResultsI writes)
-  const apiRows = Array.isArray(resultsArrayI) ? resultsArrayI : (Array.isArray(resultsArrayI?.value) ? resultsArrayI.value : []);
+  const apiRows = rowsFromMutable(resultsArrayI);
+  console.log("chartRowsI: apiRows len =", apiRows.length);
   for (const r of apiRows) {
     const al = String(r.allele || "").toUpperCase();
     const pp = String(r.peptide|| "").toUpperCase();
     if (allowed.has(pp) && allelesNow.has(al)) map.set(`${al}|${pp}`, r);
   }
+
+  traceCellEnd("chartRowsI", { result_len: map.size });
 
   return [...map.values()];
 })();
@@ -2304,10 +2313,13 @@ const NETMHC_CHUNK_SIZE = 1000;   // was ~25 before; now 1000 as requested
 ```js
 /* ▸ RUN results – Class I (per-protein workset; batch missing by 1000) */
 const runResultsI = await (async () => {
+  traceCellStart("runResultsI:init");
   trigI; // gate on the run click
 
   const alleles = committedI;           // already an Array
   const peps    = committedWorksetI;    // already an Array
+  console.log("alleles(len) =", (alleles || []).length, alleles);
+  console.log("peptides(len)=", (peps    || []).length);
 
   if (!alleles.length) { setBanner("Class I: no alleles selected."); return []; }
   if (!peps.length)    { setBanner("Class I: no peptides to run.");  return []; }
@@ -2627,9 +2639,13 @@ const committedI = Generators.input(
 
 const committedWorksetI = Generators.input(
   snapshotOn(runBtnI, () => {
-    const base   = Array.from(peptidesIWorkset || []);                 // existing workset (ungapped)
-    const extras = (heatmapData || []).map(r => String(r.peptide).toUpperCase()); // clicked window
-    return Array.from(new Set([...base, ...extras]));                   // de-dupe
+    const base   = Array.from(peptidesIWorkset || []);
+    const extras = DEBUG_DISABLE_CLICK_EXTRAS
+      ? []
+      : (heatmapData || []).map(r => String(r.peptide).toUpperCase());
+    const out = Array.from(new Set([...base, ...extras]));
+    console.log("committedWorksetI snapshot → base", base.length, "extras", extras.length, "total", out.length);
+    return out;
   })
 );
 
@@ -2641,4 +2657,43 @@ const committedII = Generators.input(
   snapshotOn(runBtnII, () => Array.from(alleleCtrl2.value || []))
 );
 
+```
+
+```js
+/* ── global trace helpers (safe to include once) ───────────────── */
+window.__TRACE_ON__ = true; // flip to false to silence
+
+function traceCellStart(name, extra = {}) {
+  if (!window.__TRACE_ON__) return;
+  console.groupCollapsed(`▶ ${name}`);
+  try { console.log({ ...extra }); } catch {}
+}
+
+function traceCellEnd(name, extra = {}) {
+  if (!window.__TRACE_ON__) return;
+  try { console.log("done", { ...extra }); } catch {}
+  console.groupEnd();
+}
+
+/* Wrap any expression so you can see its type/size at the moment you read it */
+function snap(name, v) {
+  if (!window.__TRACE_ON__) return v;
+  const t =
+    v == null ? "nullish" :
+    Array.isArray(v) ? `Array(len=${v.length})` :
+    (typeof v === "object" && "value" in v && Array.isArray(v.value)) ? `Mutable(Array len=${v.value.length})` :
+    typeof v;
+  console.log(`snap(${name}) →`, t, v && v.length != null ? `(len=${v.length})` : "");
+  return v;
+}
+
+```
+
+```js
+function rowsFromMutable(m) {
+  if (!m) return [];
+  if (Array.isArray(m)) return m;
+  if (Array.isArray(m.value)) return m.value;
+  return [];
+}
 ```
