@@ -1287,27 +1287,7 @@ const consensusRows = Array.from(
 ).sort((a,b)=>d3.ascending(a.position,b.position));
 
 /* facetArea :  Map<facetKey → [{position,value,aminoacid}]> */
-/* build facet areas only from the query result */
-const facetArea = await (async () => {
-  if (positionFacetStats === null) return new Map();
-
-  const rows = await positionFacetStats.toArray();
-  const valueField = (seqSet === "Unique sequences" ? "value_unique" : "value");
-  const out = new Map();
-
-  for (const [facetKey, groupRows] of d3.group(rows, d => d.facet)) {
-    const areaRows = Array.from(
-      d3.group(groupRows, d => d.position),
-      ([position, posRows]) => {
-        const top = posRows.reduce((m, x) => (x[valueField] > m[valueField] ? x : m));
-        return { position:+position, value:Number(top[valueField]), aminoacid: top.aminoacid };
-      }
-    ).sort((a,b)=>d3.ascending(a.position,b.position));
-    out.set(facetKey ?? "Unknown", areaRows);
-  }
-  return out;
-})();
-
+const facetArea = new Map();
 
 
 if (positionFacetStats !== null) {
@@ -1350,99 +1330,180 @@ const setSelectedLength = x => selectedLength.value = x;
 ```
 
 ```js
-/* Peptide Query Data – guarded */
-const peptideProps =
-  (selectedStart && selectedLength)
-    ? db.sql`
+/* Peptide Query Data */
+const peptideProps = db.sql`
 WITH
+/* Clicked Peptide */
 params AS (
   SELECT
     CAST(${selectedStart}  AS BIGINT) AS start,
     CAST(${selectedLength} AS BIGINT) AS len,
     ${selectedPeptide}                 AS sel_peptide
 ),
-filtered AS ( /* … unchanged filter body … */ ${/* keep your existing filtered block */ sql``} ),
+/* Chosen Filters */
+filtered AS (
+  SELECT *
+  FROM   proteins
+  WHERE  protein = ${proteinCommitted}
+    /* Genotype */
+    AND ${ genotypesCommitted.length
+            ? sql`genotype IN (${ genotypesCommitted })`
+            : sql`TRUE` }
+    /* Host Search */
+    AND ${ hostsCommitted.length
+            ? sql`host IN (${ hostsCommitted })`
+            : sql`TRUE` }
+    /* Host Checkbox */
+    AND ${
+          hostCategoryCommitted.includes('Human') &&
+          !hostCategoryCommitted.includes('Non-human')
+            ? sql`host = 'Homo sapiens'`
+            : (!hostCategoryCommitted.includes('Human') &&
+               hostCategoryCommitted.includes('Non-human'))
+                ? sql`host <> 'Homo sapiens'`
+                : sql`TRUE`
+        }
+    /* Country */
+    AND ${ countriesCommitted.length
+            ? sql`country IN (${ countriesCommitted })`
+            : sql`TRUE` }
+    /* Collection Date */
+    AND ${
+      collectionDatesCommitted.from || collectionDatesCommitted.to
+        ? sql`
+            TRY_CAST(
+              CASE
+                WHEN collection_date IS NULL OR collection_date = '' THEN NULL
+                WHEN LENGTH(collection_date)=4  THEN collection_date || '-01-01'
+                WHEN LENGTH(collection_date)=7  THEN collection_date || '-01'
+                ELSE collection_date
+              END AS DATE
+            )
+            ${
+              collectionDatesCommitted.from && collectionDatesCommitted.to
+                ? sql`BETWEEN CAST(${collectionDatesCommitted.from} AS DATE)
+                         AND   CAST(${collectionDatesCommitted.to  } AS DATE)`
+                : collectionDatesCommitted.from
+                    ? sql`>= CAST(${collectionDatesCommitted.from} AS DATE)`
+                    : sql`<= CAST(${collectionDatesCommitted.to   } AS DATE)`
+            }
+          `
+        : sql`TRUE`
+    }
+    /* Release Date */
+    AND ${
+      releaseDatesCommitted.from || releaseDatesCommitted.to
+        ? sql`
+            TRY_CAST(
+              CASE
+                WHEN release_date IS NULL OR release_date = '' THEN NULL
+                WHEN LENGTH(release_date)=4 THEN release_date || '-01-01'
+                WHEN LENGTH(release_date)=7 THEN release_date || '-01'
+                ELSE release_date
+              END AS DATE
+            )
+            ${
+              releaseDatesCommitted.from && releaseDatesCommitted.to
+                ? sql`BETWEEN CAST(${releaseDatesCommitted.from} AS DATE)
+                         AND   CAST(${releaseDatesCommitted.to  } AS DATE)`
+                : releaseDatesCommitted.from
+                    ? sql`>= CAST(${releaseDatesCommitted.from} AS DATE)`
+                    : sql`<= CAST(${releaseDatesCommitted.to   } AS DATE)`
+            }
+          `
+        : sql`TRUE`
+    }
+),
 
 /* All-Sequence Tallies */
 extracted_all AS (
   SELECT SUBSTR(sequence, params.start, params.len) AS peptide
   FROM   filtered, params
 ),
-counts_all AS ( SELECT peptide, COUNT(*) AS cnt_all FROM extracted_all GROUP BY peptide ),
-total_all  AS ( SELECT SUM(cnt_all) AS total_all FROM counts_all ),
+counts_all AS (
+  SELECT peptide, COUNT(*) AS cnt_all
+  FROM   extracted_all
+  GROUP  BY peptide
+),
+total_all AS ( SELECT SUM(cnt_all) AS total_all FROM counts_all ),
 
 /* Unique-Sequence Tallies */
 filtered_dist AS ( SELECT DISTINCT sequence FROM filtered ),
-extracted_u   AS ( SELECT SUBSTR(sequence, params.start, params.len) AS peptide FROM filtered_dist, params ),
-counts_u      AS ( SELECT peptide, COUNT(*) AS cnt_unique FROM extracted_u GROUP BY peptide ),
-total_u       AS ( SELECT SUM(cnt_unique) AS total_unique FROM counts_u ),
+extracted_u AS (
+  SELECT SUBSTR(sequence, params.start, params.len) AS peptide
+  FROM   filtered_dist, params
+),
+counts_u AS (
+  SELECT peptide, COUNT(*) AS cnt_unique
+  FROM   extracted_u
+  GROUP  BY peptide
+),
+total_u AS ( SELECT SUM(cnt_unique) AS total_unique FROM counts_u ),
 
+/* ─── 5. merge frequencies (may be empty for the click) ──────────── */
 combined AS (
   SELECT
     COALESCE(ca.peptide, cu.peptide)                  AS peptide,
+
+    /* all sequences */
     CAST(COALESCE(ca.cnt_all,0)  AS INT)              AS frequency_all,
     CAST(ta.total_all           AS INT)               AS total_all,
-    CASE WHEN ta.total_all = 0 THEN 0.0
-         ELSE COALESCE(ca.cnt_all,0)*1.0/ta.total_all END AS proportion_all,
+    CASE WHEN ta.total_all = 0
+         THEN 0.0
+         ELSE COALESCE(ca.cnt_all,0) * 1.0 / ta.total_all
+    END                                               AS proportion_all,
+
+    /* unique sequences */
     CAST(COALESCE(cu.cnt_unique,0) AS INT)            AS frequency_unique,
     CAST(tu.total_unique          AS INT)             AS total_unique,
-    CASE WHEN tu.total_unique = 0 THEN 0.0
-         ELSE COALESCE(cu.cnt_unique,0)*1.0/tu.total_unique END AS proportion_unique
+    CASE WHEN tu.total_unique = 0
+         THEN 0.0
+         ELSE COALESCE(cu.cnt_unique,0) * 1.0 / tu.total_unique
+    END                                               AS proportion_unique
   FROM        counts_all  AS ca
   FULL  JOIN  counts_u    AS cu USING (peptide)
   CROSS JOIN  total_all   AS ta
   CROSS JOIN  total_u     AS tu
 ),
 
+/* ─── 6. guaranteed filler row for the clicked peptide ───────────── */
 selected_filler AS (
   SELECT
-    params.sel_peptide                   AS peptide,
-    0                                    AS frequency_all,
-    CAST(ta.total_all      AS INT)       AS total_all,
-    0.0                                  AS proportion_all,
-    0                                    AS frequency_unique,
-    CAST(tu.total_unique   AS INT)       AS total_unique,
-    0.0                                  AS proportion_unique
+    params.sel_peptide                     AS peptide,
+    0                                      AS frequency_all,
+    CAST(ta.total_all      AS INT)         AS total_all,        -- ← CAST!
+    0.0                                    AS proportion_all,
+    0                                      AS frequency_unique,
+    CAST(tu.total_unique   AS INT)         AS total_unique,     -- ← CAST!
+    0.0                                    AS proportion_unique
   FROM params, total_all AS ta, total_u AS tu
 )
 
-SELECT * FROM combined
-WHERE peptide <> (SELECT sel_peptide FROM params)
-UNION ALL
-SELECT * FROM combined
-WHERE peptide  = (SELECT sel_peptide FROM params)
-UNION ALL
-SELECT * FROM selected_filler
-WHERE NOT EXISTS (SELECT 1 FROM combined
-                  WHERE peptide = (SELECT sel_peptide FROM params));
-`
-    : db.sql`SELECT ''::VARCHAR AS peptide, 0::INT AS frequency_all, 0::INT AS total_all, 0.0::DOUBLE AS proportion_all,
-                         0::INT AS frequency_unique, 0::INT AS total_unique, 0.0::DOUBLE AS proportion_unique
-              LIMIT 0`;
+ /* ─── 7. final ordered result ------------------------------------- */
+SELECT *
+FROM   combined
+WHERE  peptide <> (SELECT sel_peptide FROM params)   -- others first
 
+UNION ALL
+/* existing row for the click (if it exists) */
+SELECT *
+FROM   combined
+WHERE  peptide = (SELECT sel_peptide FROM params)
+
+UNION ALL
+/* synthetic zero-frequency row if the click was unseen */
+SELECT *
+FROM   selected_filler
+WHERE  NOT EXISTS (
+  SELECT 1 FROM combined
+  WHERE  peptide = (SELECT sel_peptide FROM params)
+);
+`;
 ```
 
 ```js
 /* Peptide JS Array */
 const rowsRaw = await peptideProps.toArray();
-
-// Current window rows = clicked peptide (aligned) + top 4 (aligned)
-const currentWindowRows = (() => {
-  if (!selectedPeptide || !Array.isArray(rowsRaw) || !rowsRaw.length) return [];
-  const selAligned = String(selectedPeptide);
-  const ranked = [...rowsRaw].sort((a,b)=> Number(b[propCol]) - Number(a[propCol]));
-  const head   = ranked.find(r => String(r.peptide) === selAligned);
-  const alts   = ranked.filter(r => String(r.peptide) !== selAligned).slice(0,4);
-  return [head, ...alts].filter(Boolean);
-})();
-
-// Ungapped versions specifically for NetMHC
-const currentWindowUngapped = Array.from(new Set(
-  currentWindowRows
-    .map(r => String(r.peptide || "").replace(/-/g,"").toUpperCase())
-    .filter(p => p.length >= 8 && p.length <= 14)
-));
-
 
 /* Peptide Unique vs All Switcher */
 const useUnique = seqSet === "Unique sequences";
@@ -1479,7 +1540,23 @@ const heatmapSVG = peptideHeatmap({
 ```
 
 ```js
+// Current window rows = clicked peptide (aligned) + top 4 for the window (aligned)
+const currentWindowRows = (() => {
+  if (!selectedPeptide || !Array.isArray(rowsRaw)) return [];
+  const selAligned = String(selectedPeptide);
+  // rowsRaw contains { peptide, proportion_* } from peptideProps (peptide is aligned substring)
+  const ranked = [...rowsRaw].sort((a,b)=> Number(b[propCol]) - Number(a[propCol]));
+  const head = ranked.find(r => String(r.peptide) === selAligned);
+  const alts = ranked.filter(r => String(r.peptide) !== selAligned).slice(0,4);
+  return [head, ...alts].filter(Boolean);
+})();
 
+// Ungapped versions for NetMHC
+const currentWindowUngapped = Array.from(new Set(
+  currentWindowRows
+    .map(r => String(r.peptide || "").replace(/-/g,"").toUpperCase())
+    .filter(p => p.length >= 8 && p.length <= 14)
+));
 ```
 
 ```js
@@ -1536,7 +1613,7 @@ const facetSelect = Generators.input(facetSelectInput);
 /* positionFacetStats – new guard clause -------------------------- */
 const positionFacetStats =
   (facetSelect === "None" || noExtraFilters())
-    ? null
+    ? null                                     // fully skip the query
     : db.sql`
       WITH
       /* -------- choose the facet column once ---------------------- */
@@ -2181,10 +2258,10 @@ const peptidesI = await (async () => {
 ```
 
 ```js
-/* Class I cache preview (workset ∪ current window) */
+/* Class I cache preview for the committed protein — uses WORKSET */
 const cachePreviewI = await (async () => {
-  selectedI;             // reactive
-  committedProteinId;    // reactive
+  selectedI;
+  committedProteinId;
 
   const alleles = Array.from(alleleCtrl1.value || []);
   const peps    = Array.from(new Set([
@@ -2193,13 +2270,19 @@ const cachePreviewI = await (async () => {
   ]));
 
   if (!committedProteinId || !alleles.length || !peps.length) return [];
-  const cacheRows = (await db.sql`
-    SELECT * FROM netmhccalc
-    WHERE allele IN (${alleles}) AND peptide IN (${peps})
-  `).toArray();
+
+  const cacheRows = (
+    await db.sql`
+      SELECT *
+      FROM   netmhccalc
+      WHERE  allele  IN (${alleles})
+        AND  peptide IN (${peps})
+    `
+  ).toArray();
+
+  // cache is already snake_case; still normalize for safety
   return cacheRows.map(normalizeRowI_cache);
 })();
-
 ```
 
 ```js
@@ -2549,15 +2632,15 @@ const alleleCtrl2 = comboSelectLazy({
 const selectedII = Generators.input(alleleCtrl2);
 
 /* snapshots captured only when the Run buttons fire */
-/* snapshots captured only when the Run button fires */
-const committedI = snapshotOn(runBtnI, () => Array.from(alleleCtrl1.value || []));
-const committedWorksetI = snapshotOn(runBtnI, () => {
+const committedI        = snapshotOn(runBtnI,  () => Array.from(alleleCtrl1.value || []));
+
+const committedWorksetI = snapshotOn(runBtnI,  () => {
   const base  = Array.from(peptidesIWorkset || []).map(p => String(p).toUpperCase());
   const extra = Array.from(currentWindowUngapped || []);
-  return Array.from(new Set([...base, ...extra]));
+  return Array.from(new Set([...base, ...extra]));  // union, unique, uppercase
 });
-const committedProteinI = snapshotOn(runBtnI,  () => committedProteinId);
 
+const committedProteinI = snapshotOn(runBtnI,  () => committedProteinId);
 
 const committedII       = snapshotOn(runBtnII, () => Array.from(alleleCtrl2.value || []));
 
