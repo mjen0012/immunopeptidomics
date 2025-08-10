@@ -2603,8 +2603,8 @@ const totCol    = useUnique ? "total_unique"      : "total_all";
 
 /* build head+alts using UNGAPPED identity, so dashes never confuse equality */
 const currentWindowRows = (() => {
-  if (selectedPeptide?.value == null || !Array.isArray(rowsRaw)) return [];
-  const selKey = pepCanon(selectedPeptide.value);    // ← use .value
+  if (!selectedPeptide || !Array.isArray(rowsRaw)) return [];
+  const selKey = pepCanon(selectedPeptide);
 
   const ranked = [...rowsRaw].sort(
     (a,b)=> Number(b[propCol]) - Number(a[propCol])
@@ -2614,7 +2614,6 @@ const currentWindowRows = (() => {
   const alts = ranked.filter(r => pepCanon(r.peptide) !== selKey).slice(0, 4);
   return [head, ...alts].filter(Boolean);
 })();
-
 
 /* expose ungapped 8–14 aa set for cache/API joins elsewhere */
 const currentWindowUngapped = Array.from(new Set(
@@ -2649,17 +2648,19 @@ const heatmapData = rowsRaw.map(r => {
 
 /* draw the heatmap once everything above is defined */
 const heatmapSVG = peptideHeatmap({
-  data        : heatmapData,
-  selected    : selectedPeptide.value,   // ← was selectedPeptide (object)
+  data        : heatmapData,                        // aligned for display
+  selected    : selectedPeptide,                    // aligned (may have "-")
   colourMode  : colourMode,
-  alleleData  : chartRowsI,
+
+  /* overlays */
+  alleleData  : chartRowsI,                         // cache + API (snake_case)
   alleles     : Array.from(alleleCtrl1.value || []),
-  mode        : percMode,
+  mode        : percMode,                           // "EL" | "BA"
   showAlleles : true,
+
   baseCell    : 28,
   height0     : 280,
   margin      : { top:20, right:150, bottom:20, left:4 }
 });
-
 
 ```
