@@ -2529,33 +2529,19 @@ const PAGE_LIMIT_INITIAL = 20;  // first display when q === ""
 async function fetchAlleles(cls, q = "", offset = 0, limit = PAGE_LIMIT_DEFAULT) {
   const clsNorm = (cls === "II" ? "II" : "I");
 
-  // Build a tolerant view of the HLA table: accept multiple possible column names
-  // and coalesce them into a single "allele" field per class.
-  const baseCTE = sql`
-    WITH base AS (
-      SELECT 'I' AS class,
-             TRIM(NULLIF(
-               COALESCE("Class I","ClassI","class_i","HLA_Class_I"), ''
-             )) AS allele
-      FROM hla
-      UNION ALL
-      SELECT 'II' AS class,
-             TRIM(NULLIF(
-               COALESCE("Class II","ClassII","class_ii","HLA_Class_II"), ''
-             )) AS allele
-      FROM hla
-    ),
-    dedup AS (
-      SELECT DISTINCT class, allele
-      FROM base
-      WHERE allele IS NOT NULL AND LENGTH(allele) > 0
-    )
-  `;
-
   if (!q || q.trim().length < 2) {
-    // Initial list (no filter): show a small page
+    // Initial list (no filter): fast DISTINCT over pre-trimmed set
     const rows = (await db.sql`
-      ${baseCTE}
+      WITH base AS (
+        SELECT 'I'  AS class, TRIM("Class I")  AS allele FROM hla
+        WHERE "Class I"  IS NOT NULL AND LENGTH(TRIM("Class I"))  > 0
+        UNION ALL
+        SELECT 'II' AS class, TRIM("Class II") AS allele FROM hla
+        WHERE "Class II" IS NOT NULL AND LENGTH(TRIM("Class II")) > 0
+      ),
+      dedup AS (
+        SELECT DISTINCT class, allele FROM base
+      )
       SELECT allele
       FROM dedup
       WHERE class = ${clsNorm}
@@ -2563,23 +2549,32 @@ async function fetchAlleles(cls, q = "", offset = 0, limit = PAGE_LIMIT_DEFAULT)
       LIMIT ${PAGE_LIMIT_INITIAL} OFFSET ${offset}
     `).toArray();
 
-    return rows.map(r => r.allele).filter(Boolean);
+    return rows.map(r => r.allele).filter(s => s && s.trim().length);
   }
 
-  // Search path (q.length >= 2)
+  // Search path (q.length ≥ 2)
   const like = `%${q}%`;
   const rows = (await db.sql`
-    ${baseCTE}
+    WITH base AS (
+      SELECT 'I'  AS class, TRIM("Class I")  AS allele FROM hla
+      WHERE "Class I"  IS NOT NULL AND LENGTH(TRIM("Class I"))  > 0
+      UNION ALL
+      SELECT 'II' AS class, TRIM("Class II") AS allele FROM hla
+      WHERE "Class II" IS NOT NULL AND LENGTH(TRIM("Class II")) > 0
+    ),
+    dedup AS (
+      SELECT DISTINCT class, allele FROM base
+    )
     SELECT allele
     FROM dedup
-    WHERE class = ${clsNorm}
-      AND allele ILIKE ${like}
+    WHERE class = ${clsNorm} AND allele ILIKE ${like}
     ORDER BY allele
     LIMIT ${limit} OFFSET ${offset}
   `).toArray();
 
-  return rows.map(r => r.allele).filter(Boolean);
+  return rows.map(r => r.allele).filter(s => s && s.trim().length);
 }
+
 
 ```
 
