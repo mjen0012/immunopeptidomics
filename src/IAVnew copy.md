@@ -808,9 +808,9 @@ const peptidesIWorkset = (() => {
     if (pep.length >= 8 && pep.length <= 14) set.add(pep);
   }
 
-  // top candidates from the SQL above (be paranoid: strip any dashes)
+  // top candidates from the SQL above (already ungapped substrings)
   for (const r of topCandidatesByWindow) {
-    const p = String(r.peptide || "").toUpperCase().replace(/-/g, "");
+    const p = (r.peptide || "").toUpperCase();
     if (p.length >= 8 && p.length <= 14) set.add(p);
   }
 
@@ -2316,11 +2316,7 @@ const NETMHC_CHUNK_SIZE = 1000;   // was ~25 before; now 1000 as requested
 const runResultsI = await (async () => {
   trigI; // still gate on the run click
 
-const alleles = Array.from(committedI || []).map(a => String(a).toUpperCase());
-let peps = Array.from(committedWorksetI || [])
-  .map(p => String(p).toUpperCase().replace(/-/g, ""))
-  .filter(p => p.length >= 8 && p.length <= 14);
-
+  const alleles = Array.from(committedI || []);
   const peps    = Array.from(committedWorksetI || []);
 
   if (!alleles.length) { setBanner("Class I: no alleles selected."); return []; }
