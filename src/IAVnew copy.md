@@ -2044,10 +2044,11 @@ const trigII = Generators.input(runBtnII);
 ```js
 // Snapshot `getValue()` right now and again every time `view` fires.
 // No addEventListener anywhere — we rely purely on Generators.input(view).
-function snapshotOn(view, getValue, {initial=false} = {}) {
+function snapshotOn(view, getValue) {
   return Generators.observe(change => {
     const push = () => change(getValue());
-    if (initial) push();
+    // initial snapshot
+    push();
     // re-snapshot whenever the view emits
     (async () => {
       for await (const _ of Generators.input(view)) push();
@@ -2313,11 +2314,10 @@ const NETMHC_CHUNK_SIZE = 1000;   // was ~25 before; now 1000 as requested
 ```js
 /* ▸ RUN results – Class I (per-protein workset; batch missing by 1000) */
 const runResultsI = await (async () => {
-  await waitForInputOnce(runBtnI);   // ⬅️ block until the user clicks
+  trigI; // still gate on the run click
 
-  // snapshot the *current* UI state at click time
-  const alleles = Array.from(alleleCtrl1.value || []);
-  const peps    = Array.from(peptidesIWorkset || []);
+  const alleles = Array.from(committedI || []);
+  const peps    = Array.from(committedWorksetI || []);
 
   if (!alleles.length) { setBanner("Class I: no alleles selected."); return []; }
   if (!peps.length)    { setBanner("Class I: no peptides to run.");  return []; }
@@ -2619,18 +2619,12 @@ const alleleCtrl2 = comboSelectLazy({
 const selectedII = Generators.input(alleleCtrl2);
 
 /* snapshots captured only when the Run buttons fire */
-const committedI        = snapshotOn(runBtnI,  () => Array.from(alleleCtrl1.value || []), {initial:false});
-const committedWorksetI = snapshotOn(runBtnI,  () => Array.from(peptidesIWorkset || []),   {initial:false});
+const committedI        = snapshotOn(runBtnI,  () => Array.from(alleleCtrl1.value || []));
+const committedWorksetI = snapshotOn(runBtnI,  () => Array.from(peptidesIWorkset || []));
 const committedProteinI = snapshotOn(runBtnI,  () => committedProteinId);
 const committedII       = snapshotOn(runBtnII, () => Array.from(alleleCtrl2.value || []));
 
 
 
 
-```
-
-```js
-function waitForInputOnce(view) {
-  return new Promise(res => view.addEventListener("input", res, { once: true }));
-}
 ```
