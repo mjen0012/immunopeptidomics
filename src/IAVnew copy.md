@@ -2044,11 +2044,10 @@ const trigII = Generators.input(runBtnII);
 ```js
 // Snapshot `getValue()` right now and again every time `view` fires.
 // No addEventListener anywhere — we rely purely on Generators.input(view).
-function snapshotOn(view, getValue) {
+function snapshotOn(view, getValue, {initial=false} = {}) {
   return Generators.observe(change => {
     const push = () => change(getValue());
-    // initial snapshot
-    push();
+    if (initial) push();
     // re-snapshot whenever the view emits
     (async () => {
       for await (const _ of Generators.input(view)) push();
@@ -2620,8 +2619,8 @@ const alleleCtrl2 = comboSelectLazy({
 const selectedII = Generators.input(alleleCtrl2);
 
 /* snapshots captured only when the Run buttons fire */
-const committedI        = snapshotOn(runBtnI,  () => Array.from(alleleCtrl1.value || []));
-const committedWorksetI = snapshotOn(runBtnI,  () => Array.from(peptidesIWorkset || []));
+const committedI        = snapshotOn(runBtnI,  () => Array.from(alleleCtrl1.value || []), {initial:false});
+const committedWorksetI = snapshotOn(runBtnI,  () => Array.from(peptidesIWorkset || []),   {initial:false});
 const committedProteinI = snapshotOn(runBtnI,  () => committedProteinId);
 const committedII       = snapshotOn(runBtnII, () => Array.from(alleleCtrl2.value || []));
 
