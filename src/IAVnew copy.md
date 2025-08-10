@@ -1147,34 +1147,6 @@ const facetArea = await (async () => {
   }
   return out;
 })();
-
-
-
-if (positionFacetStats !== null) {
-  const rows = await positionFacetStats.toArray();
-
-  /* choose the right value column once */
-  const valueField = (seqSet === "Unique sequences" ? "value_unique" : "value");
-
-  for (const [facetKey, groupRows] of d3.group(rows, d => d.facet)) {
-    const areaRows = Array.from(
-      d3.group(groupRows, d => d.position),
-      ([position, posRows]) => {
-        const top = posRows.reduce(
-          (m, x) => (x[valueField] > m[valueField] ? x : m)
-        );
-        return {
-          position : +position,
-          value    : Number(top[valueField]),
-          aminoacid: top.aminoacid
-        };
-      }
-    ).sort((a,b)=>d3.ascending(a.position,b.position));
-
-    facetArea.set(facetKey ?? "Unknown", areaRows);   // null → "Unknown"
-  }
-}
-
 ```
 
 ```js
@@ -2039,8 +2011,11 @@ const peptidesI = await (async () => {
 ```js
 /* Class I cache preview (uploaded ∪ current-window ∪ run-workset) */
 const cachePreviewI = await (async () => {
-  selectedI;             // reactive
-  committedProteinId;    // reactive
+  selectedI;              // reactive
+  committedProteinId;     // reactive
+  runWorksetI;            // 🔁 depend on changes to runWorksetI.value
+  currentWindowUngapped;  // also used below; make explicit
+  peptidesIWorkset;       // ditto
 
   const alleles = Array.from(alleleCtrl1.value || []);
   const allowed = Array.from(new Set([
