@@ -161,10 +161,9 @@ export function peptideHeatmap({
           .attr("stroke","#fff")
           .attr("fill", j => {
             const ch = row.displayPeptide[j] ?? "";
-            // clicked row first → solid blue, including positions with '-'
-            if (i === 0) return "#006DAE";
             if (ch === "-") return "#f9f9f9";
             if (colourMode === "Properties") return aaCols[ch] ?? "#f9f9f9";
+            if (i === 0) return "#006DAE";
             return (j < selAligned.length && ch !== selAligned[j]) ? "#ffcccc" : "#f9f9f9";
           });
 
