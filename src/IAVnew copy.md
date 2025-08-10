@@ -2053,6 +2053,7 @@ function snapshotOn(view, getValue) {
     return () => {};
   });
 }
+
 ```
 
 ```js
@@ -2286,6 +2287,7 @@ const chartRowsI = (() => {
   }
   return [...map.values()];
 })();
+
 ```
 
 ```js
@@ -2530,11 +2532,11 @@ async function fetchAlleles(cls, q = "", offset = 0, limit = PAGE_LIMIT_DEFAULT)
   const clsNorm = (cls === "II" ? "II" : "I");
 
   if (!q || q.trim().length < 2) {
-    // Initial list (no filter): fast DISTINCT over pre-trimmed set
+    // Initial list (no filter): fast DISTINCT over the pre-trimmed set
     const rows = (await db.sql`
       WITH base AS (
         SELECT 'I'  AS class, TRIM("Class I")  AS allele FROM hla
-        WHERE "Class I"  IS NOT NULL AND LENGTH(TRIM("Class I"))  > 0
+        WHERE "Class I" IS NOT NULL AND LENGTH(TRIM("Class I")) > 0
         UNION ALL
         SELECT 'II' AS class, TRIM("Class II") AS allele FROM hla
         WHERE "Class II" IS NOT NULL AND LENGTH(TRIM("Class II")) > 0
@@ -2552,12 +2554,12 @@ async function fetchAlleles(cls, q = "", offset = 0, limit = PAGE_LIMIT_DEFAULT)
     return rows.map(r => r.allele).filter(s => s && s.trim().length);
   }
 
-  // Search path (q.length ≥ 2)
+  // Search path (q.length >= 2)
   const like = `%${q}%`;
   const rows = (await db.sql`
     WITH base AS (
       SELECT 'I'  AS class, TRIM("Class I")  AS allele FROM hla
-      WHERE "Class I"  IS NOT NULL AND LENGTH(TRIM("Class I"))  > 0
+      WHERE "Class I" IS NOT NULL AND LENGTH(TRIM("Class I")) > 0
       UNION ALL
       SELECT 'II' AS class, TRIM("Class II") AS allele FROM hla
       WHERE "Class II" IS NOT NULL AND LENGTH(TRIM("Class II")) > 0
@@ -2574,7 +2576,6 @@ async function fetchAlleles(cls, q = "", offset = 0, limit = PAGE_LIMIT_DEFAULT)
 
   return rows.map(r => r.allele).filter(s => s && s.trim().length);
 }
-
 
 ```
 
@@ -2600,13 +2601,11 @@ const alleleCtrl2 = comboSelectLazy({
 });
 const selectedII = Generators.input(alleleCtrl2);
 
-
-
-/* snapshots captured only when the Run button fires */
 const committedI        = snapshotOn(runBtnI,  () => Array.from(alleleCtrl1.value || []));
 const committedWorksetI = snapshotOn(runBtnI,  () => Array.from(peptidesIWorkset || []));
 const committedProteinI = snapshotOn(runBtnI,  () => committedProteinId);
 const committedII       = snapshotOn(runBtnII, () => Array.from(alleleCtrl2.value || []));
+
 
 
 
