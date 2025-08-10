@@ -1288,25 +1288,8 @@ const consensusRows = Array.from(
 
 /* facetArea :  Map<facetKey → [{position,value,aminoacid}]> */
 /* build facet areas only from the query result */
-const facetArea = await (async () => {
-  if (positionFacetStats === null) return new Map();
+const facetArea = new Map();   // temporarily replace computed facetArea
 
-  const rows = await positionFacetStats.toArray();
-  const valueField = (seqSet === "Unique sequences" ? "value_unique" : "value");
-  const out = new Map();
-
-  for (const [facetKey, groupRows] of d3.group(rows, d => d.facet)) {
-    const areaRows = Array.from(
-      d3.group(groupRows, d => d.position),
-      ([position, posRows]) => {
-        const top = posRows.reduce((m, x) => (x[valueField] > m[valueField] ? x : m));
-        return { position:+position, value:Number(top[valueField]), aminoacid: top.aminoacid };
-      }
-    ).sort((a,b)=>d3.ascending(a.position,b.position));
-    out.set(facetKey ?? "Unknown", areaRows);
-  }
-  return out;
-})();
 
 
 
@@ -1352,7 +1335,7 @@ const setSelectedLength = x => selectedLength.value = x;
 ```js
 /* Peptide Query Data – guarded */
 const peptideProps =
-  (selectedStart != null && selectedLength != null)
+  (selectedStart && selectedLength)
     ? db.sql`
 WITH
 params AS (
@@ -1438,8 +1421,10 @@ const currentWindowRows = (() => {
 
 // Ungapped versions specifically for NetMHC
 const currentWindowUngapped = Array.from(new Set(
-  currentWindowRows.map(r => pepCanon(r.peptide))
-)).filter(p => p.length >= 8 && p.length <= 14);
+  currentWindowRows
+    .map(r => String(r.peptide || "").replace(/-/g,"").toUpperCase())
+    .filter(p => p.length >= 8 && p.length <= 14)
+));
 
 
 /* Peptide Unique vs All Switcher */
@@ -2155,19 +2140,16 @@ const keyMapI = {
   // add more if you need them in the UI
 };
 
+/* Cache rows are already snake_case → pass-through */
+function normalizeRowI_cache(r) { return r; }
+
+/* API table rows (display headers) → snake_case */
 function normalizeRowI_api(r) {
   const out = {};
-  for (const [k,v] of Object.entries(r)) out[keyMapI[k] || k] = v;
-  out.allele  = String(out.allele  || "").toUpperCase();
-  out.peptide = pepCanon(out.peptide);        // 👈 canonical
+  for (const [k, v] of Object.entries(r)) {
+    out[keyMapI[k] || k] = v;
+  }
   return out;
-}
-function normalizeRowI_cache(r) {
-  return {
-    ...r,
-    allele:  String(r.allele  || "").toUpperCase(),
-    peptide: pepCanon(r.peptide)              // 👈 canonical
-  };
 }
 
 ```
@@ -2569,15 +2551,5 @@ const committedII       = snapshotOn(runBtnII, () => Array.from(alleleCtrl2.valu
 ```
 
 ```js
-const pepCanon = s => String(s || "").replace(/-/g, "").toUpperCase();
-
-```
-
-```js
-const selCanon = pepCanon(selectedPeptide);
-const ranked = [...rowsRaw].sort((a,b)=> Number(b[propCol]) - Number(a[propCol]));
-const head   = ranked.find(r => pepCanon(r.peptide) === selCanon);
-const alts   = ranked.filter(r => pepCanon(r.peptide) !== selCanon).slice(0,4);
-const currentWindowRows = [head, ...alts].filter(Boolean);
 
 ```
