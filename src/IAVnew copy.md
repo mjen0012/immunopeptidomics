@@ -791,16 +791,28 @@ const topCandidatesByWindow = peptideWindows.length === 0 ? []
 ```
 
 ```js
-/* Lightweight workset before any run: uploaded peptides (8–14) for this protein */
+/* Workset for Class I predictions (per protein):
+   uploaded peptides (8–14 aa) ∪ top 5 per window (both All & Unique) */
 const peptidesIWorkset = (() => {
-  const pid = committedProteinId;
+  const pid = committedProteinId; // reactive
   if (!pid) return [];
-  return Array.from(new Set(
-    peptidesClean
-      .filter(r => (r.protein || "").toUpperCase() === pid)
-      .map(r => (r.peptide || "").toUpperCase().replace(/-/g,""))
-      .filter(p => p.length >= 8 && p.length <= 14)
-  ));
+
+  const set = new Set();
+
+  // uploaded peptides (scoped to protein), 8–14 aa, ungapped
+  for (const r of peptidesClean) {
+    if ((r.protein || "").toUpperCase() !== pid) continue;
+    const pep = (r.peptide || "").toUpperCase().replace(/-/g,"");
+    if (pep.length >= 8 && pep.length <= 14) set.add(pep);
+  }
+
+  // top candidates from the SQL above (already ungapped substrings)
+  for (const r of topCandidatesByWindow) {
+    const p = (r.peptide || "").toUpperCase();
+    if (p.length >= 8 && p.length <= 14) set.add(p);
+  }
+
+  return [...set];
 })();
 
 ```
@@ -2185,22 +2197,21 @@ const peptidesI = await (async () => {
 ```
 
 ```js
-/* Class I cache preview (uploaded ∪ current-window ∪ run-workset) */
+/* Class I cache preview (workset ∪ current window) */
 const cachePreviewI = await (async () => {
   selectedI;             // reactive
   committedProteinId;    // reactive
 
   const alleles = Array.from(alleleCtrl1.value || []);
-  const allowed = Array.from(new Set([
+  const peps    = Array.from(new Set([
     ...(peptidesIWorkset || []),
-    ...(currentWindowUngapped || []),
-    ...(runWorksetI.value || [])
+    ...(currentWindowUngapped || [])
   ]));
 
-  if (!committedProteinId || !alleles.length || !allowed.length) return [];
+  if (!committedProteinId || !alleles.length || !peps.length) return [];
   const cacheRows = (await db.sql`
     SELECT * FROM netmhccalc
-    WHERE allele IN (${alleles}) AND peptide IN (${allowed})
+    WHERE allele IN (${alleles}) AND peptide IN (${peps})
   `).toArray();
   return cacheRows.map(normalizeRowI_cache);
 })();
@@ -2208,36 +2219,37 @@ const cachePreviewI = await (async () => {
 ```
 
 ```js
-/* merged rows for the chart — union(uploaded, current-window, run-workset) */
+/* merged rows for the chart — STRICT to workset */
 const chartRowsI = (() => {
   selectedI;
   committedProteinId;
-  runWorksetI; // depend on the Mutable
 
   const allelesNow = new Set((alleleCtrl1?.value || []).map(a => String(a).toUpperCase()));
   const allowed    = new Set([
     ...(peptidesIWorkset || []),
-    ...(currentWindowUngapped || []),
-    ...(runWorksetI.value || [])
+    ...(currentWindowUngapped || [])
   ].map(p => String(p).toUpperCase()));
-
   if (!allelesNow.size || !allowed.size) return [];
 
   const map = new Map();
+
   for (const r of cachePreviewI) {
     const al = String(r.allele || "").toUpperCase();
     const pp = String(r.peptide|| "").toUpperCase();
-    if (allowed.has(pp) && allelesNow.has(al)) map.set(`${al}|${pp}`, r);
+    if (allowed.has(pp) && allelesNow.has(al)) {
+      map.set(`${al}|${pp}`, r);
+    }
   }
   const apiRows = Array.isArray(runResultsI) ? runResultsI : [];
   for (const r of apiRows) {
     const al = String(r.allele || "").toUpperCase();
     const pp = String(r.peptide|| "").toUpperCase();
-    if (allowed.has(pp) && allelesNow.has(al)) map.set(`${al}|${pp}`, r);
+    if (allowed.has(pp) && allelesNow.has(al)) {
+      map.set(`${al}|${pp}`, r);
+    }
   }
   return [...map.values()];
 })();
-
 
 ```
 
@@ -2248,195 +2260,57 @@ const NETMHC_CHUNK_SIZE = 1000;   // was ~25 before; now 1000 as requested
 ```
 
 ```js
-/* ▸ RUN results – Class I (defers heavy top-4/window until you click Run) */
+/* ▸ RUN results – Class I (per-protein workset; batch missing by 1000) */
 const runResultsI = await (async () => {
-  trigI; // gate on the run click
+  trigI; // still gate on the run click
 
-  const alleles = Array.from(alleleCtrl1.value || []);
+  const alleles = Array.from(committedI || []);
+  const peps    = Array.from(committedWorksetI || []);
+
   if (!alleles.length) { setBanner("Class I: no alleles selected."); return []; }
+  if (!peps.length)    { setBanner("Class I: no peptides to run.");  return []; }
 
-  // 1) Build workset ON CLICK (uploaded 8–14 + top-4/window + current clicked window)
-  const uploaded = peptidesIWorkset || [];
-  const current  = Array.from(currentWindowUngapped || []);
-  let top4 = [];
+  setBanner(`Class I: checking cache for ${peps.length} peptides…`);
 
-  if (peptideWindows.length > 0) {
-    // do the heavy top-4/window query once we actually run
-    top4 = (await db.sql`
-      WITH
-      params(start, len) AS (
-        VALUES ${joinSql(peptideWindows.map(w => sql`(${Math.trunc(w.start)}, ${Math.trunc(w.len)})`))}
-      ),
-      filtered AS (
-        SELECT *
-        FROM   proteins
-        WHERE  protein = ${proteinCommitted}
+  const cacheRows = (
+    await db.sql`
+      SELECT *
+      FROM   netmhccalc
+      WHERE  allele IN (${alleles})
+        AND  peptide IN (${peps})
+    `
+  ).toArray();
 
-          AND ${ genotypesCommitted.length
-                  ? sql`genotype IN (${ genotypesCommitted })` : sql`TRUE` }
-          AND ${ hostsCommitted.length
-                  ? sql`host IN (${ hostsCommitted })` : sql`TRUE` }
-          AND ${
-                hostCategoryCommitted.includes('Human') &&
-                !hostCategoryCommitted.includes('Non-human')
-                  ? sql`host = 'Homo sapiens'`
-                  : (!hostCategoryCommitted.includes('Human') &&
-                     hostCategoryCommitted.includes('Non-human'))
-                      ? sql`host <> 'Homo sapiens'`
-                      : sql`TRUE`
-              }
-          AND ${ countriesCommitted.length
-                  ? sql`country IN (${ countriesCommitted })` : sql`TRUE` }
-          AND ${
-            collectionDatesCommitted.from || collectionDatesCommitted.to
-              ? sql`
-                  TRY_CAST(
-                    CASE
-                      WHEN collection_date IS NULL OR collection_date = '' THEN NULL
-                      WHEN LENGTH(collection_date)=4  THEN collection_date || '-01-01'
-                      WHEN LENGTH(collection_date)=7  THEN collection_date || '-01'
-                      ELSE collection_date
-                    END AS DATE
-                  )
-                  ${
-                    collectionDatesCommitted.from && collectionDatesCommitted.to
-                      ? sql`BETWEEN CAST(${collectionDatesCommitted.from} AS DATE)
-                               AND   CAST(${collectionDatesCommitted.to  } AS DATE)`
-                      : collectionDatesCommitted.from
-                          ? sql`>= CAST(${collectionDatesCommitted.from} AS DATE)`
-                          : sql`<= CAST(${collectionDatesCommitted.to   } AS DATE)`
-                  }
-                ` : sql`TRUE`
-          }
-          AND ${
-            releaseDatesCommitted.from || releaseDatesCommitted.to
-              ? sql`
-                  TRY_CAST(
-                    CASE
-                      WHEN release_date IS NULL OR release_date = '' THEN NULL
-                      WHEN LENGTH(release_date)=4 THEN release_date || '-01-01'
-                      WHEN LENGTH(release_date)=7 THEN release_date || '-01'
-                      ELSE release_date
-                    END AS DATE
-                  )
-                  ${
-                    releaseDatesCommitted.from && releaseDatesCommitted.to
-                      ? sql`BETWEEN CAST(${releaseDatesCommitted.from} AS DATE)
-                               AND   CAST(${releaseDatesCommitted.to   } AS DATE)`
-                      : releaseDatesCommitted.from
-                          ? sql`>= CAST(${releaseDatesCommitted.from} AS DATE)`
-                          : sql`<= CAST(${releaseDatesCommitted.to   } AS DATE)`
-                  }
-                ` : sql`TRUE`
-          }
-      ),
-      ex_all AS (
-        SELECT p.start, p.len,
-               SUBSTR(f.sequence, CAST(p.start AS BIGINT), CAST(p.len AS BIGINT)) AS peptide
-        FROM filtered f
-        CROSS JOIN params p
-      ),
-      cnt_all AS (
-        SELECT start, len, peptide, COUNT(*) AS cnt_all
-        FROM   ex_all
-        GROUP  BY start, len, peptide
-      ),
-      tot_all AS (
-        SELECT start, len, SUM(cnt_all) AS total_all
-        FROM   cnt_all
-        GROUP  BY start, len
-      ),
-      filtered_u AS ( SELECT DISTINCT sequence FROM filtered ),
-      ex_u AS (
-        SELECT p.start, p.len,
-               SUBSTR(u.sequence, CAST(p.start AS BIGINT), CAST(p.len AS BIGINT)) AS peptide
-        FROM filtered_u u
-        CROSS JOIN params p
-      ),
-      cnt_u AS (
-        SELECT start, len, peptide, COUNT(*) AS cnt_unique
-        FROM   ex_u
-        GROUP  BY start, len, peptide
-      ),
-      tot_u AS (
-        SELECT start, len, SUM(cnt_unique) AS total_unique
-        FROM   cnt_u
-        GROUP  BY start, len
-      ),
-      combined AS (
-        SELECT
-          COALESCE(a.start, u.start)         AS start,
-          COALESCE(a.len,   u.len)           AS len,
-          COALESCE(a.peptide, u.peptide)     AS peptide,
-          COALESCE(a.cnt_all,   0)::INT      AS frequency_all,
-          COALESCE(tA.total_all,0)::INT      AS total_all,
-          CASE WHEN tA.total_all IS NULL OR tA.total_all = 0
-               THEN 0.0 ELSE a.cnt_all * 1.0 / tA.total_all END AS proportion_all,
-          COALESCE(u.cnt_unique,0)::INT      AS frequency_unique,
-          COALESCE(tU.total_unique,0)::INT   AS total_unique,
-          CASE WHEN tU.total_unique IS NULL OR tU.total_unique = 0
-               THEN 0.0 ELSE u.cnt_unique * 1.0 / tU.total_unique END AS proportion_unique
-        FROM        cnt_all a
-        FULL  JOIN  cnt_u   u USING (start, len, peptide)
-        LEFT  JOIN  tot_all tA USING (start, len)
-        LEFT  JOIN  tot_u   tU USING (start, len)
-      ),
-      ranked AS (
-        SELECT * ,
-               ROW_NUMBER() OVER (PARTITION BY start, len
-                                  ORDER BY proportion_all DESC, peptide)   AS r_all,
-               ROW_NUMBER() OVER (PARTITION BY start, len
-                                  ORDER BY proportion_unique DESC, peptide) AS r_u
-        FROM combined
-      )
-      SELECT DISTINCT UPPER(peptide) AS pep
-      FROM ranked
-      WHERE r_all <= 5 OR r_u <= 5
-      ORDER  BY pep
-    `).toArray().map(r => r.pep || "");
+  // normalize cache rows (pass-through) and KEY on UPPERCASE for safety
+  const normCache = cacheRows.map(normalizeRowI_cache);
+  const cacheKey  = r => `${String(r.allele).toUpperCase()}|${String(r.peptide).toUpperCase()}`;
+  const cacheSet  = new Set(normCache.map(cacheKey));
+
+  const missingByAllele = new Map();
+  for (const al of alleles) {
+    const alU = String(al).toUpperCase();
+    const miss = [];
+    for (const p of peps) {
+      const pU = String(p).toUpperCase();
+      if (!cacheSet.has(`${alU}|${pU}`)) miss.push(p);
+    }
+    if (miss.length) missingByAllele.set(al, miss);
   }
 
-  const workset = Array.from(new Set([
-    ...uploaded,
-    ...current,
-    ...top4
-  ]))
-  .map(p => p.replace(/-/g,"").toUpperCase())
-  .filter(p => p.length >= 8 && p.length <= 14);
-
-  runWorksetI.value = workset;     // <-- expose for cache overlay
-  ranClassI.value   = true;
-
-  if (!workset.length) { setBanner("Class I: no peptides to run."); return []; }
-
-  // 2) Cache check
-  setBanner(`Class I: checking cache for ${workset.length} peptides…`);
-  const cacheRows = (await db.sql`
-    SELECT * FROM netmhccalc
-    WHERE allele IN (${alleles})
-      AND peptide IN (${workset})
-  `).toArray().map(normalizeRowI_cache);
-
-  const cacheKey = r => `${String(r.allele).toUpperCase()}|${String(r.peptide).toUpperCase()}`;
-  const cacheSet = new Set(cacheRows.map(cacheKey));
-
-  const missing = [];
-  for (const p of workset) for (const a of alleles) {
-    const k = `${String(a).toUpperCase()}|${String(p).toUpperCase()}`;
-    if (!cacheSet.has(k)) missing.push(p);
+  if (missingByAllele.size === 0) {
+    const merged = [...new Map(normCache.map(r => [cacheKey(r), r])).values()];
+    resultsArrayI.value = merged;
+    setBanner(`Class I: all ${merged.length} rows from cache ✅`);
+    return merged;
   }
 
-  if (missing.length === 0) {
-    resultsArrayI.value = cacheRows;
-    setBanner(`Class I: all ${cacheRows.length} rows from cache ✅`);
-    return cacheRows;
-  }
+  const allelesToQuery = [...missingByAllele.keys()];
+  const unionMissing   = [...new Set([].concat(...allelesToQuery.map(al => missingByAllele.get(al))))];
 
-  // 3) API for missing (batched)
-  const uniqueMissing = Array.from(new Set(missing));
   const chunks = [];
-  for (let i = 0; i < uniqueMissing.length; i += NETMHC_CHUNK_SIZE)
-    chunks.push(uniqueMissing.slice(i, i + NETMHC_CHUNK_SIZE));
+  for (let i = 0; i < unionMissing.length; i += NETMHC_CHUNK_SIZE) {
+    chunks.push(unionMissing.slice(i, i + NETMHC_CHUNK_SIZE));
+  }
 
   const apiRowsAll = [];
   for (let i = 0; i < chunks.length; i++) {
@@ -2444,11 +2318,20 @@ const runResultsI = await (async () => {
     try {
       setBanner(`Class I: submitting chunk ${i+1}/${chunks.length} (${chunk.length} peptides)…`);
       const fasta = chunk.map((p,idx)=>`>p${idx+1}\n${p}`).join("\n");
-      const id  = await submit(buildBodyI(alleles, fasta));
+
+      const id  = await submit(buildBodyI(allelesToQuery, fasta));
       setBanner(`Class I: polling chunk ${i+1}/${chunks.length}…`);
       const tbl = await poll(id);
-      const apiRows = rowsFromTable(tbl).map(normalizeRowI_api);
-      apiRowsAll.push(...apiRows);
+      const apiRows = rowsFromTable(tbl);
+
+      // 🔴 normalize API rows to snake_case + uppercase allele/peptide
+      for (const r of apiRows.map(normalizeRowI_api)) {
+        // standardize case for reliable joins
+        r.allele  = String(r.allele || "").toUpperCase();
+        r.peptide = String(r.peptide || "").toUpperCase();
+        apiRowsAll.push(r);
+      }
+
       await new Promise(res => setTimeout(res, 150));
     } catch (err) {
       console.error(`Chunk ${i+1} failed:`, err);
@@ -2457,13 +2340,21 @@ const runResultsI = await (async () => {
     }
   }
 
-  // 4) Merge cache + API (API wins)
-  const map = new Map(cacheRows.map(r => [cacheKey(r), r]));
-  for (const r of apiRowsAll) map.set(cacheKey(r), r);
-  const merged = [...map.values()];
+  // merge cache + API (API wins)
+  const map = new Map();
+  for (const r of normCache) {
+    const rr = { ...r, allele:String(r.allele).toUpperCase(), peptide:String(r.peptide).toUpperCase() };
+    map.set(`${rr.allele}|${rr.peptide}`, rr);
+  }
+  for (const r of apiRowsAll) {
+    map.set(`${r.allele}|${r.peptide}`, r);
+  }
 
+  const merged = [...map.values()];
   resultsArrayI.value = merged;
-  setBanner(`Class I done — ${merged.length} rows (cache ${cacheRows.length} + new ${apiRowsAll.length}).`);
+
+  const uniqueApi = new Set(apiRowsAll.map(r => `${r.allele}|${r.peptide}`)).size;
+  setBanner(`Class I done — ${merged.length} rows (cache ${cacheSet.size} + new ${uniqueApi}).`);
   return merged;
 })();
 
@@ -2758,184 +2649,15 @@ const heatmapData = rowsRaw.map(r => {
 
 const heatmapSVG = peptideHeatmap({
   data        : heatmapData,
-  selected    : selectedPeptide?.value || null,  // <-- pass the STRING (or null)
+  selected    : selectedPeptide,                  // keep the Mutable
   colourMode  : colourMode,
-  alleleData  : chartRowsI,                       // cached + API rows merged
-  alleles     : Array.from(selectedI || []),
+  alleleData  : chartRowsI,
+  alleles     : Array.from(selectedI || []),      // <- use current value, not the view
   mode        : percMode,
-  showAlleles : true,                             // component hides if none selected
+  showAlleles : true,
   baseCell    : 28,
   height0     : 280,
   margin      : { top:20, right:150, bottom:20, left:4 }
 });
-
-
-```
-
-```js
-/* Protein-level workset for Class I — filled only after RUN */
-const worksetI = Mutable([]);
-
-```
-
-```js
-
-/* NEW: flips to true after the first successful Class I run */
-const ranClassI = Mutable(false);
-
-/* NEW: the run-time workset (filled on click of Run Class I) */
-const runWorksetI = Mutable([]);
-```
-
-```js
-/* Top candidates (by All and Unique) – LAZY (runs only after Run Class I) */
-const topCandidatesByWindow = await (async () => {
-  if (!ranClassI.value) return [];
-  if (peptideWindows.length === 0) return [];
-
-  return (await db.sql`
-    WITH
-    params(start, len) AS (
-      VALUES ${joinSql(peptideWindows.map(w => sql`(${Math.trunc(w.start)}, ${Math.trunc(w.len)})`))}
-    ),
-
-    filtered AS (
-      SELECT *
-      FROM   proteins
-      WHERE  protein = ${proteinCommitted}
-
-        AND ${ genotypesCommitted.length
-                ? sql`genotype IN (${ genotypesCommitted })` : sql`TRUE` }
-        AND ${ hostsCommitted.length
-                ? sql`host IN (${ hostsCommitted })` : sql`TRUE` }
-        AND ${
-              hostCategoryCommitted.includes('Human') &&
-              !hostCategoryCommitted.includes('Non-human')
-                ? sql`host = 'Homo sapiens'`
-                : (!hostCategoryCommitted.includes('Human') &&
-                   hostCategoryCommitted.includes('Non-human'))
-                    ? sql`host <> 'Homo sapiens'`
-                    : sql`TRUE`
-            }
-        AND ${ countriesCommitted.length
-                ? sql`country IN (${ countriesCommitted })` : sql`TRUE` }
-
-        AND ${
-          collectionDatesCommitted.from || collectionDatesCommitted.to
-            ? sql`
-                TRY_CAST(
-                  CASE
-                    WHEN collection_date IS NULL OR collection_date = '' THEN NULL
-                    WHEN LENGTH(collection_date)=4  THEN collection_date || '-01-01'
-                    WHEN LENGTH(collection_date)=7  THEN collection_date || '-01'
-                    ELSE collection_date
-                  END AS DATE
-                )
-                ${
-                  collectionDatesCommitted.from && collectionDatesCommitted.to
-                    ? sql`BETWEEN CAST(${collectionDatesCommitted.from} AS DATE)
-                             AND   CAST(${collectionDatesCommitted.to  } AS DATE)`
-                    : collectionDatesCommitted.from
-                        ? sql`>= CAST(${collectionDatesCommitted.from} AS DATE)`
-                        : sql`<= CAST(${collectionDatesCommitted.to   } AS DATE)`
-                }
-              ` : sql`TRUE`
-        }
-
-        AND ${
-          releaseDatesCommitted.from || releaseDatesCommitted.to
-            ? sql`
-                TRY_CAST(
-                  CASE
-                    WHEN release_date IS NULL OR release_date = '' THEN NULL
-                    WHEN LENGTH(release_date)=4 THEN release_date || '-01-01'
-                    WHEN LENGTH(release_date)=7 THEN release_date || '-01'
-                    ELSE release_date
-                  END AS DATE
-                )
-                ${
-                  releaseDatesCommitted.from && releaseDatesCommitted.to
-                    ? sql`BETWEEN CAST(${releaseDatesCommitted.from} AS DATE)
-                             AND   CAST(${releaseDatesCommitted.to   } AS DATE)`
-                    : releaseDatesCommitted.from
-                        ? sql`>= CAST(${releaseDatesCommitted.from} AS DATE)`
-                        : sql`<= CAST(${releaseDatesCommitted.to   } AS DATE)`
-                }
-              ` : sql`TRUE`
-        }
-    ),
-
-    ex_all AS (
-      SELECT p.start, p.len,
-             SUBSTR(f.sequence, CAST(p.start AS BIGINT), CAST(p.len AS BIGINT)) AS peptide
-      FROM filtered f
-      CROSS JOIN params p
-    ),
-    cnt_all AS (
-      SELECT start, len, peptide, COUNT(*) AS cnt_all
-      FROM   ex_all
-      GROUP  BY start, len, peptide
-    ),
-    tot_all AS (
-      SELECT start, len, SUM(cnt_all) AS total_all
-      FROM   cnt_all
-      GROUP  BY start, len
-    ),
-
-    filtered_u AS ( SELECT DISTINCT sequence FROM filtered ),
-    ex_u AS (
-      SELECT p.start, p.len,
-             SUBSTR(u.sequence, CAST(p.start AS BIGINT), CAST(p.len AS BIGINT)) AS peptide
-      FROM filtered_u u
-      CROSS JOIN params p
-    ),
-    cnt_u AS (
-      SELECT start, len, peptide, COUNT(*) AS cnt_unique
-      FROM   ex_u
-      GROUP  BY start, len, peptide
-    ),
-    tot_u AS (
-      SELECT start, len, SUM(cnt_unique) AS total_unique
-      FROM   cnt_u
-      GROUP  BY start, len
-    ),
-
-    combined AS (
-      SELECT
-        COALESCE(a.start, u.start)         AS start,
-        COALESCE(a.len,   u.len)           AS len,
-        COALESCE(a.peptide, u.peptide)     AS peptide,
-        COALESCE(a.cnt_all,   0)::INT      AS frequency_all,
-        COALESCE(tA.total_all,0)::INT      AS total_all,
-        CASE WHEN tA.total_all IS NULL OR tA.total_all = 0
-             THEN 0.0 ELSE a.cnt_all * 1.0 / tA.total_all END AS proportion_all,
-        COALESCE(u.cnt_unique,0)::INT      AS frequency_unique,
-        COALESCE(tU.total_unique,0)::INT   AS total_unique,
-        CASE WHEN tU.total_unique IS NULL OR tU.total_unique = 0
-             THEN 0.0 ELSE u.cnt_unique * 1.0 / tU.total_unique END AS proportion_unique
-      FROM        cnt_all a
-      FULL  JOIN  cnt_u   u USING (start, len, peptide)
-      LEFT  JOIN  tot_all tA USING (start, len)
-      LEFT  JOIN  tot_u   tU USING (start, len)
-    ),
-
-    ranked AS (
-      SELECT *,
-             ROW_NUMBER() OVER (PARTITION BY start, len
-                                ORDER BY proportion_all DESC, peptide)   AS r_all,
-             ROW_NUMBER() OVER (PARTITION BY start, len
-                                ORDER BY proportion_unique DESC, peptide) AS r_u
-      FROM combined
-    )
-
-    SELECT start, len, peptide, r_all, r_u,
-           proportion_all,  proportion_unique,
-           frequency_all,   total_all,
-           frequency_unique,total_unique
-    FROM   ranked
-    WHERE  r_all <= 5 OR r_u <= 5
-    ORDER  BY start, len, r_all, r_u, peptide;
-  `).toArray();
-})();
 
 ```
