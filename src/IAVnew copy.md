@@ -2277,7 +2277,7 @@ const cachePreviewI = await (async () => {
 /* merged rows for the chart — STRICT to workset */
 const chartRowsI = (() => {
   selectedI;
-  committedProteinId;
+  resultsArrayI; // make reactive to run completions
 
   const allelesNow = new Set((alleleCtrl1?.value || []).map(a => String(a).toUpperCase()));
   const allowed    = new Set((peptidesIWorkset || []).map(p => String(p).toUpperCase()));
@@ -2292,7 +2292,7 @@ const chartRowsI = (() => {
       map.set(`${al}|${pp}`, r);
     }
   }
-  const apiRows = Array.isArray(runResultsI) ? runResultsI : [];
+  const apiRows = Array.isArray(resultsArrayI.value) ? resultsArrayI.value : [];
   for (const r of apiRows) {
     const al = String(r.allele || "").toUpperCase();
     const pp = String(r.peptide|| "").toUpperCase();
@@ -2312,103 +2312,96 @@ const NETMHC_CHUNK_SIZE = 1000;   // was ~25 before; now 1000 as requested
 ```
 
 ```js
-/* ▸ RUN results – Class I (per-protein workset; batch missing by 1000) */
-const runResultsI = await (async () => {
-  await waitForInputOnce(runBtnI);   // ⬅️ block until the user clicks
+// effect: runs once per click; never blocks other cells
+(async () => {
+  for await (const _ of Generators.input(runBtnI)) {
+    // snapshot current state at click time
+    const alleles = Array.from(alleleCtrl1.value || []);
+    const peps    = Array.from(peptidesIWorkset || []);
 
-  // snapshot the *current* UI state at click time
-  const alleles = Array.from(alleleCtrl1.value || []);
-  const peps    = Array.from(peptidesIWorkset || []);
+    if (!alleles.length) { setBanner("Class I: no alleles selected."); resultsArrayI.value = []; continue; }
+    if (!peps.length)    { setBanner("Class I: no peptides to run.");  resultsArrayI.value = []; continue; }
 
-  if (!alleles.length) { setBanner("Class I: no alleles selected."); return []; }
-  if (!peps.length)    { setBanner("Class I: no peptides to run.");  return []; }
+    setBanner(`Class I: checking cache for ${peps.length} peptides…`);
 
-  setBanner(`Class I: checking cache for ${peps.length} peptides…`);
+    const cacheRows = (
+      await db.sql`
+        SELECT *
+        FROM   netmhccalc
+        WHERE  allele IN (${alleles})
+          AND  peptide IN (${peps})
+      `
+    ).toArray();
 
-  const cacheRows = (
-    await db.sql`
-      SELECT *
-      FROM   netmhccalc
-      WHERE  allele IN (${alleles})
-        AND  peptide IN (${peps})
-    `
-  ).toArray();
+    const normCache = cacheRows.map(normalizeRowI_cache);
+    const cacheKey  = r => `${String(r.allele).toUpperCase()}|${String(r.peptide).toUpperCase()}`;
+    const cacheSet  = new Set(normCache.map(cacheKey));
 
-  // normalize cache rows (pass-through) and KEY on UPPERCASE for safety
-  const normCache = cacheRows.map(normalizeRowI_cache);
-  const cacheKey  = r => `${String(r.allele).toUpperCase()}|${String(r.peptide).toUpperCase()}`;
-  const cacheSet  = new Set(normCache.map(cacheKey));
-
-  const missingByAllele = new Map();
-  for (const al of alleles) {
-    const alU = String(al).toUpperCase();
-    const miss = [];
-    for (const p of peps) {
-      const pU = String(p).toUpperCase();
-      if (!cacheSet.has(`${alU}|${pU}`)) miss.push(p);
-    }
-    if (miss.length) missingByAllele.set(al, miss);
-  }
-
-  if (missingByAllele.size === 0) {
-    const merged = [...new Map(normCache.map(r => [cacheKey(r), r])).values()];
-    resultsArrayI.value = merged;
-    setBanner(`Class I: all ${merged.length} rows from cache ✅`);
-    return merged;
-  }
-
-  const allelesToQuery = [...missingByAllele.keys()];
-  const unionMissing   = [...new Set([].concat(...allelesToQuery.map(al => missingByAllele.get(al))))];
-
-  const chunks = [];
-  for (let i = 0; i < unionMissing.length; i += NETMHC_CHUNK_SIZE) {
-    chunks.push(unionMissing.slice(i, i + NETMHC_CHUNK_SIZE));
-  }
-
-  const apiRowsAll = [];
-  for (let i = 0; i < chunks.length; i++) {
-    const chunk = chunks[i];
-    try {
-      setBanner(`Class I: submitting chunk ${i+1}/${chunks.length} (${chunk.length} peptides)…`);
-      const fasta = chunk.map((p,idx)=>`>p${idx+1}\n${p}`).join("\n");
-
-      const id  = await submit(buildBodyI(allelesToQuery, fasta));
-      setBanner(`Class I: polling chunk ${i+1}/${chunks.length}…`);
-      const tbl = await poll(id);
-      const apiRows = rowsFromTable(tbl);
-
-      // 🔴 normalize API rows to snake_case + uppercase allele/peptide
-      for (const r of apiRows.map(normalizeRowI_api)) {
-        // standardize case for reliable joins
-        r.allele  = String(r.allele || "").toUpperCase();
-        r.peptide = String(r.peptide || "").toUpperCase();
-        apiRowsAll.push(r);
+    const missingByAllele = new Map();
+    for (const al of alleles) {
+      const alU = String(al).toUpperCase();
+      const miss = [];
+      for (const p of peps) {
+        const pU = String(p).toUpperCase();
+        if (!cacheSet.has(`${alU}|${pU}`)) miss.push(p);
       }
-
-      await new Promise(res => setTimeout(res, 150));
-    } catch (err) {
-      console.error(`Chunk ${i+1} failed:`, err);
-      setBanner(`Class I: chunk ${i+1} failed (${err.message}). Continuing…`);
-      await new Promise(res => setTimeout(res, 250));
+      if (miss.length) missingByAllele.set(al, miss);
     }
-  }
 
-  // merge cache + API (API wins)
-  const map = new Map();
-  for (const r of normCache) {
-    const rr = { ...r, allele:String(r.allele).toUpperCase(), peptide:String(r.peptide).toUpperCase() };
-    map.set(`${rr.allele}|${rr.peptide}`, rr);
-  }
-  for (const r of apiRowsAll) {
-    map.set(`${r.allele}|${r.peptide}`, r);
-  }
+    if (missingByAllele.size === 0) {
+      const merged = [...new Map(normCache.map(r => [cacheKey(r), r])).values()];
+      resultsArrayI.value = merged;
+      setBanner(`Class I: all ${merged.length} rows from cache ✅`);
+      continue;
+    }
 
-  const merged = [...map.values()];
-  resultsArrayI.value = merged;
+    const allelesToQuery = [...missingByAllele.keys()];
+    const unionMissing   = [...new Set([].concat(...allelesToQuery.map(al => missingByAllele.get(al))))];
 
-  const uniqueApi = new Set(apiRowsAll.map(r => `${r.allele}|${r.peptide}`)).size;
-  setBanner(`Class I done — ${merged.length} rows (cache ${cacheSet.size} + new ${uniqueApi}).`);
-  return merged;
+    const chunks = [];
+    for (let i = 0; i < unionMissing.length; i += NETMHC_CHUNK_SIZE) {
+      chunks.push(unionMissing.slice(i, i + NETMHC_CHUNK_SIZE));
+    }
+
+    const apiRowsAll = [];
+    for (let i = 0; i < chunks.length; i++) {
+      const chunk = chunks[i];
+      try {
+        setBanner(`Class I: submitting chunk ${i+1}/${chunks.length} (${chunk.length} peptides)…`);
+        const fasta = chunk.map((p,idx)=>`>p${idx+1}\n${p}`).join("\n");
+
+        const id  = await submit(buildBodyI(allelesToQuery, fasta));
+        setBanner(`Class I: polling chunk ${i+1}/${chunks.length}…`);
+        const tbl = await poll(id);
+        const apiRows = rowsFromTable(tbl);
+
+        for (const r of apiRows.map(normalizeRowI_api)) {
+          r.allele  = String(r.allele || "").toUpperCase();
+          r.peptide = String(r.peptide || "").toUpperCase();
+          apiRowsAll.push(r);
+        }
+
+        await new Promise(res => setTimeout(res, 150));
+      } catch (err) {
+        console.error(`Chunk ${i+1} failed:`, err);
+        setBanner(`Class I: chunk ${i+1} failed (${err.message}). Continuing…`);
+        await new Promise(res => setTimeout(res, 250));
+      }
+    }
+
+    const map = new Map();
+    for (const r of normCache) {
+      const rr = { ...r, allele:String(r.allele).toUpperCase(), peptide:String(r.peptide).toUpperCase() };
+      map.set(`${rr.allele}|${rr.peptide}`, rr);
+    }
+    for (const r of apiRowsAll) map.set(`${r.allele}|${r.peptide}`, r);
+
+    const merged = [...map.values()];
+    resultsArrayI.value = merged;
+
+    const uniqueApi = new Set(apiRowsAll.map(r => `${r.allele}|${r.peptide}`)).size;
+    setBanner(`Class I done — ${merged.length} rows (cache ${cacheSet.size} + new ${uniqueApi}).`);
+  }
 })();
 
 ```
