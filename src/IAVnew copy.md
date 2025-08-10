@@ -887,14 +887,14 @@ const positionStats = (
                frequency_all, total_all, value,
                frequency_unique, total_unique, value_unique
         FROM sequencecalc
-        WHERE protein = ${proteinCommitted}`
+        WHERE protein = ${committedProteinId}`
     : db.sql`                       -- live path
         WITH
         /* ──────────────  A.  Data Filters  ───────────────────────────── */
         filtered AS (
           SELECT *
           FROM   proteins
-          WHERE  protein = ${ proteinCommitted } 
+          WHERE  protein = ${committedProteinId } 
 
           /* Genotype */
           AND ${
@@ -1111,8 +1111,8 @@ const areaData = Array.from(
 ).sort((a, b) => d3.ascending(a.position, b.position));
 
 /* ─── reference (aligned) sequence rows ───────────────────── */
-const refAligned = fastaAligned.find(d => d.protein === proteinCommitted )
-                     ?.aligned_sequence ?? "";               // empty string if none
+ const refAligned = fastaAligned.find(d => normProtein(d.protein) === committedProteinId)
+                      ?.aligned_sequence ?? "";
 const refRows = refAligned.split("")
   .map((aa,i)=>({ position:i+1, aminoacid:aa }));
 
@@ -2432,7 +2432,7 @@ committedProteinId;
 const allelePlot = alleleChart({
   data      : chartRowsI,
   alleles   : Array.from(alleleCtrl1.value || []),
-  mode      : percentileModeInput,
+  mode      : percMode,
   classType : "I",
   baseCell  : 28,
   margin    : { top: 40, right: 20, bottom: 20, left: 140 },
@@ -2610,7 +2610,8 @@ const heatmapData = rowsRaw.map(r => {
 
 const heatmapSVG = peptideHeatmap({
   data        : heatmapData,
-  selected    : selectedPeptide?.value || null,  // <-- pass the STRING (or null)
+  selected    : selectedPeptide?.value || null,
+  selectedValue: selectedPeptide?.value || null,
   colourMode  : colourMode,
   alleleData  : chartRowsI,                       // cached + API rows merged
   alleles     : Array.from(selectedI || []),
