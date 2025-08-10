@@ -162,7 +162,7 @@ export function comboSelectLazy({
     commit();
   };
 
-  const commit = () => {
+  const commit = ({fire = true} = {}) => {
     renderPills();
     list.querySelectorAll(".combo-item").forEach(li => {
       if (selected.has(li.textContent)) li.classList.add("is-selected");
@@ -171,7 +171,7 @@ export function comboSelectLazy({
     root.value = Array.from(selected);
     // ★ persist on every change
     if (storeKey) globalThis.__comboLazyStore.set(storeKey, root.value);
-    root.dispatchEvent(new CustomEvent("input"));
+    if (fire) root.dispatchEvent(new CustomEvent("input"));
   };
 
   /* paging / fetching */
