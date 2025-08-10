@@ -1424,88 +1424,7 @@ WHERE NOT EXISTS (SELECT 1 FROM combined
 
 ```
 
-```js
-/* Peptide JS Array → head+alts (aligned display, ungapped keys), heatmap data */
-const rowsRaw = await peptideProps.toArray();
 
-/* Switcher */
-const useUnique = seqSet === "Unique sequences";
-const propCol = useUnique ? "proportion_unique" : "proportion_all";
-const freqCol = useUnique ? "frequency_unique"  : "frequency_all";
-const totCol  = useUnique ? "total_unique"      : "total_all";
-
-/* Current window rows:
-   - identity by UNGAPPED (so dashes never break matching)
-   - head = selected peptide (aligned) when present
-   - alts = top 4 by chosen proportion column
-*/
-const currentWindowRows = (() => {
-  if (!selectedPeptide || !Array.isArray(rowsRaw)) return [];
-  const selKey = pepCanon(selectedPeptide);
-
-  const ranked = [...rowsRaw]
-    .sort((a,b)=> Number(b[propCol]) - Number(a[propCol]));
-
-  const head = ranked.find(r => pepCanon(r.peptide) === selKey);
-  const alts = ranked
-    .filter(r => pepCanon(r.peptide) !== selKey)
-    .slice(0, 4);
-
-  return [head, ...alts].filter(Boolean);
-})();
-
-/* Ungapped set (8–14) for NetMHC side-panels & cache/API joins */
-const currentWindowUngapped = Array.from(new Set(
-  currentWindowRows.map(r => pepCanon(r.peptide))
-)).filter(p => p.length >= 8 && p.length <= 14);
-
-/* Heatmap input rows:
-   NOTE: `peptide` here is UNGAPPED, which the heatmap normalises
-   and overlays with the aligned template from `selectedPeptide`. */
-const heatmapData = rowsRaw.map(r => ({
-  peptide   : pepCanon(r.peptide),                // ← ungapped key
-  proportion: Number(r[propCol]),
-  frequency : Number(r[freqCol]),
-  total     : Number(r[totCol])
-}));
-
-
-/* Peptide Unique vs All Switcher */
-const useUnique = seqSet === "Unique sequences";
-
-const propCol = useUnique ? "proportion_unique" : "proportion_all";
-const freqCol = useUnique ? "frequency_unique"  : "frequency_all";
-const totCol  = useUnique ? "total_unique"      : "total_all";
-
-/* Map Peptide Plot Data */
-const heatmapData = rowsRaw.map(r => ({
-  peptide   : r.peptide,
-  proportion: Number(r[propCol]),
-  frequency : Number(r[freqCol]),
-  total     : Number(r[totCol])
-}));
-
-
-
-/* Create Peptide Plot */
-/* Create Peptide Plot (unchanged call, now fed with corrected data) */
-const heatmapSVG = peptideHeatmap({
-  data        : heatmapData,                        // ungapped keys
-  selected    : selectedPeptide,                    // aligned (may have '-')
-  colourMode  : colourMode,
-
-  // overlay inputs already normalised to ungapped in chartRowsI:
-  alleleData  : chartRowsI,                         // cache + API (snake_case)
-  alleles     : Array.from(alleleCtrl1.value || []),
-  mode        : percMode,                           // "EL" | "BA"
-  showAlleles : true,
-
-  baseCell    : 28,
-  height0     : 280,
-  margin      : { top:20, right:150, bottom:20, left:4 }
-});
-
-```
 
 ```js
 
@@ -2599,18 +2518,79 @@ const committedII       = snapshotOn(runBtnII, () => Array.from(alleleCtrl2.valu
 
 ```
 
+
+
 ```js
-/* Helper: canonical peptide = ungapped, uppercase
-   (Place this ABOVE any cells that use `pepCanon`.) */
+/* Peptide data → head+alts, NetMHC workset window, heatmap draw (single source of truth) */
+
+/* helper: ungapped uppercase */
 const pepCanon = s => String(s || "").replace(/-/g, "").toUpperCase();
 
+/* take API table for the clicked window */
+const rowsRaw = await peptideProps.toArray();
 
-```
+/* unique/all switch decides which columns to read */
+const useUnique = seqSet === "Unique sequences";
+const propCol   = useUnique ? "proportion_unique" : "proportion_all";
+const freqCol   = useUnique ? "frequency_unique"  : "frequency_all";
+const totCol    = useUnique ? "total_unique"      : "total_all";
 
-```js
-const selCanon = pepCanon(selectedPeptide);
-const ranked = [...rowsRaw].sort((a,b)=> Number(b[propCol]) - Number(a[propCol]));
-const head   = ranked.find(r => pepCanon(r.peptide) === selCanon);
-const alts   = ranked.filter(r => pepCanon(r.peptide) !== selCanon).slice(0,4);
+/* build head+alts using UNGAPPED identity, so dashes never confuse equality */
+const currentWindowRows = (() => {
+  if (!selectedPeptide || !Array.isArray(rowsRaw)) return [];
+  const selKey = pepCanon(selectedPeptide);
+
+  const ranked = [...rowsRaw].sort(
+    (a,b)=> Number(b[propCol]) - Number(a[propCol])
+  );
+
+  const head = ranked.find(r => pepCanon(r.peptide) === selKey);
+  const alts = ranked.filter(r => pepCanon(r.peptide) !== selKey).slice(0, 4);
+  return [head, ...alts].filter(Boolean);
+})();
+
+/* expose ungapped 8–14 aa set for cache/API joins elsewhere */
+const currentWindowUngapped = Array.from(new Set(
+  currentWindowRows.map(r => pepCanon(r.peptide))
+)).filter(p => p.length >= 8 && p.length <= 14);
+
+/* align alternates to the clicked peptide's gap template for correct display */
+function applyGapTemplate(template, ungapped) {
+  let k = 0, out = "";
+  for (const ch of template) out += (ch === "-" ? "-" : (ungapped[k++] ?? ""));
+  return out;
+}
+
+const template = typeof selectedPeptide === "string" ? selectedPeptide : null;
+
+/* heatmap data:
+   - peptide: aligned to the selected gap template (if any)
+   - overlay (NetMHC) will ungap internally, so no extra fields needed */
+const heatmapData = rowsRaw.map(r => {
+  const ung = String(r.peptide || "");
+  return {
+    peptide    : template ? applyGapTemplate(template, ung) : ung,
+    proportion : Number(r[propCol]),
+    frequency  : Number(r[freqCol]),
+    total      : Number(r[totCol])
+  };
+});
+
+/* draw the heatmap once everything above is defined */
+const heatmapSVG = peptideHeatmap({
+  data        : heatmapData,                        // aligned for display
+  selected    : selectedPeptide,                    // aligned (may have "-")
+  colourMode  : colourMode,
+
+  /* overlays */
+  alleleData  : chartRowsI,                         // cache + API (snake_case)
+  alleles     : Array.from(alleleCtrl1.value || []),
+  mode        : percMode,                           // "EL" | "BA"
+  showAlleles : true,
+
+  baseCell    : 28,
+  height0     : 280,
+  margin      : { top:20, right:150, bottom:20, left:4 }
+});
 
 ```
