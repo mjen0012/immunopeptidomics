@@ -2602,8 +2602,7 @@ const alleleCtrl1 = comboSelectLazy({
   fontFamily: "'Roboto', sans-serif",
   initialLimit: 20,
   pageLimit: 50,
-  fetch: ({ q, offset, limit }) => fetchAlleles("I", q, offset, limit),
-  persistKey: "mhcI_alleles"          // ★ persist between Apply clicks
+  fetch: ({ q, offset, limit }) => fetchAlleles("I", q, offset, limit)
 });
 const selectedI = Generators.input(alleleCtrl1);
 
@@ -2613,8 +2612,7 @@ const alleleCtrl2 = comboSelectLazy({
   fontFamily: "'Roboto', sans-serif",
   initialLimit: 20,
   pageLimit: 50,
-  fetch: ({ q, offset, limit }) => fetchAlleles("II", q, offset, limit),
-  persistKey: "mhcII_alleles"         // ★ ditto
+  fetch: ({ q, offset, limit }) => fetchAlleles("II", q, offset, limit)
 });
 const selectedII = Generators.input(alleleCtrl2);
 

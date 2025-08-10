@@ -11,23 +11,14 @@ export function comboSelectLazy({
   listHeight   = 180,
   fetch,                   // REQUIRED: ({ q, offset, limit }) => Promise<string[]>
   initialLimit = 20,       // shown on focus when q === ""
-  pageLimit    = 50,        // used when q.length >= 2
-  persistKey   = null 
+  pageLimit    = 50        // used when q.length >= 2
 } = {}) {
   if (typeof fetch !== "function") {
     throw new Error("comboSelectLazy: expected a fetch({q,offset,limit}) function.");
   }
 
-  // ★ global in-memory store for selections (survives DOM detach/recreate)
-  if (!globalThis.__comboLazyStore) globalThis.__comboLazyStore = new Map();
-  const storeKey = persistKey || label || null;  // fall back to label if unique
-
   /* state */
-  const selected   = new Set(
-    storeKey && globalThis.__comboLazyStore.has(storeKey)
-      ? (globalThis.__comboLazyStore.get(storeKey) || []).map(String)
-      : []
-  );
+  const selected   = new Set();
   let items        = [];             // currently rendered slice
   let q            = "";             // current query
   let offset       = 0;              // paging offset
@@ -169,8 +160,6 @@ export function comboSelectLazy({
       else li.classList.remove("is-selected");
     });
     root.value = Array.from(selected);
-    // ★ persist on every change
-    if (storeKey) globalThis.__comboLazyStore.set(storeKey, root.value);
     root.dispatchEvent(new CustomEvent("input"));
   };
 
@@ -239,8 +228,7 @@ export function comboSelectLazy({
   document.addEventListener("click", onDocClick);
 
   // Observable friendliness: provide an initial value immediately
-  // initial value reflects restored selection (if any)
-  root.value = Array.from(selected);
+  root.value = [];
 
   // Defer any eager prefetch until we're actually mounted
   requestAnimationFrame(() => {
@@ -264,10 +252,7 @@ export function comboSelectLazy({
   mo.observe(document.body, { childList: true, subtree: true });
 
   /* public API */
-  root.clear = () => {
-    selected.clear();
-    commit();   // will also update store
-  };
+  root.clear = () => { selected.clear(); commit(); };
   root.setValue = (arr = []) => {
     selected.clear();
     for (const id of arr) selected.add(String(id));
