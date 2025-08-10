@@ -241,6 +241,8 @@ export function comboSelectLazy({
   // Observable friendliness: provide an initial value immediately
   // initial value reflects restored selection (if any)
   root.value = Array.from(selected);
+  // ★ render pills on mount WITHOUT firing an input event
+  commit({fire:false});
 
   // Defer any eager prefetch until we're actually mounted
   requestAnimationFrame(() => {
