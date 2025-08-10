@@ -2518,13 +2518,14 @@ const committedII       = snapshotOn(runBtnII, () => Array.from(alleleCtrl2.valu
 
 ```
 
+```js
+const pepCanon = s => String(s || "").replace(/-/g, "").toUpperCase();
+```
 
 
 ```js
 /* Peptide data → head+alts, NetMHC workset window, heatmap draw (single source of truth) */
 
-/* helper: ungapped uppercase */
-const pepCanon = s => String(s || "").replace(/-/g, "").toUpperCase();
 
 /* take API table for the clicked window */
 const rowsRaw = await peptideProps.toArray();
@@ -2575,6 +2576,9 @@ const heatmapData = rowsRaw.map(r => {
     total      : Number(r[totCol])
   };
 });
+```
+
+```js
 
 /* draw the heatmap once everything above is defined */
 const heatmapSVG = peptideHeatmap({
