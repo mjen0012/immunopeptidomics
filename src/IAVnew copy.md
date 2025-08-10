@@ -2601,6 +2601,7 @@ const alleleCtrl2 = comboSelectLazy({
 });
 const selectedII = Generators.input(alleleCtrl2);
 
+/* snapshots captured only when the Run buttons fire */
 const committedI        = snapshotOn(runBtnI,  () => Array.from(alleleCtrl1.value || []));
 const committedWorksetI = snapshotOn(runBtnI,  () => Array.from(peptidesIWorkset || []));
 const committedProteinI = snapshotOn(runBtnI,  () => committedProteinId);

@@ -1,12 +1,6 @@
 /* ───────────────────────────────────────────────────────────────
-   components/comboSelectLazy.js  ·  v1
-   ----------------------------------------------------------------
-   A *lazy* multi-select combo:
-   • Shows first N items on focus (no typing needed)
-   • When query length ≥ 2, fetches pages on demand (infinite scroll)
-   • Keeps DOM small (never renders thousands of <li> at once)
-   • Observable-compatible: emits "input" with .value = string[]
-   • Public API: .clear(), .setValue(array), .destroy()
+   components/comboSelectLazy.js  ·  v1.2
+   Lazy multi-select with paged fetch + infinite scroll.
 ────────────────────────────────────────────────────────────────*/
 export function comboSelectLazy({
   label        = "",
@@ -15,11 +9,9 @@ export function comboSelectLazy({
   pillColor    = "#006DAE",
   pillText     = "#fff",
   listHeight   = 180,
-  // REQUIRED: fetch({ q, offset, limit }) => Promise<string[]>
-  fetch,
-  // paging
-  initialLimit = 20,   // shown on focus when q === ""
-  pageLimit    = 50    // used when q.length >= 2
+  fetch,                   // REQUIRED: ({ q, offset, limit }) => Promise<string[]>
+  initialLimit = 20,       // shown on focus when q === ""
+  pageLimit    = 50        // used when q.length >= 2
 } = {}) {
   if (typeof fetch !== "function") {
     throw new Error("comboSelectLazy: expected a fetch({q,offset,limit}) function.");
@@ -34,6 +26,7 @@ export function comboSelectLazy({
   let inflight     = 0;              // request token to dedupe late responses
   let connected    = true;           // detached guard
   let lastFetchFor = "";             // dedupe when query changes
+  let everMounted  = false;          // becomes true after first attach
 
   /* elements */
   const root    = document.createElement("div");
@@ -67,6 +60,7 @@ export function comboSelectLazy({
   list.style.display = "none";
   list.style.overflowY = "auto";
   list.style.maxHeight = `${listHeight}px`;
+  list.style.zIndex = "10000";            // keep above surrounding cards
   root.appendChild(list);
 
   pills.className = "combo-pills";
@@ -90,7 +84,7 @@ export function comboSelectLazy({
   margin:0; padding:0; list-style:none;
   width:100%; overflow-y:auto;
   border:1px solid #ccc; border-radius:6px; background:#fff;
-  position:absolute; left:0; right:0; z-index:10; display:none; box-sizing:border-box;
+  position:absolute; left:0; right:0; display:none; box-sizing:border-box;
 }
 .combo-item { padding:.3em .5em; cursor:pointer; }
 .combo-item:hover       { background:#f0f0f0; }
@@ -116,12 +110,7 @@ export function comboSelectLazy({
     const parentTop = root.getBoundingClientRect().top;
     list.style.top = `${top - parentTop + height}px`;
   };
-
-  const showList = () => {
-    list.style.display = "block";
-    positionList();
-  };
-
+  const showList = () => { list.style.display = "block"; positionList(); };
   const hideList = () => { list.style.display = "none"; };
 
   const renderPills = () => {
@@ -134,11 +123,7 @@ export function comboSelectLazy({
       btn.className = "combo-x";
       btn.ariaLabel = `Remove ${id}`;
       btn.textContent = "×";
-      btn.onclick = e => {
-        e.stopPropagation();
-        selected.delete(id);
-        commit();
-      };
+      btn.onclick = e => { e.stopPropagation(); selected.delete(id); commit(); };
       pill.appendChild(btn);
       pills.appendChild(pill);
     });
@@ -170,7 +155,6 @@ export function comboSelectLazy({
 
   const commit = () => {
     renderPills();
-    // Update selected styling without re-rendering the whole list
     list.querySelectorAll(".combo-item").forEach(li => {
       if (selected.has(li.textContent)) li.classList.add("is-selected");
       else li.classList.remove("is-selected");
@@ -186,11 +170,10 @@ export function comboSelectLazy({
     const lim   = limit ?? (q.length === 0 ? initialLimit : pageLimit);
 
     let next = [];
-    try {
-      next = await fetch({ q: wantQ, offset: off, limit: lim }) || [];
-    } catch { /* noop */ }
+    try { next = await fetch({ q: wantQ, offset: off, limit: lim }) || []; }
+    catch { /* noop */ }
 
-    // Ignore stale responses
+    // Ignore stale responses or if we've been detached
     if (token !== inflight || !connected) return;
 
     // Reset when query changed
@@ -210,7 +193,7 @@ export function comboSelectLazy({
     if (document.activeElement === input) showList();
   };
 
-  /* events */
+  /* events (single definitions) */
   const onInput = async () => {
     q = input.value.trim();
     offset = 0;
@@ -219,6 +202,7 @@ export function comboSelectLazy({
   };
 
   const onFocus = async () => {
+    // Load first page lazily on first focus
     if (!items.length) await fetchPage({ offset: 0, limit: initialLimit });
     showList();
   };
@@ -226,9 +210,7 @@ export function comboSelectLazy({
   const onScroll = async () => {
     if (!canLoadMore) return;
     const nearBottom = list.scrollTop + list.clientHeight >= list.scrollHeight - 8;
-    if (nearBottom) {
-      await fetchPage({ offset });  // next page
-    }
+    if (nearBottom) await fetchPage({ offset });  // next page
   };
 
   const onDocClick = () => hideList();
@@ -242,16 +224,22 @@ export function comboSelectLazy({
   });
   input.addEventListener("focus", onFocus);
   list.addEventListener("scroll", onScroll);
-
   root.addEventListener("click", e => e.stopPropagation());
   document.addEventListener("click", onDocClick);
 
-  // First paint: preload first 20 (no typing)
-  fetchPage({ offset: 0, limit: initialLimit });
+  // Observable friendliness: provide an initial value immediately
+  root.value = [];
 
-  // Cleanup when detached
+  // Defer any eager prefetch until we're actually mounted
+  requestAnimationFrame(() => {
+    if (document.body.contains(root)) everMounted = true;
+  });
+
+  // Cleanup only after we've been mounted at least once
   const mo = new MutationObserver(() => {
-    if (!root.isConnected) {
+    const nowMounted = document.body.contains(root);
+    if (nowMounted) { everMounted = true; return; }
+    if (!nowMounted && everMounted) {
       connected = false;
       input.removeEventListener("input", onInput);
       input.removeEventListener("keydown", () => {});
@@ -261,7 +249,7 @@ export function comboSelectLazy({
       mo.disconnect();
     }
   });
-  mo.observe(document.documentElement, { childList: true, subtree: true });
+  mo.observe(document.body, { childList: true, subtree: true });
 
   /* public API */
   root.clear = () => { selected.clear(); commit(); };
