@@ -1350,7 +1350,7 @@ const setSelectedLength = x => selectedLength.value = x;
 ```
 
 ```js
-/* Peptide Query Data – guarded */
+/* Peptide Query Data – guard handles 0/falsey safely */
 const peptideProps =
   (selectedStart != null && selectedLength != null)
     ? db.sql`
@@ -1394,6 +1394,7 @@ combined AS (
   CROSS JOIN  total_u     AS tu
 ),
 
+/* Ensures the aligned selection shows up even if its count is 0 */
 selected_filler AS (
   SELECT
     params.sel_peptide                   AS peptide,
@@ -1420,26 +1421,53 @@ WHERE NOT EXISTS (SELECT 1 FROM combined
                          0::INT AS frequency_unique, 0::INT AS total_unique, 0.0::DOUBLE AS proportion_unique
               LIMIT 0`;
 
+
 ```
 
 ```js
-/* Peptide JS Array */
+/* Peptide JS Array → head+alts (aligned display, ungapped keys), heatmap data */
 const rowsRaw = await peptideProps.toArray();
 
-// Current window rows = clicked peptide (aligned) + top 4 (aligned)
+/* Switcher */
+const useUnique = seqSet === "Unique sequences";
+const propCol = useUnique ? "proportion_unique" : "proportion_all";
+const freqCol = useUnique ? "frequency_unique"  : "frequency_all";
+const totCol  = useUnique ? "total_unique"      : "total_all";
+
+/* Current window rows:
+   - identity by UNGAPPED (so dashes never break matching)
+   - head = selected peptide (aligned) when present
+   - alts = top 4 by chosen proportion column
+*/
 const currentWindowRows = (() => {
-  if (!selectedPeptide || !Array.isArray(rowsRaw) || !rowsRaw.length) return [];
-  const selAligned = String(selectedPeptide);
-  const ranked = [...rowsRaw].sort((a,b)=> Number(b[propCol]) - Number(a[propCol]));
-  const head   = ranked.find(r => String(r.peptide) === selAligned);
-  const alts   = ranked.filter(r => String(r.peptide) !== selAligned).slice(0,4);
+  if (!selectedPeptide || !Array.isArray(rowsRaw)) return [];
+  const selKey = pepCanon(selectedPeptide);
+
+  const ranked = [...rowsRaw]
+    .sort((a,b)=> Number(b[propCol]) - Number(a[propCol]));
+
+  const head = ranked.find(r => pepCanon(r.peptide) === selKey);
+  const alts = ranked
+    .filter(r => pepCanon(r.peptide) !== selKey)
+    .slice(0, 4);
+
   return [head, ...alts].filter(Boolean);
 })();
 
-// Ungapped versions specifically for NetMHC
+/* Ungapped set (8–14) for NetMHC side-panels & cache/API joins */
 const currentWindowUngapped = Array.from(new Set(
   currentWindowRows.map(r => pepCanon(r.peptide))
 )).filter(p => p.length >= 8 && p.length <= 14);
+
+/* Heatmap input rows:
+   NOTE: `peptide` here is UNGAPPED, which the heatmap normalises
+   and overlays with the aligned template from `selectedPeptide`. */
+const heatmapData = rowsRaw.map(r => ({
+  peptide   : pepCanon(r.peptide),                // ← ungapped key
+  proportion: Number(r[propCol]),
+  frequency : Number(r[freqCol]),
+  total     : Number(r[totCol])
+}));
 
 
 /* Peptide Unique vs All Switcher */
@@ -1460,15 +1488,18 @@ const heatmapData = rowsRaw.map(r => ({
 
 
 /* Create Peptide Plot */
+/* Create Peptide Plot (unchanged call, now fed with corrected data) */
 const heatmapSVG = peptideHeatmap({
-  data        : heatmapData,                        // peptides (ungapped)
-  selected    : selectedPeptide,                    // may include '-'
+  data        : heatmapData,                        // ungapped keys
+  selected    : selectedPeptide,                    // aligned (may have '-')
   colourMode  : colourMode,
-  // ── NEW overlay props:
+
+  // overlay inputs already normalised to ungapped in chartRowsI:
   alleleData  : chartRowsI,                         // cache + API (snake_case)
   alleles     : Array.from(alleleCtrl1.value || []),
   mode        : percMode,                           // "EL" | "BA"
   showAlleles : true,
+
   baseCell    : 28,
   height0     : 280,
   margin      : { top:20, right:150, bottom:20, left:4 }
@@ -2569,7 +2600,10 @@ const committedII       = snapshotOn(runBtnII, () => Array.from(alleleCtrl2.valu
 ```
 
 ```js
+/* Helper: canonical peptide = ungapped, uppercase
+   (Place this ABOVE any cells that use `pepCanon`.) */
 const pepCanon = s => String(s || "").replace(/-/g, "").toUpperCase();
+
 
 ```
 
@@ -2578,6 +2612,5 @@ const selCanon = pepCanon(selectedPeptide);
 const ranked = [...rowsRaw].sort((a,b)=> Number(b[propCol]) - Number(a[propCol]));
 const head   = ranked.find(r => pepCanon(r.peptide) === selCanon);
 const alts   = ranked.filter(r => pepCanon(r.peptide) !== selCanon).slice(0,4);
-const currentWindowRows = [head, ...alts].filter(Boolean);
 
 ```
