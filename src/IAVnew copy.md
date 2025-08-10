@@ -620,9 +620,10 @@ const peptidesAligned = peptidesClean.map(d => {
 });
 
 
-/* Distinct (start,len) windows for uploaded peptides — use RAW coords */
+
+/* Distinct (start,len) windows for uploaded peptides — use RAW (ungapped) coords */
 const peptideWindows = (() => {
-  const pid = committedProteinId;
+  const pid = committedProteinId; // reactive
   if (!pid) return [];
   const key = r => `${r.start_raw}|${r.length_raw}`;
   const map = new Map();
@@ -634,6 +635,7 @@ const peptideWindows = (() => {
   }
   return [...map.values()];
 })();
+
 
 ```
 
@@ -2227,14 +2229,22 @@ function normalizeRowI_api(r) {
 ```
 
 ```js
-/* ▸ peptides for Class I preview (strip dashes before length check) */
 const peptidesI = await (async () => {
   if (!peptideFile) return [];
   const all = await parsePeptides(peptideFile);
-  return all
-    .map(p => p.replace(/-/g, ""))         // ← normalize
-    .filter(p => p.length >= 8 && p.length <= 14);
+  return all.map(p => p.replace(/-/g,""))
+            .filter(p => p.length >= 8 && p.length <= 14);
 })();
+```
+
+```js
+console.groupCollapsed("🔎 Alt window lengths");
+const winLens = peptideWindows.map(w => w.len);
+console.log("Total windows:", winLens.length);
+console.log("Len ≤7:",  winLens.filter(n => n<=7).length);
+console.log("8–14:",   winLens.filter(n => n>=8 && n<=14).length);
+console.log("≥15:",    winLens.filter(n => n>=15).length);
+console.groupEnd();
 
 ```
 
