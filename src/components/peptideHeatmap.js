@@ -1,13 +1,10 @@
 /*****************************************************************
 <<<<<<< HEAD
-<<<<<<< HEAD
  *  peptideHeatmap() → HTMLElement   ·   v21b
  *  - v19 layout/reflow (no clipping; same spacing & sizing)
  *  - Uses the clicked peptide’s dash template for display,
  *    but looks up overlay values by UNGAPPED keys.
 =======
-=======
->>>>>>> parent of 7bd0df2 (Update peptideHeatmap.js)
  *  peptideHeatmap() → HTMLElement   ·   v22
  *  - v19 layout/reflow (no clipping; same spacing & sizing)
  *  - Dash template: clicked row shows aligned peptide with '-';
@@ -15,9 +12,6 @@
  *    ungapped keys so cache/API rows match.
  *  - Entire top (clicked) row stays blue (#006DAE), including dashes
  *  - Tooltip for allele overlay cells (shows EL% and BA%)
-<<<<<<< HEAD
->>>>>>> parent of 7bd0df2 (Update peptideHeatmap.js)
-=======
 >>>>>>> parent of 7bd0df2 (Update peptideHeatmap.js)
  *****************************************************************/
 import * as d3 from "npm:d3";
@@ -96,9 +90,6 @@ export function peptideHeatmap({
     ...headBase,
     displayPeptide: selAligned,                  // clicked keeps dashes
     ungappedKey   : normPep(headBase.peptide)    // for overlay lookups
-<<<<<<< HEAD
->>>>>>> parent of 7bd0df2 (Update peptideHeatmap.js)
-=======
 >>>>>>> parent of 7bd0df2 (Update peptideHeatmap.js)
   };
 
@@ -106,7 +97,6 @@ export function peptideHeatmap({
     .filter(d => pepCanon(d.peptide) !== selKey)
     .sort((a,b)=>d3.descending(a.proportion,b.proportion))
     .slice(0, topN)
-<<<<<<< HEAD
 <<<<<<< HEAD
     .map(d => {
       const ung = pepCanon(d.peptide);
@@ -117,23 +107,17 @@ export function peptideHeatmap({
       };
     });
 =======
-=======
->>>>>>> parent of 7bd0df2 (Update peptideHeatmap.js)
     .map(d => ({
       ...d,
       displayPeptide: applyTemplate(normPep(d.peptide)),
       ungappedKey   : normPep(d.peptide)
     }));
-<<<<<<< HEAD
->>>>>>> parent of 7bd0df2 (Update peptideHeatmap.js)
-=======
 >>>>>>> parent of 7bd0df2 (Update peptideHeatmap.js)
 
   const rows = [head, ...alts];
   const nRows   = rows.length;
   const pepCols = Math.max(selAligned.length, d3.max(rows, d => d.displayPeptide.length) ?? 0);
 
-<<<<<<< HEAD
 <<<<<<< HEAD
   /* ── allele lookup (keys = ALLELE|UNGAPPED) ──────────────────── */
   const pairKey  = (al, pepUngapped) => `${normAllele(al)}|${pepUngapped.toUpperCase()}`;
@@ -142,17 +126,12 @@ export function peptideHeatmap({
     const key = scoreKey();
     const map = new Map();
 =======
-=======
->>>>>>> parent of 7bd0df2 (Update peptideHeatmap.js)
   /* ── allele lookups (keys = ALLELE|UNGAPPED) – both EL & BA ──── */
   const pairKey  = (al, pep) => `${normAllele(al)}|${normPep(pep)}`;
   function buildDualLookups() {
     const elKey = "netmhcpan_el_percentile";
     const baKey = "netmhcpan_ba_percentile";
     const el = new Map(), ba = new Map();
-<<<<<<< HEAD
->>>>>>> parent of 7bd0df2 (Update peptideHeatmap.js)
-=======
 >>>>>>> parent of 7bd0df2 (Update peptideHeatmap.js)
     for (const r of alleleData || []) {
       const pep = r?.peptide, al = r?.allele;
@@ -262,15 +241,9 @@ export function peptideHeatmap({
           .attr("fill", j => {
             const ch = row.displayPeptide[j] ?? "";
 <<<<<<< HEAD
-<<<<<<< HEAD
             // clicked row first → solid blue, including positions with '-'
             if (i === 0) return "#006DAE";
             if (i !== 0 && ch === "-") return "#f9f9f9";
-=======
-            // ⬇ ensure whole top row is blue, including '-'
-            if (i === 0) return "#006DAE";
-            if (ch === "-") return "#f9f9f9";
->>>>>>> parent of 7bd0df2 (Update peptideHeatmap.js)
 =======
             // ⬇ ensure whole top row is blue, including '-'
             if (i === 0) return "#006DAE";
@@ -316,7 +289,6 @@ export function peptideHeatmap({
             .attr("rx",4).attr("ry",4)
             .attr("stroke","#fff")
 <<<<<<< HEAD
-<<<<<<< HEAD
             .each(function(al){
               const val = lookup.get(pairKey(al, row.ungappedKey));
               const pct = Number.isFinite(val) ? val : null;
@@ -328,8 +300,6 @@ export function peptideHeatmap({
                   : `${al}\n${row.ungappedKey}\n(no prediction)`);
             });
 =======
-=======
->>>>>>> parent of 7bd0df2 (Update peptideHeatmap.js)
             .attr("fill", al => {
               const val = activeLookup.get(pairKey(al, row.ungappedKey));
               return Number.isFinite(val) ? colourPct(val) : "#f0f0f0";
@@ -349,9 +319,6 @@ export function peptideHeatmap({
             })
             .on("mousemove", (ev) => tipShow(tip.innerHTML, ev))
             .on("mouseleave", tipHide);
-<<<<<<< HEAD
->>>>>>> parent of 7bd0df2 (Update peptideHeatmap.js)
-=======
 >>>>>>> parent of 7bd0df2 (Update peptideHeatmap.js)
       }
     });
