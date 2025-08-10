@@ -37,7 +37,7 @@ export function peptideHeatmap({
 
   /* ── helpers ───────────────────────────────────────────────── */
   const aaCols      = aminoacidPalette;
-  const selAligned  = String(selectedValue);          // aligned, with '-'
+  const selAligned  = String(selected);            // aligned, with '-'
   const normAllele  = s => String(s||"").toUpperCase().trim();
   const ungap       = s => String(s||"").replace(/-/g,"");
   const pepCanon    = s => ungap(s).toUpperCase().trim();

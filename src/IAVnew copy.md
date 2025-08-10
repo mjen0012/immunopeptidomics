@@ -638,6 +638,159 @@ const peptideWindows = (() => {
 ```
 
 ```js
+/* Top candidates (by All and Unique) for every uploaded window in this protein */
+const topCandidatesByWindow = peptideWindows.length === 0 ? []
+: (await db.sql`
+  WITH
+  /* Alias names only; types handled via CAST at SUBSTR sites */
+  params(start, len) AS (
+    VALUES ${joinSql(peptideWindows.map(w => sql`(${Math.trunc(w.start)}, ${Math.trunc(w.len)})`))}
+  ),
+
+  filtered AS (
+    SELECT *
+    FROM   proteins
+    WHERE  protein = ${proteinCommitted}
+
+      AND ${ genotypesCommitted.length
+              ? sql`genotype IN (${ genotypesCommitted })` : sql`TRUE` }
+      AND ${ hostsCommitted.length
+              ? sql`host IN (${ hostsCommitted })` : sql`TRUE` }
+      AND ${
+            hostCategoryCommitted.includes('Human') &&
+            !hostCategoryCommitted.includes('Non-human')
+              ? sql`host = 'Homo sapiens'`
+              : (!hostCategoryCommitted.includes('Human') &&
+                 hostCategoryCommitted.includes('Non-human'))
+                  ? sql`host <> 'Homo sapiens'`
+                  : sql`TRUE`
+          }
+      AND ${ countriesCommitted.length
+              ? sql`country IN (${ countriesCommitted })` : sql`TRUE` }
+
+      AND ${
+        collectionDatesCommitted.from || collectionDatesCommitted.to
+          ? sql`
+              TRY_CAST(
+                CASE
+                  WHEN collection_date IS NULL OR collection_date = '' THEN NULL
+                  WHEN LENGTH(collection_date)=4  THEN collection_date || '-01-01'
+                  WHEN LENGTH(collection_date)=7  THEN collection_date || '-01'
+                  ELSE collection_date
+                END AS DATE
+              )
+              ${
+                collectionDatesCommitted.from && collectionDatesCommitted.to
+                  ? sql`BETWEEN CAST(${collectionDatesCommitted.from} AS DATE)
+                           AND   CAST(${collectionDatesCommitted.to  } AS DATE)`
+                  : collectionDatesCommitted.from
+                      ? sql`>= CAST(${collectionDatesCommitted.from} AS DATE)`
+                      : sql`<= CAST(${collectionDatesCommitted.to   } AS DATE)`
+              }
+            ` : sql`TRUE`
+      }
+
+      AND ${
+        releaseDatesCommitted.from || releaseDatesCommitted.to
+          ? sql`
+              TRY_CAST(
+                CASE
+                  WHEN release_date IS NULL OR release_date = '' THEN NULL
+                  WHEN LENGTH(release_date)=4 THEN release_date || '-01-01'
+                  WHEN LENGTH(release_date)=7 THEN release_date || '-01'
+                  ELSE release_date
+                END AS DATE
+              )
+              ${
+                releaseDatesCommitted.from && releaseDatesCommitted.to
+                  ? sql`BETWEEN CAST(${releaseDatesCommitted.from} AS DATE)
+                           AND   CAST(${releaseDatesCommitted.to  } AS DATE)`
+                  : releaseDatesCommitted.from
+                      ? sql`>= CAST(${releaseDatesCommitted.from} AS DATE)`
+                      : sql`<= CAST(${releaseDatesCommitted.to   } AS DATE)`
+              }
+            ` : sql`TRUE`
+      }
+  ),
+
+  /* All-sequence tallies */
+  ex_all AS (
+    SELECT p.start, p.len,
+           SUBSTR(f.sequence, CAST(p.start AS BIGINT), CAST(p.len AS BIGINT)) AS peptide
+    FROM filtered f
+    CROSS JOIN params p
+  ),
+  cnt_all AS (
+    SELECT start, len, peptide, COUNT(*) AS cnt_all
+    FROM   ex_all
+    GROUP  BY start, len, peptide
+  ),
+  tot_all AS (
+    SELECT start, len, SUM(cnt_all) AS total_all
+    FROM   cnt_all
+    GROUP  BY start, len
+  ),
+
+  /* Unique-sequence tallies */
+  filtered_u AS ( SELECT DISTINCT sequence FROM filtered ),
+  ex_u AS (
+    SELECT p.start, p.len,
+           SUBSTR(u.sequence, CAST(p.start AS BIGINT), CAST(p.len AS BIGINT)) AS peptide
+    FROM filtered_u u
+    CROSS JOIN params p
+  ),
+  cnt_u AS (
+    SELECT start, len, peptide, COUNT(*) AS cnt_unique
+    FROM   ex_u
+    GROUP  BY start, len, peptide
+  ),
+  tot_u AS (
+    SELECT start, len, SUM(cnt_unique) AS total_unique
+    FROM   cnt_u
+    GROUP  BY start, len
+  ),
+
+  /* Merge proportions */
+  combined AS (
+    SELECT
+      COALESCE(a.start, u.start)         AS start,
+      COALESCE(a.len,   u.len)           AS len,
+      COALESCE(a.peptide, u.peptide)     AS peptide,
+      COALESCE(a.cnt_all,   0)::INT      AS frequency_all,
+      COALESCE(tA.total_all,0)::INT      AS total_all,
+      CASE WHEN tA.total_all IS NULL OR tA.total_all = 0
+           THEN 0.0 ELSE a.cnt_all * 1.0 / tA.total_all END AS proportion_all,
+      COALESCE(u.cnt_unique,0)::INT      AS frequency_unique,
+      COALESCE(tU.total_unique,0)::INT   AS total_unique,
+      CASE WHEN tU.total_unique IS NULL OR tU.total_unique = 0
+           THEN 0.0 ELSE u.cnt_unique * 1.0 / tU.total_unique END AS proportion_unique
+    FROM        cnt_all a
+    FULL  JOIN  cnt_u   u USING (start, len, peptide)
+    LEFT  JOIN  tot_all tA USING (start, len)
+    LEFT  JOIN  tot_u   tU USING (start, len)
+  ),
+
+  ranked AS (
+    SELECT *,
+           ROW_NUMBER() OVER (PARTITION BY start, len
+                              ORDER BY proportion_all DESC, peptide)   AS r_all,
+           ROW_NUMBER() OVER (PARTITION BY start, len
+                              ORDER BY proportion_unique DESC, peptide) AS r_u
+    FROM combined
+  )
+
+  SELECT start, len, peptide, r_all, r_u,
+         proportion_all,  proportion_unique,
+         frequency_all,   total_all,
+         frequency_unique,total_unique
+  FROM   ranked
+  WHERE  r_all <= 5 OR r_u <= 5
+  ORDER  BY start, len, r_all, r_u, peptide;
+`).toArray();
+
+```
+
+```js
 /* Lightweight workset before any run: uploaded peptides (8–14) for this protein */
 const peptidesIWorkset = (() => {
   const pid = committedProteinId;
@@ -681,7 +834,7 @@ function createIAVDashboard({
 
   /* 1 ▸ peptide data & colour scale --------------------------- */
   const pepData = peptidesAligned.filter(
-    d => (d.protein || "").toUpperCase() === committedProteinId
+    d => d.protein === proteinCommitted
   );
 
   const keys        = [...new Set(pepData.map(d => d[colourAttr]))].sort();
@@ -719,11 +872,6 @@ function createIAVDashboard({
       setSelectedPeptide(d.peptide_aligned); // keep aligned for display
       setSelectedStart  (d.start_raw);       // ✅ raw coordinate
       setSelectedLength (d.length_raw);      // ✅ raw (ungapped) length
-      console.log("Clicked peptide:", {
-        aligned  : d.peptide_aligned,
-        startRaw : d.start_raw,
-        lenRaw   : d.length_raw
-      });
     }
   });
   yOff += pep.height;
@@ -1208,7 +1356,7 @@ params AS (
 filtered AS (
   SELECT *
   FROM   proteins
-  WHERE  protein = ${committedProteinId}
+  WHERE  protein = ${proteinCommitted}
 
     AND ${ genotypesCommitted.length
             ? sql`genotype IN (${ genotypesCommitted })` : sql`TRUE` }
@@ -1338,7 +1486,7 @@ WHERE NOT EXISTS (SELECT 1 FROM combined
 ```js
 /* Reset Peptide Plot when Protein Changes */
 {
-  const _ = committedProteinId;
+  const _ = proteinCommitted;
   setSelectedPeptide(null);
   setSelectedStart(null);
   setSelectedLength(null);
@@ -1410,7 +1558,7 @@ const positionFacetStats =
       filtered AS (
         SELECT *
         FROM   proteins_faceted
-        WHERE  protein = ${committedProteinId}
+        WHERE  protein = ${proteinCommitted}
 
           /* Genotype filter */
           AND ${
@@ -2122,7 +2270,7 @@ const runResultsI = await (async () => {
       filtered AS (
         SELECT *
         FROM   proteins
-        WHERE  protein = ${committedProteinId}
+        WHERE  protein = ${proteinCommitted}
 
           AND ${ genotypesCommitted.length
                   ? sql`genotype IN (${ genotypesCommitted })` : sql`TRUE` }
@@ -2654,7 +2802,7 @@ const topCandidatesByWindow = await (async () => {
     filtered AS (
       SELECT *
       FROM   proteins
-      WHERE  protein = ${committedProteinId}
+      WHERE  protein = ${proteinCommitted}
 
         AND ${ genotypesCommitted.length
                 ? sql`genotype IN (${ genotypesCommitted })` : sql`TRUE` }
