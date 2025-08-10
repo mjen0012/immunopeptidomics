@@ -1520,26 +1520,6 @@ const heatmapData = rowsRaw.map(r => ({
   total     : Number(r[totCol])
 }));
 
-
-
-/* Create Peptide Plot */
-const heatmapSVG = peptideHeatmap({
-  data        : heatmapData,                        // peptides (ungapped)
-  selected    : selectedPeptide,                    // may include '-'
-  colourMode  : colourMode,
-  // ── NEW overlay props:
-  alleleData  : chartRowsI,                         // cache + API (snake_case)
-  alleles     : Array.from(alleleCtrl1.value || []),
-  mode        : percMode,                           // "EL" | "BA"
-  showAlleles : true,
-  baseCell    : 28,
-  height0     : 280,
-  margin      : { top:20, right:150, bottom:20, left:4 }
-});
-
-```
-
-```js
 // Current window rows = clicked peptide (aligned) + top 4 for the window (aligned)
 const currentWindowRows = (() => {
   if (!selectedPeptide || !Array.isArray(rowsRaw)) return [];
@@ -1557,6 +1537,22 @@ const currentWindowUngapped = Array.from(new Set(
     .map(r => String(r.peptide || "").replace(/-/g,"").toUpperCase())
     .filter(p => p.length >= 8 && p.length <= 14)
 ));
+
+/* Create Peptide Plot */
+const heatmapSVG = peptideHeatmap({
+  data        : heatmapData,                        // peptides (ungapped)
+  selected    : selectedPeptide,                    // may include '-'
+  colourMode  : colourMode,
+  // ── NEW overlay props:
+  alleleData  : chartRowsI,                         // cache + API (snake_case)
+  alleles     : Array.from(alleleCtrl1.value || []),
+  mode        : percMode,                           // "EL" | "BA"
+  showAlleles : true,
+  baseCell    : 28,
+  height0     : 280,
+  margin      : { top:20, right:150, bottom:20, left:4 }
+});
+
 ```
 
 ```js
