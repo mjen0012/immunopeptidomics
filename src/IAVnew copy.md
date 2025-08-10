@@ -630,6 +630,7 @@ const peptideWindows = (() => {
   for (const r of peptidesAligned) {
     if ((r.protein || "").toUpperCase() !== pid) continue;
     if (!r.start || !r.length) continue;
+    const k = key(r);
     map.set(k, { start: +r.start, len: +r.length });
   }
   return [...map.values()];
