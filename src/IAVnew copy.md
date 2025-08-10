@@ -718,7 +718,7 @@ const topCandidatesByWindow = peptideWindows.length === 0 ? []
   /* All-sequence tallies */
   ex_all AS (
     SELECT p.start, p.len,
-           SUBSTR(f.sequence, CAST(p.start AS BIGINT), CAST(p.len AS BIGINT)) AS peptide
+          SUBSTR(REPLACE(f.sequence, '-', ''), CAST(p.start AS BIGINT), CAST(p.len AS BIGINT)) AS peptide
     FROM filtered f
     CROSS JOIN params p
   ),
@@ -737,7 +737,7 @@ const topCandidatesByWindow = peptideWindows.length === 0 ? []
   filtered_u AS ( SELECT DISTINCT sequence FROM filtered ),
   ex_u AS (
     SELECT p.start, p.len,
-           SUBSTR(u.sequence, CAST(p.start AS BIGINT), CAST(p.len AS BIGINT)) AS peptide
+          SUBSTR(REPLACE(u.sequence, '-', ''), CAST(p.start AS BIGINT), CAST(p.len AS BIGINT)) AS peptide
     FROM filtered_u u
     CROSS JOIN params p
   ),
@@ -808,9 +808,9 @@ const peptidesIWorkset = (() => {
     if (pep.length >= 8 && pep.length <= 14) set.add(pep);
   }
 
-  // top candidates from the SQL above (already ungapped substrings)
+  // top candidates from the SQL above (be paranoid: strip any dashes)
   for (const r of topCandidatesByWindow) {
-    const p = (r.peptide || "").toUpperCase();
+    const p = String(r.peptide || "").toUpperCase().replace(/-/g, "");
     if (p.length >= 8 && p.length <= 14) set.add(p);
   }
 
@@ -1419,7 +1419,7 @@ filtered AS (
 
 /* All-Sequence Tallies */
 extracted_all AS (
-  SELECT SUBSTR(sequence, params.start, params.len) AS peptide
+  SELECT SUBSTR(REPLACE(sequence, '-', ''), params.start, params.len) AS peptide
   FROM   filtered, params
 ),
 counts_all AS (
@@ -1432,7 +1432,7 @@ total_all AS ( SELECT SUM(cnt_all) AS total_all FROM counts_all ),
 /* Unique-Sequence Tallies */
 filtered_dist AS ( SELECT DISTINCT sequence FROM filtered ),
 extracted_u AS (
-  SELECT SUBSTR(sequence, params.start, params.len) AS peptide
+  SELECT SUBSTR(REPLACE(sequence, '-', ''), params.start, params.len) AS peptide
   FROM   filtered_dist, params
 ),
 counts_u AS (
@@ -2316,7 +2316,11 @@ const NETMHC_CHUNK_SIZE = 1000;   // was ~25 before; now 1000 as requested
 const runResultsI = await (async () => {
   trigI; // still gate on the run click
 
-  const alleles = Array.from(committedI || []);
+  const alleles = Array.from(committedI || []).map(a => String(a).toUpperCase());
+  let peps = Array.from(committedWorksetI || [])
+    .map(p => String(p).toUpperCase().replace(/-/g, ""))
+    .filter(p => p.length >= 8 && p.length <= 14);
+
   const peps    = Array.from(committedWorksetI || []);
 
   if (!alleles.length) { setBanner("Class I: no alleles selected."); return []; }
@@ -2366,10 +2370,10 @@ const runResultsI = await (async () => {
 
   const apiRowsAll = [];
   for (let i = 0; i < chunks.length; i++) {
-    const chunk = chunks[i];
+    const chunk = peps.slice(i, i + NETMHC_CHUNK_SIZE);
     try {
       setBanner(`Class I: submitting chunk ${i+1}/${chunks.length} (${chunk.length} peptides)…`);
-      const fasta = chunk.map((p,idx)=>`>p${idx+1}\n${p}`).join("\n");
+      const fasta = chunk.map((p, idx) => `>p${idx+1}\n${p}`).join("\n");
 
       const id  = await submit(buildBodyI(allelesToQuery, fasta));
       setBanner(`Class I: polling chunk ${i+1}/${chunks.length}…`);
