@@ -1,9 +1,8 @@
 /*****************************************************************
- *  peptideHeatmap() → HTMLElement   ·   v21a
+ *  peptideHeatmap() → HTMLElement   ·   v21b
  *  - v19 layout/reflow (no clipping; same spacing & sizing)
- *  - Dash template: clicked row shows aligned peptide with '-';
- *    alternates use the same gap template; overlay lookups use
- *    ungapped keys so cache/API rows match.
+ *  - Uses the clicked peptide’s dash template for display,
+ *    but looks up overlay values by UNGAPPED keys.
  *****************************************************************/
 import * as d3 from "npm:d3";
 import { aminoacidPalette } from "/components/palettes.js";
@@ -32,10 +31,20 @@ export function peptideHeatmap({
 
   /* ── helpers ───────────────────────────────────────────────── */
   const aaCols      = aminoacidPalette;
-  const selAligned  = String(selected);     // aligned, with '-'
-  const normPep     = s => String(s||"").toUpperCase().trim();
-  const ungap       = s => String(s||"").replace(/-/g,"");
+  const selAligned  = String(selected);            // aligned, with '-'
   const normAllele  = s => String(s||"").toUpperCase().trim();
+  const ungap       = s => String(s||"").replace(/-/g,"");
+  const pepCanon    = s => ungap(s).toUpperCase().trim();
+
+  // Map an ungapped peptide onto the dash template from selAligned
+  function applyTemplate(pepUngapped, templateAligned) {
+    let i = 0, out = "";
+    for (const ch of templateAligned) {
+      if (ch === "-") out += "-";
+      else            out += pepUngapped[i++] ?? "";
+    }
+    return out;
+  }
 
   // mode is a reactive value or string; compute once per render
   const resolveMode = () => {
@@ -46,33 +55,39 @@ export function peptideHeatmap({
   const scoreKey = () =>
     currentMode === "BA" ? "netmhcpan_ba_percentile" : "netmhcpan_el_percentile";
 
-  /* ── rows (selected + topN) — identity by ALIGNED string ─ */
-  const byAligned = new Map(data.map(d => [String(d.peptide), d]));
-  const headBase  = byAligned.get(selAligned)
-                   ?? { peptide: selAligned, proportion:0, frequency:0, total:0 };
+  /* ── rows (selected + topN) — identity by CANONICAL (ungapped) ─ */
+  const byCanon = new Map(data.map(d => [pepCanon(d.peptide), d]));
+  const selKey  = pepCanon(selAligned);
+
+  const headBase = byCanon.get(selKey)
+                   ?? { peptide: ungap(selAligned), proportion:0, frequency:0, total:0 };
+
   const head = {
     ...headBase,
     displayPeptide: selAligned,           // aligned, with ‘-’
-    ungappedKey   : ungap(selAligned)     // key used for overlay lookup
+    ungappedKey   : selKey                // overlay lookup key
   };
 
   const alts = data
-    .filter(d => String(d.peptide) !== selAligned)
+    .filter(d => pepCanon(d.peptide) !== selKey)
     .sort((a,b)=>d3.descending(a.proportion,b.proportion))
     .slice(0, topN)
-    .map(d => ({
-      ...d,
-      displayPeptide: String(d.peptide),   // already aligned, includes ‘-’
-      ungappedKey   : ungap(d.peptide)     // overlay lookup key (what NetMHC sees)
-    }));
-
+    .map(d => {
+      const ung = pepCanon(d.peptide);
+      return {
+        ...d,
+        displayPeptide: applyTemplate(ung, selAligned), // align to template
+        ungappedKey   : ung
+      };
+    });
 
   const rows = [head, ...alts];
   const nRows   = rows.length;
-  const pepCols = Math.max(0, d3.max(rows, d => d.displayPeptide.length) ?? 0);
+  const pepCols = Math.max(selAligned.length, d3.max(rows, d => d.displayPeptide.length) ?? 0);
 
   /* ── allele lookup (keys = ALLELE|UNGAPPED) ──────────────────── */
-  const pairKey  = (al, pep) => `${normAllele(al)}|${normPep(pep)}`;
+  const pairKey  = (al, pepUngapped) => `${normAllele(al)}|${pepUngapped.toUpperCase()}`;
+
   function buildLookup() {
     const key = scoreKey();
     const map = new Map();
@@ -178,7 +193,7 @@ export function peptideHeatmap({
       if (haveAlleles) {
         const gA = svg.append("g")
           .attr("transform", `translate(${margin.left + pepCols*cell + ((labelCols + angleGapCols) * cell)},${y0})`);
-        const rects = gA.selectAll("rect")
+        gA.selectAll("rect")
           .data(alleles)
           .enter().append("rect")
             .attr("x", (_,j)=>j*cell + 0.5)
