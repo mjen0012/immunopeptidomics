@@ -623,22 +623,16 @@ const peptidesAligned = peptidesClean.map(d => {
 const peptideWindows = (() => {
   const pid = committedProteinId; // reactive
   if (!pid) return [];
+  const key = r => `${r.start}|${r.aligned_length}`;
   const map = new Map();
   for (const r of peptidesAligned) {
     if ((r.protein || "").toUpperCase() !== pid) continue;
-    if (!r.start || !r.length_raw) continue;     // ← use ungapped length
-    const k = `${r.start}|${r.length_raw}`;
-    if (!map.has(k)) {
-      map.set(k, {
-        start   : +r.start,
-        len     : +r.length_raw,                 // ← len is UNGAPPED now
-        len_aln : +(r.aligned_length ?? r.length_raw) // (optional, keep if you want)
-      });
-    }
+    if (!r.start || !r.aligned_length) continue;
+    const k = key(r);
+    if (!map.has(k)) map.set(k, { start: +r.start, len: +r.aligned_length });
   }
   return [...map.values()];
 })();
-
 ```
 
 ```js
