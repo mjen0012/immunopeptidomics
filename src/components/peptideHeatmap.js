@@ -22,13 +22,7 @@ export function peptideHeatmap({
   showAlleles = true
 } = {}) {
 
-  // Resolve selected peptide: accept a plain string or a Mutable
-  const selectedValue =
-    typeof selected === "string" ? selected
-    : selected && typeof selected === "object" && "value" in selected ? selected.value
-    : null;
-
-  if (!selectedValue || !Array.isArray(data) || data.length === 0) {
+  if (!selected || !data?.length) {
     const span = document.createElement("span");
     span.textContent = "Click a peptide in the viewer to see its proportions.";
     span.style.fontStyle = "italic";

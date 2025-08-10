@@ -2649,15 +2649,16 @@ const heatmapData = rowsRaw.map(r => {
 
 const heatmapSVG = peptideHeatmap({
   data        : heatmapData,
-  selected    : selectedPeptide,                  // keep the Mutable
+  selected    : selectedPeptide,          // ← revert to the Mutable
   colourMode  : colourMode,
   alleleData  : chartRowsI,
-  alleles     : Array.from(selectedI || []),      // <- use current value, not the view
+  alleles     : Array.from(alleleCtrl1.value || []),
   mode        : percMode,
   showAlleles : true,
   baseCell    : 28,
   height0     : 280,
   margin      : { top:20, right:150, bottom:20, left:4 }
 });
+
 
 ```
