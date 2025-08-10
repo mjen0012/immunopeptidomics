@@ -625,13 +625,12 @@ const peptidesAligned = peptidesClean.map(d => {
 const peptideWindows = (() => {
   const pid = committedProteinId; // reactive
   if (!pid) return [];
-  const key = r => `${r.start_raw}|${r.length_raw}`;
+  const key = r => `${r.start}|${r.length}`;
   const map = new Map();
   for (const r of peptidesAligned) {
     if ((r.protein || "").toUpperCase() !== pid) continue;
-    if (!r.start_raw || !r.length_raw) continue;
-    const k = key(r);
-    if (!map.has(k)) map.set(k, { start: +r.start_raw, len: +r.length_raw });
+    if (!r.start || !r.length) continue;
+    map.set(k, { start: +r.start, len: +r.length });
   }
   return [...map.values()];
 })();
@@ -718,7 +717,7 @@ const topCandidatesByWindow = peptideWindows.length === 0 ? []
   /* All-sequence tallies */
   ex_all AS (
     SELECT p.start, p.len,
-          SUBSTR(REPLACE(f.sequence, '-', ''), CAST(p.start AS BIGINT), CAST(p.len AS BIGINT)) AS peptide
+          SUBSTR(f.sequence, CAST(p.start AS BIGINT), CAST(p.len AS BIGINT)) AS peptide
     FROM filtered f
     CROSS JOIN params p
   ),
@@ -737,7 +736,7 @@ const topCandidatesByWindow = peptideWindows.length === 0 ? []
   filtered_u AS ( SELECT DISTINCT sequence FROM filtered ),
   ex_u AS (
     SELECT p.start, p.len,
-          SUBSTR(REPLACE(u.sequence, '-', ''), CAST(p.start AS BIGINT), CAST(p.len AS BIGINT)) AS peptide
+          SUBSTR(u.sequence, CAST(p.start AS BIGINT), CAST(p.len AS BIGINT)) AS peptide
     FROM filtered_u u
     CROSS JOIN params p
   ),
@@ -810,7 +809,7 @@ const peptidesIWorkset = (() => {
 
   // top candidates from the SQL above (already ungapped substrings)
   for (const r of topCandidatesByWindow) {
-    const p = (r.peptide || "").toUpperCase();
+    const p = (r.peptide || "").toUpperCase().replace(/-/g, "");
     if (p.length >= 8 && p.length <= 14) set.add(p);
   }
 
@@ -1419,7 +1418,7 @@ filtered AS (
 
 /* All-Sequence Tallies */
 extracted_all AS (
-  SELECT SUBSTR(REPLACE(sequence, '-', ''), params.start, params.len) AS peptide
+  SELECT SUBSTR(sequence, params.start, params.len) AS peptide
   FROM   filtered, params
 ),
 counts_all AS (
@@ -1432,7 +1431,7 @@ total_all AS ( SELECT SUM(cnt_all) AS total_all FROM counts_all ),
 /* Unique-Sequence Tallies */
 filtered_dist AS ( SELECT DISTINCT sequence FROM filtered ),
 extracted_u AS (
-  SELECT SUBSTR(REPLACE(sequence, '-', ''), params.start, params.len) AS peptide
+  SELECT SUBSTR(sequence, params.start, params.len) AS peptide
   FROM   filtered_dist, params
 ),
 counts_u AS (
