@@ -1520,6 +1520,24 @@ const heatmapData = rowsRaw.map(r => ({
   total     : Number(r[totCol])
 }));
 
+// Current window rows = clicked peptide (aligned) + top 4 for the window (aligned)
+const currentWindowRows = (() => {
+  if (!selectedPeptide || !Array.isArray(rowsRaw)) return [];
+  const selAligned = String(selectedPeptide);
+  // rowsRaw contains { peptide, proportion_* } from peptideProps (peptide is aligned substring)
+  const ranked = [...rowsRaw].sort((a,b)=> Number(b[propCol]) - Number(a[propCol]));
+  const head = ranked.find(r => String(r.peptide) === selAligned);
+  const alts = ranked.filter(r => String(r.peptide) !== selAligned).slice(0,4);
+  return [head, ...alts].filter(Boolean);
+})();
+
+// Ungapped versions for NetMHC
+const currentWindowUngapped = Array.from(new Set(
+  currentWindowRows
+    .map(r => String(r.peptide || "").replace(/-/g,"").toUpperCase())
+    .filter(p => p.length >= 8 && p.length <= 14)
+));
+
 /* Create Peptide Plot */
 const heatmapSVG = peptideHeatmap({
   data        : heatmapData,                        // peptides (ungapped)
@@ -2242,7 +2260,10 @@ const cachePreviewI = await (async () => {
   committedProteinId;
 
   const alleles = Array.from(alleleCtrl1.value || []);
-  const peps    = peptidesIWorkset;
+  const peps    = Array.from(new Set([
+    ...(peptidesIWorkset || []),
+    ...(currentWindowUngapped || [])
+  ]));
 
   if (!committedProteinId || !alleles.length || !peps.length) return [];
 
@@ -2267,7 +2288,10 @@ const chartRowsI = (() => {
   committedProteinId;
 
   const allelesNow = new Set((alleleCtrl1?.value || []).map(a => String(a).toUpperCase()));
-  const allowed    = new Set((peptidesIWorkset || []).map(p => String(p).toUpperCase()));
+  const allowed    = new Set([
+    ...(peptidesIWorkset || []),
+    ...(currentWindowUngapped || [])
+  ].map(p => String(p).toUpperCase()));
   if (!allelesNow.size || !allowed.size) return [];
 
   const map = new Map();
@@ -2605,9 +2629,17 @@ const selectedII = Generators.input(alleleCtrl2);
 
 /* snapshots captured only when the Run buttons fire */
 const committedI        = snapshotOn(runBtnI,  () => Array.from(alleleCtrl1.value || []));
-const committedWorksetI = snapshotOn(runBtnI,  () => Array.from(peptidesIWorkset || []));
+
+const committedWorksetI = snapshotOn(runBtnI,  () => {
+  const base  = Array.from(peptidesIWorkset || []).map(p => String(p).toUpperCase());
+  const extra = Array.from(currentWindowUngapped || []);
+  return Array.from(new Set([...base, ...extra]));  // union, unique, uppercase
+});
+
 const committedProteinI = snapshotOn(runBtnI,  () => committedProteinId);
+
 const committedII       = snapshotOn(runBtnII, () => Array.from(alleleCtrl2.value || []));
+
 
 
 

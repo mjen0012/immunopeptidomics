@@ -32,22 +32,10 @@ export function peptideHeatmap({
 
   /* ── helpers ───────────────────────────────────────────────── */
   const aaCols      = aminoacidPalette;
-  const selAligned  = String(selected);
-  const selNoGaps   = selAligned.replace(/-/g, "");
-  const normPep     = s => String(s||"").toUpperCase().replace(/-/g,"").trim();
+  const selAligned  = String(selected);     // aligned, with '-'
+  const normPep     = s => String(s||"").toUpperCase().trim();
+  const ungap       = s => String(s||"").replace(/-/g,"");
   const normAllele  = s => String(s||"").toUpperCase().trim();
-
-  // dash-template from the clicked peptide
-  const applyTemplate = (ungapped) => {
-    const src = (ungapped||"").split("");
-    const out = [];
-    let k = 0;
-    for (let i=0;i<selAligned.length;i++) {
-      if (selAligned[i] === "-") out.push("-");
-      else out.push(src[k++] ?? "");
-    }
-    return out.join("");
-  };
 
   // mode is a reactive value or string; compute once per render
   const resolveMode = () => {
@@ -58,29 +46,25 @@ export function peptideHeatmap({
   const scoreKey = () =>
     currentMode === "BA" ? "netmhcpan_ba_percentile" : "netmhcpan_el_percentile";
 
-  /* ── rows (selected + topN) — keep both display & ungapped keys ─ */
-  const byUngapped = new Map(data.map(d => [normPep(d.peptide), d]));
-  const headBase   = byUngapped.get(normPep(selNoGaps))
-                   ?? { peptide: selNoGaps, proportion:0, frequency:0, total:0 };
+  /* ── rows (selected + topN) — identity by ALIGNED string ─ */
+  const byAligned = new Map(data.map(d => [String(d.peptide), d]));
+  const headBase  = byAligned.get(selAligned)
+                   ?? { peptide: selAligned, proportion:0, frequency:0, total:0 };
   const head = {
     ...headBase,
-    displayPeptide: selAligned,              // keep dashes for the clicked one
-    ungappedKey   : normPep(selNoGaps)       // ← always the clicked UNGAPPED peptide
+    displayPeptide: selAligned,           // aligned, with ‘-’
+    ungappedKey   : ungap(selAligned)     // key used for overlay lookup
   };
 
   const alts = data
-    .filter(d => normPep(d.peptide) !== normPep(selNoGaps))
+    .filter(d => String(d.peptide) !== selAligned)
     .sort((a,b)=>d3.descending(a.proportion,b.proportion))
     .slice(0, topN)
-    .map(d => {
-      const alignedAlt = applyTemplate(normPep(d.peptide)); // insert dashes like the click
-      return {
-        ...d,
-        displayPeptide: alignedAlt,
-        // ← lookup key is the same letters but WITHOUT the dashes; this is what NetMHC sees
-        ungappedKey   : alignedAlt.replace(/-/g, "")
-      };
-    });
+    .map(d => ({
+      ...d,
+      displayPeptide: String(d.peptide),   // already aligned, includes ‘-’
+      ungappedKey   : ungap(d.peptide)     // overlay lookup key (what NetMHC sees)
+    }));
 
 
   const rows = [head, ...alts];
@@ -163,7 +147,7 @@ export function peptideHeatmap({
             const ch = row.displayPeptide[j] ?? "";
             // clicked row first → solid blue, including positions with '-'
             if (i === 0) return "#006DAE";
-            if (ch === "-") return "#f9f9f9";
+            if (i !== 0 && ch === "-") return "#f9f9f9";
             if (colourMode === "Properties") return aaCols[ch] ?? "#f9f9f9";
             return (j < selAligned.length && ch !== selAligned[j]) ? "#ffcccc" : "#f9f9f9";
           });
@@ -194,7 +178,7 @@ export function peptideHeatmap({
       if (haveAlleles) {
         const gA = svg.append("g")
           .attr("transform", `translate(${margin.left + pepCols*cell + ((labelCols + angleGapCols) * cell)},${y0})`);
-        gA.selectAll("rect")
+        const rects = gA.selectAll("rect")
           .data(alleles)
           .enter().append("rect")
             .attr("x", (_,j)=>j*cell + 0.5)
@@ -203,9 +187,15 @@ export function peptideHeatmap({
             .attr("height", cell - 1)
             .attr("rx",4).attr("ry",4)
             .attr("stroke","#fff")
-            .attr("fill", al => {
+            .each(function(al){
               const val = lookup.get(pairKey(al, row.ungappedKey));
-              return Number.isFinite(val) ? colourPct(val) : "#f0f0f0";
+              const pct = Number.isFinite(val) ? val : null;
+              d3.select(this)
+                .attr("fill", pct !== null ? colourPct(pct) : "#f0f0f0")
+                .append("title")
+                .text(pct !== null
+                  ? `${al}\n${row.ungappedKey}\n${currentMode} percentile: ${pct.toFixed(1)}`
+                  : `${al}\n${row.ungappedKey}\n(no prediction)`);
             });
       }
     });
