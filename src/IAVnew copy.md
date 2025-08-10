@@ -621,23 +621,19 @@ const peptidesAligned = peptidesClean.map(d => {
 
 /* Distinct (start,len) windows for uploaded peptides in the committed protein */
 const peptideWindows = (() => {
-  const pid = committedProteinId; // reactive
+  const pid = committedProteinId;
   if (!pid) return [];
   const map = new Map();
   for (const r of peptidesAligned) {
     if ((r.protein || "").toUpperCase() !== pid) continue;
-    if (!r.start || !r.length_raw) continue;     // ← use ungapped length
-    const k = `${r.start}|${r.length_raw}`;
-    if (!map.has(k)) {
-      map.set(k, {
-        start   : +r.start,
-        len     : +r.length_raw,                 // ← len is UNGAPPED now
-        len_aln : +(r.aligned_length ?? r.length_raw) // (optional, keep if you want)
-      });
-    }
+    if (!r.start_raw || !r.length_raw) continue;
+    const start = +r.start_raw;
+    const len   = +r.length_raw;
+    map.set(`${start}|${len}`, { start, len });
   }
   return [...map.values()];
 })();
+
 
 ```
 
@@ -885,9 +881,9 @@ function createIAVDashboard({
 
     /* align-aware click handler */
     onClick    : d => {
-      setSelectedPeptide(d.peptide_aligned); // always the aligned string
-      setSelectedStart  (d.start);
-      setSelectedLength (d.length);          // aligned span
+      setSelectedPeptide(d.peptide_aligned); // keep aligned for display
+      setSelectedStart  (d.start_raw);       // ✅ raw coordinate
+      setSelectedLength (d.length_raw);      // ✅ raw (ungapped) length
     }
   });
   yOff += pep.height;
