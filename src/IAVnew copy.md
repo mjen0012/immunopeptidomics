@@ -2647,9 +2647,10 @@ const heatmapData = rowsRaw.map(r => {
 
 ```js
 
+/* draw the heatmap once everything above is defined */
 const heatmapSVG = peptideHeatmap({
   data        : heatmapData,
-  selected    : selectedPeptide,          // ← revert to the Mutable
+  selected    : selectedPeptide.value,   // ← was selectedPeptide (object)
   colourMode  : colourMode,
   alleleData  : chartRowsI,
   alleles     : Array.from(alleleCtrl1.value || []),
