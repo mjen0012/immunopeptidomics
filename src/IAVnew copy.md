@@ -1288,25 +1288,8 @@ const consensusRows = Array.from(
 
 /* facetArea :  Map<facetKey → [{position,value,aminoacid}]> */
 /* build facet areas only from the query result */
-const facetArea = await (async () => {
-  if (positionFacetStats === null) return new Map();
+const facetArea = new Map();   // temporarily replace computed facetArea
 
-  const rows = await positionFacetStats.toArray();
-  const valueField = (seqSet === "Unique sequences" ? "value_unique" : "value");
-  const out = new Map();
-
-  for (const [facetKey, groupRows] of d3.group(rows, d => d.facet)) {
-    const areaRows = Array.from(
-      d3.group(groupRows, d => d.position),
-      ([position, posRows]) => {
-        const top = posRows.reduce((m, x) => (x[valueField] > m[valueField] ? x : m));
-        return { position:+position, value:Number(top[valueField]), aminoacid: top.aminoacid };
-      }
-    ).sort((a,b)=>d3.ascending(a.position,b.position));
-    out.set(facetKey ?? "Unknown", areaRows);
-  }
-  return out;
-})();
 
 
 
@@ -1463,17 +1446,19 @@ const heatmapData = rowsRaw.map(r => ({
 
 /* Create Peptide Plot */
 const heatmapSVG = peptideHeatmap({
-  data        : heatmapData,
-  selected    : selectedPeptide,
+  data        : heatmapData,                        // peptides (ungapped)
+  selected    : selectedPeptide,                    // may include '-'
   colourMode  : colourMode,
-  alleleData  : ENABLE_MHC_OVERLAY ? chartRowsI : [],
-  alleles     : ENABLE_MHC_OVERLAY ? Array.from(alleleCtrl1.value || []) : [],
-  mode        : percMode,
-  showAlleles : ENABLE_MHC_OVERLAY && Boolean((alleleCtrl1.value||[]).length),
+  // ── NEW overlay props:
+  alleleData  : chartRowsI,                         // cache + API (snake_case)
+  alleles     : Array.from(alleleCtrl1.value || []),
+  mode        : percMode,                           // "EL" | "BA"
+  showAlleles : true,
   baseCell    : 28,
   height0     : 280,
   margin      : { top:20, right:150, bottom:20, left:4 }
 });
+
 ```
 
 ```js
@@ -2566,5 +2551,5 @@ const committedII       = snapshotOn(runBtnII, () => Array.from(alleleCtrl2.valu
 ```
 
 ```js
-const ENABLE_MHC_OVERLAY = false;
+
 ```
