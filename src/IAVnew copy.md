@@ -2316,10 +2316,10 @@ const NETMHC_CHUNK_SIZE = 1000;   // was ~25 before; now 1000 as requested
 const runResultsI = await (async () => {
   trigI; // still gate on the run click
 
-  const alleles = Array.from(committedI || []).map(a => String(a).toUpperCase());
-  let peps = Array.from(committedWorksetI || [])
-    .map(p => String(p).toUpperCase().replace(/-/g, ""))
-    .filter(p => p.length >= 8 && p.length <= 14);
+const alleles = Array.from(committedI || []).map(a => String(a).toUpperCase());
+let peps = Array.from(committedWorksetI || [])
+  .map(p => String(p).toUpperCase().replace(/-/g, ""))
+  .filter(p => p.length >= 8 && p.length <= 14);
 
   const peps    = Array.from(committedWorksetI || []);
 
@@ -2370,10 +2370,10 @@ const runResultsI = await (async () => {
 
   const apiRowsAll = [];
   for (let i = 0; i < chunks.length; i++) {
-    const chunk = peps.slice(i, i + NETMHC_CHUNK_SIZE);
+    const chunk = chunks[i];
     try {
       setBanner(`Class I: submitting chunk ${i+1}/${chunks.length} (${chunk.length} peptides)…`);
-      const fasta = chunk.map((p, idx) => `>p${idx+1}\n${p}`).join("\n");
+      const fasta = chunk.map((p,idx)=>`>p${idx+1}\n${p}`).join("\n");
 
       const id  = await submit(buildBodyI(allelesToQuery, fasta));
       setBanner(`Class I: polling chunk ${i+1}/${chunks.length}…`);
