@@ -1350,18 +1350,84 @@ const setSelectedLength = x => selectedLength.value = x;
 ```
 
 ```js
-/* Peptide Query Data – guard handles 0/falsey safely */
+/* Peptide Query Data – only run after a peptide is clicked */
 const peptideProps =
-  (selectedStart != null && selectedLength != null)
+  (selectedStart?.value != null &&
+   selectedLength?.value != null &&
+   selectedPeptide?.value)  // require the peptide too
     ? db.sql`
 WITH
 params AS (
   SELECT
-    CAST(${selectedStart}  AS BIGINT) AS start,
-    CAST(${selectedLength} AS BIGINT) AS len,
-    ${selectedPeptide}                 AS sel_peptide
+    CAST(${+selectedStart.value}  AS BIGINT) AS start,
+    CAST(${+selectedLength.value} AS BIGINT) AS len,
+    ${pepCanon(selectedPeptide.value)}       AS sel_peptide   -- ungapped, uppercase
 ),
-filtered AS ( /* … unchanged filter body … */ ${/* keep your existing filtered block */ sql``} ),
+
+/* Apply the same filters used in positionStats */
+filtered AS (
+  SELECT *
+  FROM   proteins
+  WHERE  protein = ${proteinCommitted}
+
+    AND ${ genotypesCommitted.length
+            ? sql`genotype IN (${ genotypesCommitted })` : sql`TRUE` }
+    AND ${ hostsCommitted.length
+            ? sql`host IN (${ hostsCommitted })` : sql`TRUE` }
+    AND ${
+          hostCategoryCommitted.includes('Human') &&
+          !hostCategoryCommitted.includes('Non-human')
+            ? sql`host = 'Homo sapiens'`
+            : (!hostCategoryCommitted.includes('Human') &&
+               hostCategoryCommitted.includes('Non-human'))
+                ? sql`host <> 'Homo sapiens'`
+                : sql`TRUE`
+        }
+    AND ${ countriesCommitted.length
+            ? sql`country IN (${ countriesCommitted })` : sql`TRUE` }
+    AND ${
+      collectionDatesCommitted.from || collectionDatesCommitted.to
+        ? sql`
+            TRY_CAST(
+              CASE
+                WHEN collection_date IS NULL OR collection_date = '' THEN NULL
+                WHEN LENGTH(collection_date)=4  THEN collection_date || '-01-01'
+                WHEN LENGTH(collection_date)=7  THEN collection_date || '-01'
+                ELSE collection_date
+              END AS DATE
+            )
+            ${
+              collectionDatesCommitted.from && collectionDatesCommitted.to
+                ? sql`BETWEEN CAST(${collectionDatesCommitted.from} AS DATE)
+                         AND   CAST(${collectionDatesCommitted.to  } AS DATE)`
+                : collectionDatesCommitted.from
+                    ? sql`>= CAST(${collectionDatesCommitted.from} AS DATE)`
+                    : sql`<= CAST(${collectionDatesCommitted.to   } AS DATE)`
+            }
+          ` : sql`TRUE`
+    }
+    AND ${
+      releaseDatesCommitted.from || releaseDatesCommitted.to
+        ? sql`
+            TRY_CAST(
+              CASE
+                WHEN release_date IS NULL OR release_date = '' THEN NULL
+                WHEN LENGTH(release_date)=4 THEN release_date || '-01-01'
+                WHEN LENGTH(release_date)=7 THEN release_date || '-01'
+                ELSE release_date
+              END AS DATE
+            )
+            ${
+              releaseDatesCommitted.from && releaseDatesCommitted.to
+                ? sql`BETWEEN CAST(${releaseDatesCommitted.from} AS DATE)
+                         AND   CAST(${releaseDatesCommitted.to   } AS DATE)`
+                : releaseDatesCommitted.from
+                    ? sql`>= CAST(${releaseDatesCommitted.from} AS DATE)`
+                    : sql`<= CAST(${releaseDatesCommitted.to   } AS DATE)`
+            }
+          ` : sql`TRUE`
+    }
+),
 
 /* All-Sequence Tallies */
 extracted_all AS (
@@ -1394,7 +1460,7 @@ combined AS (
   CROSS JOIN  total_u     AS tu
 ),
 
-/* Ensures the aligned selection shows up even if its count is 0 */
+/* Ensure the clicked peptide shows up even if its count is 0 */
 selected_filler AS (
   SELECT
     params.sel_peptide                   AS peptide,
@@ -1418,9 +1484,8 @@ WHERE NOT EXISTS (SELECT 1 FROM combined
                   WHERE peptide = (SELECT sel_peptide FROM params));
 `
     : db.sql`SELECT ''::VARCHAR AS peptide, 0::INT AS frequency_all, 0::INT AS total_all, 0.0::DOUBLE AS proportion_all,
-                         0::INT AS frequency_unique, 0::INT AS total_unique, 0.0::DOUBLE AS proportion_unique
+                     0::INT AS frequency_unique, 0::INT AS total_unique, 0.0::DOUBLE AS proportion_unique
               LIMIT 0`;
-
 
 ```
 
@@ -2562,7 +2627,8 @@ function applyGapTemplate(template, ungapped) {
   return out;
 }
 
-const template = typeof selectedPeptide === "string" ? selectedPeptide : null;
+const template = typeof selectedPeptide?.value === "string" ? selectedPeptide.value : null;
+
 
 /* heatmap data:
    - peptide: aligned to the selected gap template (if any)
