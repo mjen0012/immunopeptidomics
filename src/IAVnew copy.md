@@ -619,20 +619,22 @@ const peptidesAligned = peptidesClean.map(d => {
   };
 });
 
-/* Distinct (start,len) windows for uploaded peptides in the committed protein */
+
+/* Distinct (start,len) windows for uploaded peptides — use RAW coords */
 const peptideWindows = (() => {
-  const pid = committedProteinId; // reactive
+  const pid = committedProteinId;
   if (!pid) return [];
-  const key = r => `${r.start}|${r.aligned_length}`;
+  const key = r => `${r.start_raw}|${r.length_raw}`;
   const map = new Map();
   for (const r of peptidesAligned) {
     if ((r.protein || "").toUpperCase() !== pid) continue;
-    if (!r.start || !r.aligned_length) continue;
+    if (!r.start_raw || !r.length_raw) continue;
     const k = key(r);
-    if (!map.has(k)) map.set(k, { start: +r.start, len: +r.aligned_length });
+    if (!map.has(k)) map.set(k, { start: +r.start_raw, len: +r.length_raw });
   }
   return [...map.values()];
 })();
+
 ```
 
 ```js
@@ -2225,12 +2227,15 @@ function normalizeRowI_api(r) {
 ```
 
 ```js
-/* ▸ peptides for Class I preview (derived from uploaded peptideFile) */
+/* ▸ peptides for Class I preview (strip dashes before length check) */
 const peptidesI = await (async () => {
   if (!peptideFile) return [];
   const all = await parsePeptides(peptideFile);
-  return all.filter(p => p.length >= 8 && p.length <= 14);
+  return all
+    .map(p => p.replace(/-/g, ""))         // ← normalize
+    .filter(p => p.length >= 8 && p.length <= 14);
 })();
+
 ```
 
 ```js
