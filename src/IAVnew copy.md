@@ -1463,19 +1463,17 @@ const heatmapData = rowsRaw.map(r => ({
 
 /* Create Peptide Plot */
 const heatmapSVG = peptideHeatmap({
-  data        : heatmapData,                        // peptides (ungapped)
-  selected    : selectedPeptide,                    // may include '-'
+  data        : heatmapData,
+  selected    : selectedPeptide,
   colourMode  : colourMode,
-  // ── NEW overlay props:
-  alleleData  : chartRowsI,                         // cache + API (snake_case)
-  alleles     : Array.from(alleleCtrl1.value || []),
-  mode        : percMode,                           // "EL" | "BA"
-  showAlleles : true,
+  alleleData  : ENABLE_MHC_OVERLAY ? chartRowsI : [],
+  alleles     : ENABLE_MHC_OVERLAY ? Array.from(alleleCtrl1.value || []) : [],
+  mode        : percMode,
+  showAlleles : ENABLE_MHC_OVERLAY && Boolean((alleleCtrl1.value||[]).length),
   baseCell    : 28,
   height0     : 280,
   margin      : { top:20, right:150, bottom:20, left:4 }
 });
-
 ```
 
 ```js
@@ -2565,4 +2563,8 @@ const committedII       = snapshotOn(runBtnII, () => Array.from(alleleCtrl2.valu
 
 
 
+```
+
+```js
+const ENABLE_MHC_OVERLAY = false;
 ```
