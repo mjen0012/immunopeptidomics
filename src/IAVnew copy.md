@@ -159,6 +159,16 @@ banner.className = "banner__bg";
     <br>${seqSetInput}</br>
     <br>${downloadFastaBtn}</br>
     <br>${downloadPeptideBtn}</br>
+    <br>${statusBanner}</br>
+    <br>${alleleCtrl1}</br>
+    <br>${alleleCtrl2}</br>
+    <br>${percentileModeInput}</br>
+    <br>${mhcClassInput}</br>
+    <br>${runBtnI}</br>
+    <br>${runBtnII}</br>
+    <br>${downloadCSVI}</br>
+    <br>${downloadCSVII}</br>
+
   </div>
 
   <!-- Row 2 · 80 % · metric cards -->
@@ -169,10 +179,9 @@ banner.className = "banner__bg";
     ${metricCard({title:"Conserved peptides",current: aligned_count,      previous: nonaligned_count, hideDelta:true})}
   </div>
 
-  <!-- Row 3 · 80 % · three equal cards -->
-  <div style="display:grid; grid-template-columns:repeat(3,1fr); gap:1rem;">
+  <!-- Row 3 · 80 % · two equal cards -->
+  <div style="display:grid; grid-template-columns:repeat(2,1fr); gap:1rem;">
     <div class="card">${heatmapSVG}</div>
-    <div class="card">${allelePlot}</div>   <!-- ⬅️ NEW: netMHC heatmap card -->
     <div class="card">${histEl}</div>
   </div>
 
@@ -2528,18 +2537,6 @@ const peptidesICommitted = (() => {
 
 
 
-<!-- ─── NetMHC-pan controls & downloads (temporary position) ─── -->
-<div class="card" style="margin-top:1rem; display:flex; flex-direction:column; gap:0.75rem;">
-  ${statusBanner}
-  ${alleleCtrl1}
-  ${alleleCtrl2}
-  ${runBtnI}
-  ${runBtnII}
-  ${downloadCSVI}
-  ${downloadCSVII}
-  ${percentileModeInput}
-  ${mhcClassInput}
-</div>
 
 
 ```js
