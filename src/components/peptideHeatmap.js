@@ -100,7 +100,15 @@ export function peptideHeatmap({
   const look = buildDualLookups();
   const activeLookup = (currentMode === "BA" ? look.ba : look.el);
 
-  const colourPct = d3.scaleLinear().domain([0,50,100]).range(["#0074D9","#ffffff","#e60000"]);
+  // brand blue
+  const BRAND = "#006DAE";
+
+  // 0–2 blue→white, 2–50 white→red, 50–100 red (flat)
+  const alleleColour = d3.scaleLinear()
+    .domain([0, 2, 50, 100])
+    .range([BRAND, "#ffffff", "#e60000", "#e60000"])
+    .clamp(true);
+
 
   /* ── measurement helper (v19) ───────────────────────────────── */
   function measureMaxTextWidth(strings, fontPx = 12, fontFamily = "sans-serif") {
@@ -196,10 +204,12 @@ export function peptideHeatmap({
           .attr("fill", j => {
             const ch = row.displayPeptide[j] ?? "";
             // ⬇ ensure whole top row is blue, including '-'
-            if (i === 0) return "#006DAE";
-            if (ch === "-") return "#f9f9f9";
-            if (colourMode === "Properties") return aaCols[ch] ?? "#f9f9f9";
-            return (j < selAligned.length && ch !== selAligned[j]) ? "#ffcccc" : "#f9f9f9";
+            const isProps = (colourMode === "Properties");
+            if (!isProps && i === 0) return BRAND;                 // blue only for Mismatches
+            if (ch === "-") return "#f0f0f0";                      // neutral for gaps
+            if (isProps) return aaCols[ch] ?? "#f9f9f9";           // property palette
+            const mismatch = (j < selAligned.length && ch !== selAligned[j]);
+            return mismatch ? "#ffcccc" : "#f9f9f9";               // Mismatches mode
           });
 
       // AA letters (displayPeptide)
@@ -211,8 +221,8 @@ export function peptideHeatmap({
           .attr("y", cell/2)
           .attr("dy","0.35em")
           .attr("text-anchor","middle")
-          .attr("font-weight", i===0 ? "bold" : null)
-          .attr("fill", i===0 ? "#fff" : "#000")
+          .attr("font-weight", (! (colourMode === "Properties") && i===0) ? "bold" : null)
+          .attr("fill", (! (colourMode === "Properties") && i===0) ? "#fff" : "#000")
           .text(c=>c);
 
       // % + counts
@@ -239,7 +249,7 @@ export function peptideHeatmap({
             .attr("stroke","#fff")
             .attr("fill", al => {
               const val = activeLookup.get(pairKey(al, row.ungappedKey));
-              return Number.isFinite(val) ? colourPct(val) : "#f0f0f0";
+              return Number.isFinite(val) ? alleleColour(val) : "#f0f0f0";
             })
             .on("mouseenter", (ev, al) => {
               const k  = pairKey(al, row.ungappedKey);
