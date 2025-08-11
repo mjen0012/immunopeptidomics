@@ -851,9 +851,15 @@ function createIAVDashboard({
     d => d.protein === proteinCommitted
   );
 
-  const keys        = [...new Set(pepData.map(d => d[colourAttr]))].sort();
-  /* d3.scaleOrdinal needs at least 1 key–colour pair */
-  const colourScale = makePeptideScale(keys.length ? keys : ["­­dummy­­"]);
+  /* only build a categorical scale when colouring by attribute_* */
+  const keys = !isAlleleColour
+    ? [...new Set(pepData.map(d => d[colourAttr]))].sort()
+    : [];
+
+  const colourScale = !isAlleleColour
+    ? makePeptideScale(keys.length ? keys : ["dummy"])
+    : null;
+
 
   /* 3 ▸ SHARED X SCALE  (0.5 … max+0.5) ------------------------ */
   const maxPos = Math.max(
@@ -879,15 +885,19 @@ function createIAVDashboard({
   const pep = peptideChart(slot(), {
     data       : pepData,
     xScale     : xCurrent,
-    rowHeight, gap, sizeFactor, margin, colourScale,
-
-    /* align-aware click handler */
+    rowHeight, gap, sizeFactor, margin,
+    colourScale,
+    colourBy        : colourAttr,                     // NEW
+    alleleData      : chartRowsI,                     // NEW (cache + API rows, snake_case)
+    alleles         : Array.from(alleleCtrl1.value || []), // NEW
+    percentileMode  : percMode,                       // NEW ("EL" | "BA")
     onClick    : d => {
-      setSelectedPeptide(d.peptide_aligned); // always the aligned string
+      setSelectedPeptide(d.peptide_aligned);
       setSelectedStart  (d.start);
-      setSelectedLength (d.length);          // aligned span
+      setSelectedLength (d.length);
     }
   });
+
   yOff += pep.height;
 
   /* 7 ▸ reference vs consensus cells -------------------------- */
@@ -996,12 +1006,26 @@ function createIAVDashboard({
 ```js
 import { radioButtons } from "./components/radioButtons.js";
 
-/* Colour peptides by */
-const colourAttrInput = radioButtons(
-  ["attribute_1", "attribute_2", "attribute_3"],
-  { label: "Colour peptides by:", value: "attribute_1" }
-);
+/* Colour peptides by (attributes + currently selected Class-I alleles) */
+const baseColourChoices = ["attribute_1", "attribute_2", "attribute_3"];
+
+const colourChoices = (() => {
+  const pickedAlleles = Array.from(alleleCtrl1.value || []);
+  return [...baseColourChoices, ...pickedAlleles];
+})();
+
+const colourAttrInput = Inputs.radio(colourChoices, {
+  label : "Colour peptides by:",
+  value : colourChoices[0]
+});
 const colourAttr = Generators.input(colourAttrInput);
+
+/* helper: are we colouring by an allele right now? */
+const isAlleleColour = (() => {
+  const picked = new Set((alleleCtrl1.value || []).map(String));
+  return picked.has(colourAttr);
+})();
+
 
 /* Sequence set */
 const seqSetInput = radioButtons(
@@ -2302,7 +2326,6 @@ const chartRowsI = (() => {
   }
   return [...map.values()];
 })();
-
 ```
 
 ```js
