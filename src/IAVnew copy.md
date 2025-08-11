@@ -889,7 +889,7 @@ function createIAVDashboard({
     colourScale,
     colourBy        : colourAttr,                     // NEW
     alleleData      : chartRowsI,                     // NEW (cache + API rows, snake_case)
-    alleles         : Array.from(alleleCtrl1.value || []), // NEW
+    alleles         : Array.from(selectedI || []),
     percentileMode  : percMode,                       // NEW ("EL" | "BA")
     onClick    : d => {
       setSelectedPeptide(d.peptide_aligned);
@@ -1006,27 +1006,43 @@ function createIAVDashboard({
 ```js
 import { radioButtons } from "./components/radioButtons.js";
 
-/* Colour peptides by (attributes + currently selected Class-I alleles) */
+/* Base attributes always present */
 const baseColourChoices = ["attribute_1", "attribute_2", "attribute_3"];
 
-const colourChoices = (() => {
-  const pickedAlleles = Array.from(alleleCtrl1.value || []);
-  return [...baseColourChoices, ...pickedAlleles];
-})();
+/* Recompute choices whenever the Class-I picker changes */
+selectedI; // <-- reactive dependency
 
-const colourAttrInput = Inputs.radio(colourChoices, {
-  label : "Colour peptides by:",
-  value : colourChoices[0]
-});
+const colourChoices = [
+  ...baseColourChoices,
+  ...Array.from(selectedI || [])
+];
+
+/* Recreate the radio each time, but keep the last picked value */
+const prevColourBy = globalThis.__colourByPrev;
+const defaultValue = (prevColourBy && colourChoices.includes(prevColourBy))
+  ? prevColourBy
+  : colourChoices[0];
+
+const colourAttrInput = (() => {
+  const el = radioButtons(colourChoices, {
+    label: "Colour peptides by:",
+    value: defaultValue
+  });
+  el.addEventListener("input", () => { globalThis.__colourByPrev = el.value; });
+  return el;
+})();
 const colourAttr = Generators.input(colourAttrInput);
 
-/* helper: are we colouring by an allele right now? */
+/* Are we currently colouring by an allele? (reactive) */
 const isAlleleColour = (() => {
-  const picked = new Set((alleleCtrl1.value || []).map(String));
-  return picked.has(colourAttr);
+  selectedI; colourAttr; // dependencies
+  const picked = new Set((selectedI || []).map(String));
+  return picked.has(String(colourAttr));
 })();
+```
 
 
+```js
 /* Sequence set */
 const seqSetInput = radioButtons(
   ["All sequences", "Unique sequences"],
@@ -1553,7 +1569,7 @@ const heatmapSVG = peptideHeatmap({
   colourMode  : colourMode,
   // ── NEW overlay props:
   alleleData  : chartRowsI,                         // cache + API (snake_case)
-  alleles     : Array.from(alleleCtrl1.value || []),
+  alleles     : Array.from(selectedI || []),
   mode        : percMode,                           // "EL" | "BA"
   showAlleles : true,
   baseCell    : 28,
