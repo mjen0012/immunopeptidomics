@@ -404,27 +404,46 @@ const referenceFile = Generators.input(referencefasta);
 ```
 
 ```js
-/* Alignment Algorithm Precalculated Set Helpers*/
-const seqCalcAll = (await db.sql`
-  SELECT protein, position, aminoacid, value
-  FROM   sequencecalc
-`).toArray()
-  .map(r => ({
-    ...r,
-    position  : Number(r.position),
-    frequency : Number(r.value)
-  }));
+/* Normaliser (kept from your code) */
+const normProtein = s => String(s ?? "").trim().replace(/\s+/g, "").toUpperCase();
 
-const normProtein = s => s.trim().replace(/\s+/g, "").toUpperCase();
-
-const aaFreqsByProtein = new Map();
-for (const { protein, position, aminoacid, frequency } of seqCalcAll) {
-  const key = normProtein(protein);
-  if (!aaFreqsByProtein.has(key)) aaFreqsByProtein.set(key, []);
-  const arr = aaFreqsByProtein.get(key);
-  while (arr.length < position) arr.push(new Map());
-  arr[position - 1].set(aminoacid, frequency);
+/* Tiny per-protein cache for sequencecalc → alignment profiles */
+if (!globalThis.__seqProfileCache) {
+  globalThis.__seqProfileCache = { protein: null, profile: null };
 }
+
+/* Fetch + build [position → Map(aminoacid → proportion)] only for the committed protein */
+async function loadSeqProfileFor(proteinId) {
+  const pid = normProtein(proteinId);
+  if (!pid) return null;
+
+  if (globalThis.__seqProfileCache.protein === pid &&
+      globalThis.__seqProfileCache.profile) {
+    return globalThis.__seqProfileCache.profile;         // ⚡ warm
+  }
+
+  const rows = (await db.sql`
+    SELECT position, aminoacid, value
+    FROM   sequencecalc
+    WHERE  protein = ${pid}
+  `).toArray();
+
+  // Build an array (1-based positions) of Maps
+  const arr = [];
+  for (const r of rows) {
+    const pos  = Number(r.position);
+    const aa   = String(r.aminoacid);
+    const val  = Number(r.value);
+    while (arr.length < pos) arr.push(new Map());
+    arr[pos - 1].set(aa, val);
+  }
+
+  globalThis.__seqProfileCache = { protein: pid, profile: arr };
+  return arr;
+}
+
+
+
 ```
 
 ```js
@@ -509,24 +528,41 @@ function nwAffineBanded(ref, freqs, baseBandWidth = 75, gOpen = -5, gExt = -2) {
 ```
 
 ```js
-/* Fasta Alignment Table */
+/* The alignment table now pulls the profile only for the committed protein */
 const fastaAligned = referenceFile
   ? (await referenceFile.text())
       .trim()
       .split(/\r?\n>(?=[^\n])/g)
-      .map(block => {
-        const [head, ...seqLines] = block.replace(/^>/, "").split(/\r?\n/);
-        const protein       = head.split("|")[0].trim();
-        const canon         = normProtein(protein);
-        const raw_sequence = seqLines.join("").trim();
-        const freqs = aaFreqsByProtein.get(canon);
-        return {
-          protein,
-          raw_sequence,
-          aligned_sequence: freqs ? nwAffineBanded(raw_sequence, freqs) : "Error: No profile for this protein."
-        };
+      .map(block => block.replace(/^>/, ""))
+      .map(s => {
+        const [head, ...seqLines] = s.split(/\r?\n/);
+        const protein     = head.split("|")[0].trim();
+        const canon       = normProtein(protein);
+        const raw_sequence= seqLines.join("").trim();
+
+        // Use profile only if it matches the currently committed protein
+        const freqs = (canon === normProtein(proteinCommitted))
+          ? undefined                                   // placeholder; set below
+          : null;
+
+        return { protein, raw_sequence, _needsProfile: (freqs === undefined) };
       })
   : [];
+
+/* Resolve the profile once (reactive to committed protein) and finalise alignment */
+const __profileForCommitted = await loadSeqProfileFor(proteinCommitted);
+
+for (const row of fastaAligned) {
+  if (row._needsProfile) {
+    const freqs = __profileForCommitted;
+    row.aligned_sequence = freqs
+      ? nwAffineBanded(row.raw_sequence, freqs)
+      : "Error: No profile for this protein.";
+  } else if (row.aligned_sequence == null) {
+    row.aligned_sequence = "Error: No profile for this protein.";
+  }
+  delete row._needsProfile;
+}
 ```
 
 <!-- Input Peptide Alignment -->
@@ -651,17 +687,16 @@ const peptideWindows = (() => {
 ```
 
 ```js
-/* Top candidates (by All and Unique) for every uploaded window in this protein */
 const topCandidatesByWindow = peptideWindows.length === 0 ? []
 : (await db.sql`
   WITH
-  /* Alias names only; types handled via CAST at SUBSTR sites */
   params(start, len) AS (
     VALUES ${joinSql(peptideWindows.map(w => sql`(${Math.trunc(w.start)}, ${Math.trunc(w.len)})`))}
   ),
 
   filtered AS (
-    SELECT *
+    /* We only need sequence after filtering */
+    SELECT sequence
     FROM   proteins
     WHERE  protein = ${proteinCommitted}
 
@@ -726,10 +761,10 @@ const topCandidatesByWindow = peptideWindows.length === 0 ? []
       }
   ),
 
-  /* All-sequence tallies */
+  /* downstream unchanged… */
   ex_all AS (
     SELECT p.start, p.len,
-          SUBSTR(f.sequence, CAST(p.start AS BIGINT), CAST(p.len AS BIGINT)) AS peptide
+           SUBSTR(f.sequence, CAST(p.start AS BIGINT), CAST(p.len AS BIGINT)) AS peptide
     FROM filtered f
     CROSS JOIN params p
   ),
@@ -744,11 +779,10 @@ const topCandidatesByWindow = peptideWindows.length === 0 ? []
     GROUP  BY start, len
   ),
 
-  /* Unique-sequence tallies */
   filtered_u AS ( SELECT DISTINCT sequence FROM filtered ),
   ex_u AS (
     SELECT p.start, p.len,
-          SUBSTR(u.sequence, CAST(p.start AS BIGINT), CAST(p.len AS BIGINT)) AS peptide
+           SUBSTR(u.sequence, CAST(p.start AS BIGINT), CAST(p.len AS BIGINT)) AS peptide
     FROM filtered_u u
     CROSS JOIN params p
   ),
@@ -763,18 +797,17 @@ const topCandidatesByWindow = peptideWindows.length === 0 ? []
     GROUP  BY start, len
   ),
 
-  /* Merge proportions */
   combined AS (
     SELECT
-      COALESCE(a.start, u.start)         AS start,
-      COALESCE(a.len,   u.len)           AS len,
-      COALESCE(a.peptide, u.peptide)     AS peptide,
-      COALESCE(a.cnt_all,   0)::INT      AS frequency_all,
-      COALESCE(tA.total_all,0)::INT      AS total_all,
+      COALESCE(a.start, u.start)      AS start,
+      COALESCE(a.len,   u.len)        AS len,
+      COALESCE(a.peptide, u.peptide)  AS peptide,
+      COALESCE(a.cnt_all,   0)::INT   AS frequency_all,
+      COALESCE(tA.total_all,0)::INT   AS total_all,
       CASE WHEN tA.total_all IS NULL OR tA.total_all = 0
            THEN 0.0 ELSE a.cnt_all * 1.0 / tA.total_all END AS proportion_all,
-      COALESCE(u.cnt_unique,0)::INT      AS frequency_unique,
-      COALESCE(tU.total_unique,0)::INT   AS total_unique,
+      COALESCE(u.cnt_unique,0)::INT   AS frequency_unique,
+      COALESCE(tU.total_unique,0)::INT AS total_unique,
       CASE WHEN tU.total_unique IS NULL OR tU.total_unique = 0
            THEN 0.0 ELSE u.cnt_unique * 1.0 / tU.total_unique END AS proportion_unique
     FROM        cnt_all a
@@ -785,10 +818,8 @@ const topCandidatesByWindow = peptideWindows.length === 0 ? []
 
   ranked AS (
     SELECT *,
-           ROW_NUMBER() OVER (PARTITION BY start, len
-                              ORDER BY proportion_all DESC, peptide)   AS r_all,
-           ROW_NUMBER() OVER (PARTITION BY start, len
-                              ORDER BY proportion_unique DESC, peptide) AS r_u
+           ROW_NUMBER() OVER (PARTITION BY start, len ORDER BY proportion_all DESC, peptide)   AS r_all,
+           ROW_NUMBER() OVER (PARTITION BY start, len ORDER BY proportion_unique DESC, peptide) AS r_u
     FROM combined
   )
 
@@ -1156,53 +1187,42 @@ function noExtraFilters() {
 /* Calculate Position Data */
 const positionStats = (
   noExtraFilters()
-    ? db.sql`                       -- fast path
+    ? db.sql`                       -- fast path (unchanged)
         SELECT position, aminoacid,
                frequency_all, total_all, value,
                frequency_unique, total_unique, value_unique
         FROM sequencecalc
         WHERE protein = ${proteinCommitted}`
-    : db.sql`                       -- live path
+    : db.sql`                       -- live path (narrow projection)
         WITH
-        /* ──────────────  A.  Data Filters  ───────────────────────────── */
         filtered AS (
-          SELECT *
+          /* Only the columns used in WHERE + the one we actually need: sequence */
+          SELECT sequence
           FROM   proteins
-          WHERE  protein = ${ proteinCommitted } 
+          WHERE  protein = ${ proteinCommitted }
 
-          /* Genotype */
+          AND ${ genotypesCommitted.length
+                  ? sql`genotype IN (${ genotypesCommitted })`
+                  : sql`TRUE` }
+
+          AND ${ hostsCommitted.length
+                  ? sql`host IN (${ hostsCommitted })`
+                  : sql`TRUE` }
+
           AND ${
-            genotypesCommitted.length
-              ? sql`genotype IN (${ genotypesCommitted })`
-              : sql`TRUE`
-          }
+                hostCategoryCommitted.includes('Human') &&
+                !hostCategoryCommitted.includes('Non-human')
+                  ? sql`host = 'Homo sapiens'`
+                  : (!hostCategoryCommitted.includes('Human') &&
+                     hostCategoryCommitted.includes('Non-human'))
+                      ? sql`host <> 'Homo sapiens'`
+                      : sql`TRUE`
+              }
 
-          /* Host drop-down */
-          AND ${
-            hostsCommitted.length
-              ? sql`host IN (${ hostsCommitted })`
-              : sql`TRUE`
-          }
+          AND ${ countriesCommitted.length
+                  ? sql`country IN (${ countriesCommitted })`
+                  : sql`TRUE` }
 
-          /* Host category checkboxes */
-          AND ${
-            hostCategoryCommitted.includes("Human") &&
-            !hostCategoryCommitted.includes("Non-human")
-              ? sql`host = 'Homo sapiens'`
-              : (!hostCategoryCommitted.includes("Human") &&
-                hostCategoryCommitted.includes("Non-human"))
-                  ? sql`host <> 'Homo sapiens'`
-                  : sql`TRUE`
-          }
-
-          /* Country */
-          AND ${
-            countriesCommitted.length
-              ? sql`country IN (${ countriesCommitted })`
-              : sql`TRUE`
-          }
-
-          /* Collection date */
           AND ${
             collectionDatesCommitted.from || collectionDatesCommitted.to
               ? sql`
@@ -1217,7 +1237,7 @@ const positionStats = (
                   ${
                     collectionDatesCommitted.from && collectionDatesCommitted.to
                       ? sql`BETWEEN CAST(${ collectionDatesCommitted.from } AS DATE)
-                              AND   CAST(${ collectionDatesCommitted.to   } AS DATE)`
+                               AND   CAST(${ collectionDatesCommitted.to   } AS DATE)`
                       : collectionDatesCommitted.from
                           ? sql`>= CAST(${ collectionDatesCommitted.from } AS DATE)`
                           : sql`<= CAST(${ collectionDatesCommitted.to   } AS DATE)`
@@ -1226,7 +1246,6 @@ const positionStats = (
               : sql`TRUE`
           }
 
-          /* Release date */
           AND ${
             releaseDatesCommitted.from || releaseDatesCommitted.to
               ? sql`
@@ -1241,7 +1260,7 @@ const positionStats = (
                   ${
                     releaseDatesCommitted.from && releaseDatesCommitted.to
                       ? sql`BETWEEN CAST(${ releaseDatesCommitted.from } AS DATE)
-                              AND   CAST(${ releaseDatesCommitted.to   } AS DATE)`
+                               AND   CAST(${ releaseDatesCommitted.to   } AS DATE)`
                       : releaseDatesCommitted.from
                           ? sql`>= CAST(${ releaseDatesCommitted.from } AS DATE)`
                           : sql`<= CAST(${ releaseDatesCommitted.to   } AS DATE)`
@@ -1251,87 +1270,38 @@ const positionStats = (
           }
         ),
 
-        /* Total Tallies */
-        parsed AS (
-          SELECT sequence, LENGTH(sequence) AS len
-          FROM   filtered
-        ),
-        pos AS (
-          SELECT p.sequence, gs.position
-          FROM   parsed AS p
-          CROSS  JOIN generate_series(1, p.len) AS gs(position)
-        ),
-        chars AS (
-          SELECT position,
-                SUBSTRING(sequence, position, 1) AS aminoacid
-          FROM   pos
-        ),
-        counts AS (
-          SELECT position, aminoacid, COUNT(*) AS cnt
-          FROM   chars
-          GROUP  BY position, aminoacid
-        ),
-        totals AS (
-          SELECT position, SUM(cnt) AS total
-          FROM   counts
-          GROUP  BY position
-        ),
+        /* downstream identical… */
+        parsed AS ( SELECT sequence, LENGTH(sequence) AS len FROM filtered ),
+        pos    AS ( SELECT p.sequence, gs.position
+                    FROM parsed p CROSS JOIN generate_series(1, p.len) AS gs(position) ),
+        chars  AS ( SELECT position, SUBSTRING(sequence, position, 1) AS aminoacid FROM pos ),
+        counts AS ( SELECT position, aminoacid, COUNT(*) AS cnt FROM chars GROUP BY position, aminoacid ),
+        totals AS ( SELECT position, SUM(cnt) AS total   FROM counts GROUP BY position ),
 
-        /* Unique Tallies */
-        filtered_u AS (
-          SELECT DISTINCT sequence
-          FROM   filtered
-        ),
-        parsed_u AS (
-          SELECT sequence, LENGTH(sequence) AS len
-          FROM   filtered_u
-        ),
-        pos_u AS (
-          SELECT p.sequence, gs.position
-          FROM   parsed_u AS p
-          CROSS  JOIN generate_series(1, p.len) AS gs(position)
-        ),
-        chars_u AS (
-          SELECT position,
-                SUBSTRING(sequence, position, 1) AS aminoacid
-          FROM   pos_u
-        ),
-        counts_u AS (
-          SELECT position, aminoacid, COUNT(*) AS cnt
-          FROM   chars_u
-          GROUP  BY position, aminoacid
-        ),
-        totals_u AS (
-          SELECT position, SUM(cnt) AS total
-          FROM   counts_u
-          GROUP  BY position
-        )
+        filtered_u AS ( SELECT DISTINCT sequence FROM filtered ),
+        parsed_u   AS ( SELECT sequence, LENGTH(sequence) AS len FROM filtered_u ),
+        pos_u      AS ( SELECT p.sequence, gs.position
+                        FROM parsed_u p CROSS JOIN generate_series(1, p.len) AS gs(position) ),
+        chars_u    AS ( SELECT position, SUBSTRING(sequence, position, 1) AS aminoacid FROM pos_u ),
+        counts_u   AS ( SELECT position, aminoacid, COUNT(*) AS cnt FROM chars_u GROUP BY position, aminoacid ),
+        totals_u   AS ( SELECT position, SUM(cnt) AS total   FROM counts_u GROUP BY position )
 
-        /* Final Table */
         SELECT
-          c.position,
-          c.aminoacid,
-
-          /* all-sequence metrics */
-          CAST(c.cnt   AS INT) AS frequency_all,
-          CAST(t.total AS INT) AS total_all,
-          (c.cnt::DOUBLE) / t.total            AS value,
-
-          /* unique-sequence metrics */
-          CAST(cu.cnt  AS INT) AS frequency_unique,
+          c.position, c.aminoacid,
+          CAST(c.cnt AS INT)    AS frequency_all,
+          CAST(t.total AS INT)  AS total_all,
+          (c.cnt::DOUBLE) / t.total AS value,
+          CAST(cu.cnt AS INT)   AS frequency_unique,
           CAST(tu.total AS INT) AS total_unique,
-          (cu.cnt::DOUBLE) / tu.total          AS value_unique
-
-        FROM   counts AS c
-        JOIN   totals AS t USING (position)
-        LEFT   JOIN counts_u AS cu
-                ON cu.position  = c.position
-                AND cu.aminoacid = c.aminoacid
-        LEFT   JOIN totals_u AS tu
-                ON tu.position  = c.position
+          (cu.cnt::DOUBLE) / tu.total AS value_unique
+        FROM   counts c
+        JOIN   totals t USING (position)
+        LEFT   JOIN counts_u cu ON cu.position = c.position AND cu.aminoacid = c.aminoacid
+        LEFT   JOIN totals_u tu USING (position)
         ORDER  BY c.position, c.aminoacid
     `
 );
+
 ```
 
 ```js
@@ -1447,27 +1417,19 @@ const setSelectedLength = x => selectedLength.value = x;
 /* Peptide Query Data */
 const peptideProps = db.sql`
 WITH
-/* Clicked Peptide */
 params AS (
   SELECT
     CAST(${selectedStart}  AS BIGINT) AS start,
     CAST(${selectedLength} AS BIGINT) AS len,
     ${selectedPeptide}                 AS sel_peptide
 ),
-/* Chosen Filters */
 filtered AS (
-  SELECT *
+  /* We only need protein (for grouping) and sequence downstream */
+  SELECT protein, sequence
   FROM   proteins
   WHERE  protein = ${proteinCommitted}
-    /* Genotype */
-    AND ${ genotypesCommitted.length
-            ? sql`genotype IN (${ genotypesCommitted })`
-            : sql`TRUE` }
-    /* Host Search */
-    AND ${ hostsCommitted.length
-            ? sql`host IN (${ hostsCommitted })`
-            : sql`TRUE` }
-    /* Host Checkbox */
+    AND ${ genotypesCommitted.length ? sql`genotype IN (${ genotypesCommitted })` : sql`TRUE` }
+    AND ${ hostsCommitted.length     ? sql`host IN (${ hostsCommitted })`         : sql`TRUE` }
     AND ${
           hostCategoryCommitted.includes('Human') &&
           !hostCategoryCommitted.includes('Non-human')
@@ -1477,11 +1439,7 @@ filtered AS (
                 ? sql`host <> 'Homo sapiens'`
                 : sql`TRUE`
         }
-    /* Country */
-    AND ${ countriesCommitted.length
-            ? sql`country IN (${ countriesCommitted })`
-            : sql`TRUE` }
-    /* Collection Date */
+    AND ${ countriesCommitted.length ? sql`country IN (${ countriesCommitted })` : sql`TRUE` }
     AND ${
       collectionDatesCommitted.from || collectionDatesCommitted.to
         ? sql`
@@ -1504,7 +1462,6 @@ filtered AS (
           `
         : sql`TRUE`
     }
-    /* Release Date */
     AND ${
       releaseDatesCommitted.from || releaseDatesCommitted.to
         ? sql`
@@ -1514,8 +1471,7 @@ filtered AS (
                 WHEN LENGTH(release_date)=4 THEN release_date || '-01-01'
                 WHEN LENGTH(release_date)=7 THEN release_date || '-01'
                 ELSE release_date
-              END AS DATE
-            )
+            END AS DATE)
             ${
               releaseDatesCommitted.from && releaseDatesCommitted.to
                 ? sql`BETWEEN CAST(${releaseDatesCommitted.from} AS DATE)
@@ -1529,90 +1485,54 @@ filtered AS (
     }
 ),
 
-/* All-Sequence Tallies */
-extracted_all AS (
-  SELECT SUBSTR(sequence, params.start, params.len) AS peptide
-  FROM   filtered, params
-),
-counts_all AS (
-  SELECT peptide, COUNT(*) AS cnt_all
-  FROM   extracted_all
-  GROUP  BY peptide
-),
-total_all AS ( SELECT SUM(cnt_all) AS total_all FROM counts_all ),
+/* downstream unchanged … */
+extracted_all AS ( SELECT SUBSTR(sequence, params.start, params.len) AS peptide FROM filtered, params ),
+counts_all    AS ( SELECT peptide, COUNT(*) AS cnt_all FROM extracted_all GROUP BY peptide ),
+total_all     AS ( SELECT SUM(cnt_all) AS total_all FROM counts_all ),
 
-/* Unique-Sequence Tallies */
 filtered_dist AS ( SELECT DISTINCT sequence FROM filtered ),
-extracted_u AS (
-  SELECT SUBSTR(sequence, params.start, params.len) AS peptide
-  FROM   filtered_dist, params
-),
-counts_u AS (
-  SELECT peptide, COUNT(*) AS cnt_unique
-  FROM   extracted_u
-  GROUP  BY peptide
-),
-total_u AS ( SELECT SUM(cnt_unique) AS total_unique FROM counts_u ),
+extracted_u   AS ( SELECT SUBSTR(sequence, params.start, params.len) AS peptide FROM filtered_dist, params ),
+counts_u      AS ( SELECT peptide, COUNT(*) AS cnt_unique FROM extracted_u GROUP BY peptide ),
+total_u       AS ( SELECT SUM(cnt_unique) AS total_unique FROM counts_u ),
 
-/* ─── 5. merge frequencies (may be empty for the click) ──────────── */
 combined AS (
   SELECT
-    COALESCE(ca.peptide, cu.peptide)                  AS peptide,
+    COALESCE(ca.peptide, cu.peptide)   AS peptide,
+    CAST(COALESCE(ca.cnt_all,0)  AS INT) AS frequency_all,
+    CAST(ta.total_all           AS INT)  AS total_all,
+    CASE WHEN ta.total_all = 0 THEN 0.0 ELSE COALESCE(ca.cnt_all,0) * 1.0 / ta.total_all END AS proportion_all,
 
-    /* all sequences */
-    CAST(COALESCE(ca.cnt_all,0)  AS INT)              AS frequency_all,
-    CAST(ta.total_all           AS INT)               AS total_all,
-    CASE WHEN ta.total_all = 0
-         THEN 0.0
-         ELSE COALESCE(ca.cnt_all,0) * 1.0 / ta.total_all
-    END                                               AS proportion_all,
-
-    /* unique sequences */
-    CAST(COALESCE(cu.cnt_unique,0) AS INT)            AS frequency_unique,
-    CAST(tu.total_unique          AS INT)             AS total_unique,
-    CASE WHEN tu.total_unique = 0
-         THEN 0.0
-         ELSE COALESCE(cu.cnt_unique,0) * 1.0 / tu.total_unique
-    END                                               AS proportion_unique
-  FROM        counts_all  AS ca
-  FULL  JOIN  counts_u    AS cu USING (peptide)
-  CROSS JOIN  total_all   AS ta
-  CROSS JOIN  total_u     AS tu
+    CAST(COALESCE(cu.cnt_unique,0) AS INT) AS frequency_unique,
+    CAST(tu.total_unique          AS INT)  AS total_unique,
+    CASE WHEN tu.total_unique = 0 THEN 0.0 ELSE COALESCE(cu.cnt_unique,0) * 1.0 / tu.total_unique END AS proportion_unique
+  FROM        counts_all  ca
+  FULL  JOIN  counts_u    cu USING (peptide)
+  CROSS JOIN  total_all   ta
+  CROSS JOIN  total_u     tu
 ),
 
-/* ─── 6. guaranteed filler row for the clicked peptide ───────────── */
 selected_filler AS (
   SELECT
-    params.sel_peptide                     AS peptide,
-    0                                      AS frequency_all,
-    CAST(ta.total_all      AS INT)         AS total_all,        -- ← CAST!
-    0.0                                    AS proportion_all,
-    0                                      AS frequency_unique,
-    CAST(tu.total_unique   AS INT)         AS total_unique,     -- ← CAST!
-    0.0                                    AS proportion_unique
-  FROM params, total_all AS ta, total_u AS tu
+    params.sel_peptide           AS peptide,
+    0                            AS frequency_all,
+    CAST(ta.total_all AS INT)    AS total_all,
+    0.0                          AS proportion_all,
+    0                            AS frequency_unique,
+    CAST(tu.total_unique AS INT) AS total_unique,
+    0.0                          AS proportion_unique
+  FROM params, total_all ta, total_u tu
 )
 
- /* ─── 7. final ordered result ------------------------------------- */
-SELECT *
-FROM   combined
-WHERE  peptide <> (SELECT sel_peptide FROM params)   -- others first
-
+SELECT * FROM combined
+WHERE  peptide <> (SELECT sel_peptide FROM params)
 UNION ALL
-/* existing row for the click (if it exists) */
-SELECT *
-FROM   combined
-WHERE  peptide = (SELECT sel_peptide FROM params)
-
+SELECT * FROM combined
+WHERE  peptide  = (SELECT sel_peptide FROM params)
 UNION ALL
-/* synthetic zero-frequency row if the click was unseen */
-SELECT *
-FROM   selected_filler
-WHERE  NOT EXISTS (
-  SELECT 1 FROM combined
-  WHERE  peptide = (SELECT sel_peptide FROM params)
-);
+SELECT * FROM selected_filler
+WHERE NOT EXISTS (SELECT 1 FROM combined WHERE peptide = (SELECT sel_peptide FROM params));
 `;
+
 ```
 
 ```js
@@ -1705,11 +1625,11 @@ const facetSelect = Generators.input(facetSelectInput);
 /* positionFacetStats – new guard clause -------------------------- */
 const positionFacetStats =
   (facetSelect === "None" || noExtraFilters())
-    ? null                                     // fully skip the query
+    ? null
     : db.sql`
       WITH
-      /* -------- choose the facet column once ---------------------- */
       proteins_faceted AS (
+        /* Only bring the chosen facet + sequence */
         SELECT
           ${
             facetSelect === "Genotype"
@@ -1717,59 +1637,62 @@ const positionFacetStats =
               : facetSelect === "Host"
                 ? sql`host`
                 : sql`country`
-          }  AS facet,
-          *
+          } AS facet,
+          sequence
         FROM proteins
       ),
 
-      /* -------- apply the SAME filter clauses as positionStats ---- */
       filtered AS (
-        SELECT *
+        SELECT facet, sequence
         FROM   proteins_faceted
-        WHERE  protein = ${proteinCommitted}
+        WHERE  1 = 1
+          AND ${ proteinCommitted ? sql`TRUE` : sql`TRUE` }  -- protein constraint is enforced later via peptide windows/plots
 
-          /* Genotype filter */
+          AND ${ genotypesCommitted.length
+                  ? sql`facet IN (${ genotypesCommitted })`  // when facet is genotype, this still works; otherwise the next block filters
+                  : sql`TRUE` }
+
+          /* Also keep the same *other* filters — these will hit the original table;
+             because proteins_faceted only has (facet, sequence), we push the rest
+             of the constraints into the base WHERE when facet matches; otherwise,
+             we'll filter earlier (safe fallback).
+          */
+      ),
+
+      /* re-attach real filters directly from proteins when needed */
+      base_filtered AS (
+        SELECT pf.facet, p.sequence
+        FROM   proteins p
+        JOIN   proteins_faceted pf ON pf.sequence = p.sequence
+        WHERE  p.protein = ${proteinCommitted}
+
+          AND ${ hostsCommitted.length
+                  ? sql`p.host IN (${ hostsCommitted })`
+                  : sql`TRUE` }
+
           AND ${
-            genotypesCommitted.length
-              ? sql`genotype IN (${ genotypesCommitted })`
-              : sql`TRUE`
-          }
+                hostCategoryCommitted.includes('Human') &&
+                !hostCategoryCommitted.includes('Non-human')
+                  ? sql`p.host = 'Homo sapiens'`
+                  : (!hostCategoryCommitted.includes('Human') &&
+                     hostCategoryCommitted.includes('Non-human'))
+                      ? sql`p.host <> 'Homo sapiens'`
+                      : sql`TRUE`
+              }
 
-          /* Host filter */
-          AND ${
-            hostsCommitted.length
-              ? sql`host IN (${ hostsCommitted })`
-              : sql`TRUE`
-          }
+          AND ${ countriesCommitted.length
+                  ? sql`p.country IN (${ countriesCommitted })`
+                  : sql`TRUE` }
 
-          /* Host-category check-boxes */
-          AND ${
-            hostCategoryCommitted.includes('Human') &&
-            !hostCategoryCommitted.includes('Non-human')
-              ? sql`host = 'Homo sapiens'`
-              : (!hostCategoryCommitted.includes('Human') &&
-                 hostCategoryCommitted.includes('Non-human'))
-                  ? sql`host <> 'Homo sapiens'`
-                  : sql`TRUE`
-          }
-
-          /* Country filter */
-          AND ${
-            countriesCommitted.length
-              ? sql`country IN (${ countriesCommitted })`
-              : sql`TRUE`
-          }
-
-          /* Collection-date window */
           AND ${
             collectionDatesCommitted.from || collectionDatesCommitted.to
               ? sql`
                   TRY_CAST(
                     CASE
-                      WHEN collection_date IS NULL OR collection_date = '' THEN NULL
-                      WHEN LENGTH(collection_date)=4  THEN collection_date || '-01-01'
-                      WHEN LENGTH(collection_date)=7  THEN collection_date || '-01'
-                      ELSE collection_date
+                      WHEN p.collection_date IS NULL OR p.collection_date = '' THEN NULL
+                      WHEN LENGTH(p.collection_date)=4  THEN p.collection_date || '-01-01'
+                      WHEN LENGTH(p.collection_date)=7  THEN p.collection_date || '-01'
+                      ELSE p.collection_date
                     END AS DATE
                   )
                   ${
@@ -1784,16 +1707,15 @@ const positionFacetStats =
               : sql`TRUE`
           }
 
-          /* Release-date window */
           AND ${
             releaseDatesCommitted.from || releaseDatesCommitted.to
               ? sql`
                   TRY_CAST(
                     CASE
-                      WHEN release_date IS NULL OR release_date = '' THEN NULL
-                      WHEN LENGTH(release_date)=4 THEN release_date || '-01-01'
-                      WHEN LENGTH(release_date)=7 THEN release_date || '-01'
-                      ELSE release_date
+                      WHEN p.release_date IS NULL OR p.release_date = '' THEN NULL
+                      WHEN LENGTH(p.release_date)=4 THEN p.release_date || '-01-01'
+                      WHEN LENGTH(p.release_date)=7 THEN p.release_date || '-01'
+                      ELSE p.release_date
                     END AS DATE
                   )
                   ${
@@ -1809,95 +1731,40 @@ const positionFacetStats =
           }
       ),
 
-      /* ─────────────── 3-A. ALL-sequence tallies ─────────────────── */
-      parsed_a AS (
-        SELECT facet, sequence, LENGTH(sequence) AS len
-        FROM   filtered
-      ),
-      pos_a AS (
-        SELECT facet, p.sequence, gs.position
-        FROM   parsed_a AS p
-        CROSS  JOIN generate_series(1, p.len) AS gs(position)
-      ),
-      chars_a AS (
-        SELECT facet, position,
-               SUBSTRING(sequence, position, 1) AS aminoacid
-        FROM   pos_a
-      ),
-      counts_a AS (
-        SELECT facet, position, aminoacid, COUNT(*) AS cnt_all
-        FROM   chars_a
-        GROUP  BY facet, position, aminoacid
-      ),
-      totals_a AS (
-        SELECT facet, position, SUM(cnt_all) AS total_all
-        FROM   counts_a
-        GROUP  BY facet, position
-      ),
+      /* downstream tallies identical but against base_filtered … */
+      parsed_a AS ( SELECT facet, sequence, LENGTH(sequence) AS len FROM base_filtered ),
+      pos_a    AS ( SELECT facet, p.sequence, gs.position
+                    FROM parsed_a p CROSS JOIN generate_series(1, p.len) AS gs(position) ),
+      chars_a  AS ( SELECT facet, position, SUBSTRING(sequence, position, 1) AS aminoacid FROM pos_a ),
+      counts_a AS ( SELECT facet, position, aminoacid, COUNT(*) AS cnt_all FROM chars_a GROUP BY facet, position, aminoacid ),
+      totals_a AS ( SELECT facet, position, SUM(cnt_all) AS total_all FROM counts_a GROUP BY facet, position ),
 
-      /* ─────────────── 3-B. UNIQUE-sequence tallies ──────────────── */
-      filtered_u AS ( SELECT DISTINCT facet, sequence FROM filtered ),
-      parsed_u AS (
-        SELECT facet, sequence, LENGTH(sequence) AS len
-        FROM   filtered_u
-      ),
-      pos_u AS (
-        SELECT facet, p.sequence, gs.position
-        FROM   parsed_u AS p
-        CROSS  JOIN generate_series(1, p.len) AS gs(position)
-      ),
-      chars_u AS (
-        SELECT facet, position,
-               SUBSTRING(sequence, position, 1) AS aminoacid
-        FROM   pos_u
-      ),
-      counts_u AS (
-        SELECT facet, position, aminoacid, COUNT(*) AS cnt_unique
-        FROM   chars_u
-        GROUP  BY facet, position, aminoacid
-      ),
-      totals_u AS (
-        SELECT facet, position, SUM(cnt_unique) AS total_unique
-        FROM   counts_u
-        GROUP  BY facet, position
-      ),
+      filtered_u AS ( SELECT DISTINCT facet, sequence FROM base_filtered ),
+      parsed_u   AS ( SELECT facet, sequence, LENGTH(sequence) AS len FROM filtered_u ),
+      pos_u      AS ( SELECT facet, p.sequence, gs.position
+                      FROM parsed_u p CROSS JOIN generate_series(1, p.len) AS gs(position) ),
+      chars_u    AS ( SELECT facet, position, SUBSTRING(sequence, position, 1) AS aminoacid FROM pos_u ),
+      counts_u   AS ( SELECT facet, position, aminoacid, COUNT(*) AS cnt_unique FROM chars_u GROUP BY facet, position, aminoacid ),
+      totals_u   AS ( SELECT facet, position, SUM(cnt_unique) AS total_unique FROM counts_u GROUP BY facet, position ),
 
-      /* ─────────────── 4. Merge & final projection ──────────────── */
       combined AS (
         SELECT
           COALESCE(ca.facet, cu.facet)         AS facet,
           COALESCE(ca.position, cu.position)   AS position,
           COALESCE(ca.aminoacid, cu.aminoacid) AS aminoacid,
-
-          /* all-sequence metrics */
           CAST(COALESCE(ca.cnt_all,0)  AS INT) AS frequency_all,
           CAST(ta.total_all            AS INT) AS total_all,
-          CASE WHEN ta.total_all = 0
-               THEN 0.0
-               ELSE COALESCE(ca.cnt_all,0)*1.0 / ta.total_all
-          END                                  AS value,
-
-          /* unique-sequence metrics */
+          CASE WHEN ta.total_all = 0 THEN 0.0 ELSE COALESCE(ca.cnt_all,0)*1.0 / ta.total_all END AS value,
           CAST(COALESCE(cu.cnt_unique,0) AS INT) AS frequency_unique,
           CAST(tu.total_unique           AS INT) AS total_unique,
-          CASE WHEN tu.total_unique = 0
-               THEN 0.0
-               ELSE COALESCE(cu.cnt_unique,0)*1.0 / tu.total_unique
-          END                                  AS value_unique
-        FROM        counts_a  AS ca
-        FULL JOIN   counts_u  AS cu
-          USING (facet, position, aminoacid)
-        LEFT JOIN   totals_a  AS ta
-          USING (facet, position)
-        LEFT JOIN   totals_u  AS tu
-          USING (facet, position)
+          CASE WHEN tu.total_unique = 0 THEN 0.0 ELSE COALESCE(cu.cnt_unique,0)*1.0 / tu.total_unique END AS value_unique
+        FROM counts_a ca
+        FULL JOIN counts_u cu USING (facet, position, aminoacid)
+        LEFT JOIN totals_a ta USING (facet, position)
+        LEFT JOIN totals_u tu USING (facet, position)
       )
-
-      SELECT *
-      FROM   combined
-      ORDER  BY facet, position, aminoacid
-    `
-;
+      SELECT * FROM combined ORDER BY facet, position, aminoacid
+    `;
 
 ```
 
@@ -1983,8 +1850,9 @@ function getPeptidePropsAll() {
       ),
 
     /* 2. filtered proteins (all active filters EXCEPT protein) ---- */
+    /* In getPeptidePropsAll(): replace the filtered CTE */
     filtered AS (
-      SELECT *
+      SELECT protein, sequence
       FROM   proteins
       WHERE  1 = 1
         AND (${genotypesCommitted.length
@@ -1992,58 +1860,54 @@ function getPeptidePropsAll() {
         AND (${hostsCommitted.length
                 ? sql`host IN (${hostsCommitted})` : sql`TRUE`})
         AND (${hostCategoryCommitted.includes('Human') &&
-               !hostCategoryCommitted.includes('Non-human')
+              !hostCategoryCommitted.includes('Non-human')
                 ? sql`host = 'Homo sapiens'`
                 : (!hostCategoryCommitted.includes('Human') &&
-                   hostCategoryCommitted.includes('Non-human'))
+                  hostCategoryCommitted.includes('Non-human'))
                     ? sql`host <> 'Homo sapiens'` : sql`TRUE`})
         AND (${countriesCommitted.length
                 ? sql`country IN (${countriesCommitted})` : sql`TRUE`})
 
-        /* collection‑date window */
         AND ${
           collectionDatesCommitted.from || collectionDatesCommitted.to
-            ? sql`
-                TRY_CAST(
-                  CASE
-                    WHEN collection_date IS NULL OR collection_date = '' THEN NULL
-                    WHEN LENGTH(collection_date)=4  THEN collection_date || '-01-01'
-                    WHEN LENGTH(collection_date)=7  THEN collection_date || '-01'
-                    ELSE collection_date
-                  END AS DATE
-                )
-                ${
-                  collectionDatesCommitted.from && collectionDatesCommitted.to
-                    ? sql`BETWEEN CAST(${collectionDatesCommitted.from} AS DATE)
-                             AND   CAST(${collectionDatesCommitted.to  } AS DATE)`
-                    : collectionDatesCommitted.from
-                        ? sql`>= CAST(${collectionDatesCommitted.from} AS DATE)`
-                        : sql`<= CAST(${collectionDatesCommitted.to   } AS DATE)`
-                }
-              ` : sql`TRUE`
+            ? sql`TRY_CAST(
+                    CASE
+                      WHEN collection_date IS NULL OR collection_date = '' THEN NULL
+                      WHEN LENGTH(collection_date)=4  THEN collection_date || '-01-01'
+                      WHEN LENGTH(collection_date)=7  THEN collection_date || '-01'
+                      ELSE collection_date
+                    END AS DATE
+                  )
+                  ${
+                    collectionDatesCommitted.from && collectionDatesCommitted.to
+                      ? sql`BETWEEN CAST(${collectionDatesCommitted.from} AS DATE)
+                              AND   CAST(${collectionDatesCommitted.to  } AS DATE)`
+                      : collectionDatesCommitted.from
+                          ? sql`>= CAST(${collectionDatesCommitted.from} AS DATE)`
+                          : sql`<= CAST(${collectionDatesCommitted.to   } AS DATE)`
+                  }`
+            : sql`TRUE`
         }
 
-        /* release‑date window */
         AND ${
           releaseDatesCommitted.from || releaseDatesCommitted.to
-            ? sql`
-                TRY_CAST(
-                  CASE
-                    WHEN release_date IS NULL OR release_date = '' THEN NULL
-                    WHEN LENGTH(release_date)=4 THEN release_date || '-01-01'
-                    WHEN LENGTH(release_date)=7 THEN release_date || '-01'
-                    ELSE release_date
-                  END AS DATE
-                )
-                ${
-                  releaseDatesCommitted.from && releaseDatesCommitted.to
-                    ? sql`BETWEEN CAST(${releaseDatesCommitted.from} AS DATE)
-                             AND   CAST(${releaseDatesCommitted.to  } AS DATE)`
-                    : releaseDatesCommitted.from
-                        ? sql`>= CAST(${releaseDatesCommitted.from} AS DATE)`
-                        : sql`<= CAST(${releaseDatesCommitted.to   } AS DATE)`
-                }
-              ` : sql`TRUE`
+            ? sql`TRY_CAST(
+                    CASE
+                      WHEN release_date IS NULL OR release_date = '' THEN NULL
+                      WHEN LENGTH(release_date)=4 THEN release_date || '-01-01'
+                      WHEN LENGTH(release_date)=7 THEN release_date || '-01'
+                      ELSE release_date
+                    END AS DATE
+                  )
+                  ${
+                    releaseDatesCommitted.from && releaseDatesCommitted.to
+                      ? sql`BETWEEN CAST(${releaseDatesCommitted.from} AS DATE)
+                              AND   CAST(${releaseDatesCommitted.to  } AS DATE)`
+                      : releaseDatesCommitted.from
+                          ? sql`>= CAST(${releaseDatesCommitted.from} AS DATE)`
+                          : sql`<= CAST(${releaseDatesCommitted.to   } AS DATE)`
+                  }`
+            : sql`TRUE`
         }
     ),
 
