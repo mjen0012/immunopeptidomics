@@ -154,6 +154,7 @@ banner.className = "banner__bg";
     <div class="file-heading">3. Control Panel</div>
     <br>${facetSelectInput}</br>
     <br>${colourAttrInput}</br>
+    <br>${peptideKeyEl}</br>
     <br>${colourModeInput}</br>
     <br>${aaKeyEl}</br>
     <br>${seqSetInput}</br>
@@ -215,6 +216,7 @@ import {histogramChart} from "./components/histogramChart.js";
 import {alleleChart} from "./components/alleleChart.js";
 import {aaColourKey} from "./components/aaColourKey.js";
 import {runButton} from "./components/runButton.js";
+import {peptideColourKey} from "./components/peptideColourKey.js";
 import * as d3 from "npm:d3";
 ```
 
@@ -832,16 +834,18 @@ const peptidesIWorkset = (() => {
 ```js
 /* Download Alignment Button */
 const downloadFastaBtn = downloadButton({
-  label   : "Download FASTA CSV",
+  // icon-only by default (no label)
   filename: "fastaAligned.csv",
-  data    : () => fastaAligned
+  data    : () => fastaAligned,
+  tooltipTitle: "Download Aligned FASTA",
+  tooltipBody : "Inputted user .fasta sequence, aligned to total multiple sequence alignment. Outputs as .csv"
 });
 
-/* Download Peptides Button */
 const downloadPeptideBtn = downloadButton({
-  label   : "Download Peptides CSV",
   filename: "peptidesAligned.csv",
-  data    : () => peptidesAligned
+  data    : () => peptidesAligned,
+  tooltipTitle: "Download Peptides",
+  tooltipBody : "Uploaded peptides with aligned coordinates and any attributes. Outputs as .csv"
 });
 ```
 
@@ -856,18 +860,18 @@ function createIAVDashboard({
 } = {}) {
 
   /* 1 ▸ peptide data & colour scale --------------------------- */
-  const pepData = peptidesAligned.filter(
-    d => d.protein === proteinCommitted
-  );
+  // inside createIAVDashboard()
+  const pepData = peptidesAligned.filter(d => d.protein === proteinCommitted);
 
-  /* only build a categorical scale when colouring by attribute_* */
+  // Attribute categories present in visible data (no blanks)
+  const vals = pepData.map(d => d?.[colourAttr]);
   const keys = !isAlleleColour
-    ? [...new Set(pepData.map(d => d[colourAttr]))].sort()
+    ? [...new Set(vals.filter(v => v != null && String(v).trim() !== "").map(String))].sort()
     : [];
+  const hasMissingAttr = vals.some(v => v == null || String(v).trim() === "");
 
-  const colourScale = !isAlleleColour
-    ? makePeptideScale(keys.length ? keys : ["dummy"])
-    : null;
+  // Only build the categorical scale in attribute mode
+  const colourScale = !isAlleleColour ? makePeptideScale(keys.length ? keys : ["dummy"]) : null;
 
 
   /* 3 ▸ SHARED X SCALE  (0.5 … max+0.5) ------------------------ */
@@ -895,16 +899,14 @@ function createIAVDashboard({
     data       : pepData,
     xScale     : xCurrent,
     rowHeight, gap, sizeFactor, margin,
-    colourScale,
-    colourBy        : colourAttr,                     // NEW
-    alleleData      : chartRowsI,                     // NEW (cache + API rows, snake_case)
+    colourBy        : colourAttr,
+    colourScale     : colourScale,   // null when allele mode
+    isAlleleColour  : isAlleleColour, // ← NEW: pass the boolean
+    missingColor    : "#f0f0f0",
+    alleleData      : chartRowsI,
     alleles         : Array.from(selectedI || []),
-    percentileMode  : percMode,                       // NEW ("EL" | "BA")
-    onClick    : d => {
-      setSelectedPeptide(d.peptide_aligned);
-      setSelectedStart  (d.start);
-      setSelectedLength (d.length);
-    }
+    percentileMode  : percMode,
+    onClick    : d => { setSelectedPeptide(d.peptide_aligned); setSelectedStart(d.start); setSelectedLength(d.length); }
   });
 
   yOff += pep.height;
@@ -1011,6 +1013,8 @@ function createIAVDashboard({
 }
 ```
 
+
+
 <!-- Control Panel Buttons -->
 ```js
 import { radioButtons } from "./components/radioButtons.js";
@@ -1043,11 +1047,70 @@ const colourAttrInput = (() => {
 const colourAttr = Generators.input(colourAttrInput);
 
 /* Are we currently colouring by an allele? (reactive) */
+const normAllele = s =>
+  String(s || "")
+    .toUpperCase()
+    .replace(/^HLA-/, "")    // tolerate HLA- prefix
+    .trim();
+
 const isAlleleColour = (() => {
   selectedI; colourAttr; // dependencies
-  const picked = new Set((selectedI || []).map(String));
-  return picked.has(String(colourAttr));
+
+  const attr = normAllele(colourAttr);
+  if (/^ATTRIBUTE_\d+$/i.test(attr)) return false;   // attribute_1/2/3 → not allele
+
+  // Ensure we can map even if selectedI is a Set or Array
+  const picked = new Set(Array.from(selectedI || []).map(normAllele));
+  return picked.has(attr);
 })();
+
+```
+
+```js
+function attrCats(rows, attr) {
+  const vals = rows.map(r => r?.[attr]);
+  const cats = [...new Set(
+    vals.filter(v => v != null && String(v).trim() !== "")
+        .map(v => String(v))
+  )].sort((a,b)=>a.localeCompare(b));
+  const hasMissing = vals.some(v => v == null || String(v).trim() === "");
+  return { cats, hasMissing };
+}
+```
+
+```js
+const peptideKeyEl = (() => {
+  // reactive deps
+  colourAttr; percMode; proteinCommitted;
+
+  // SIMPLE RULE: if the radio is NOT attribute_1/2/3 ⇒ allele mode
+  const inAlleleMode = !/^attribute_[123]$/i.test(String(colourAttr));
+
+  if (inAlleleMode) {
+    return peptideColourKey({
+      label        : "Peptide colour key",
+      isAllele     : true,
+      mode         : percMode,   // EL/BA
+      includeNoData: true,       // always show “No data” (per your #2)
+      missingColor : "#f0f0f0"
+    });
+  }
+
+  // Attribute mode (unchanged)
+  const pepRows = peptidesAligned.filter(d => d.protein === proteinCommitted);
+  const { cats, hasMissing } = attrCats(pepRows, colourAttr);
+  const scale = makePeptideScale(cats.length ? cats : ["dummy"]);
+
+  return peptideColourKey({
+    label        : "Peptide colour key",
+    isAllele     : false,
+    categories   : cats,
+    colourScale  : scale,
+    includeNoData: hasMissing,
+    missingColor : "#f0f0f0"
+  });
+})();
+
 ```
 
 
@@ -2303,23 +2366,28 @@ const cachePreviewI = await (async () => {
   selectedI;
   committedProteinId;
 
-  const alleles = Array.from(alleleCtrl1.value || []);
-  const peps    = peptidesIWorkset;
+  const allelesRaw = Array.from(alleleCtrl1.value || []);
+  const pepsRaw    = peptidesIWorkset;
 
-  if (!committedProteinId || !alleles.length || !peps.length) return [];
+  if (!committedProteinId || !allelesRaw.length || !pepsRaw.length) return [];
+
+  // Normalise: UPPER + drop HLA- prefix. Also uppercase peptides.
+  const allelesNorm = allelesRaw.map(a => String(a).toUpperCase().replace(/^HLA-/, ""));
+  const pepsNorm    = pepsRaw.map(p => String(p).toUpperCase());
 
   const cacheRows = (
     await db.sql`
       SELECT *
       FROM   netmhccalc
-      WHERE  allele  IN (${alleles})
-        AND  peptide IN (${peps})
+      WHERE  UPPER(REPLACE(allele,'HLA-','')) IN (${allelesNorm})
+        AND  UPPER(peptide)                   IN (${pepsNorm})
     `
   ).toArray();
 
-  // cache is already snake_case; still normalize for safety
+  // cache is already snake_case; still normalise for safety
   return cacheRows.map(normalizeRowI_cache);
 })();
+
 ```
 
 ```js
@@ -2364,33 +2432,37 @@ const NETMHC_CHUNK_SIZE = 1000;   // was ~25 before; now 1000 as requested
 const runResultsI = await (async () => {
   trigI; // still gate on the run click
 
-  const alleles = Array.from(committedI || []);
-  const peps    = Array.from(committedWorksetI || []);
+  const allelesSel = Array.from(committedI || []);
+  const pepsSel    = Array.from(committedWorksetI || []);
 
-  if (!alleles.length) { setBanner("Class I: no alleles selected."); return []; }
-  if (!peps.length)    { setBanner("Class I: no peptides to run.");  return []; }
+  if (!allelesSel.length) { setBanner("Class I: no alleles selected."); return []; }
+  if (!pepsSel.length)    { setBanner("Class I: no peptides to run.");  return []; }
 
-  setBanner(`Class I: checking cache for ${peps.length} peptides…`);
+  setBanner(`Class I: checking cache for ${pepsSel.length} peptides…`);
+
+  // Normalise for cache join
+  const allelesNorm = allelesSel.map(a => String(a).toUpperCase().replace(/^HLA-/, ""));
+  const pepsNorm    = pepsSel.map(p => String(p).toUpperCase());
 
   const cacheRows = (
     await db.sql`
       SELECT *
       FROM   netmhccalc
-      WHERE  allele IN (${alleles})
-        AND  peptide IN (${peps})
+      WHERE  UPPER(REPLACE(allele,'HLA-','')) IN (${allelesNorm})
+        AND  UPPER(peptide)                   IN (${pepsNorm})
     `
   ).toArray();
 
-  // normalize cache rows (pass-through) and KEY on UPPERCASE for safety
+  // normalise cache rows (pass-through) and KEY on UPPERCASE for safety
   const normCache = cacheRows.map(normalizeRowI_cache);
   const cacheKey  = r => `${String(r.allele).toUpperCase()}|${String(r.peptide).toUpperCase()}`;
   const cacheSet  = new Set(normCache.map(cacheKey));
 
   const missingByAllele = new Map();
-  for (const al of alleles) {
+  for (const al of allelesSel) {
     const alU = String(al).toUpperCase();
     const miss = [];
-    for (const p of peps) {
+    for (const p of pepsSel) {
       const pU = String(p).toUpperCase();
       if (!cacheSet.has(`${alU}|${pU}`)) miss.push(p);
     }
@@ -2424,9 +2496,8 @@ const runResultsI = await (async () => {
       const tbl = await poll(id);
       const apiRows = rowsFromTable(tbl);
 
-      // 🔴 normalize API rows to snake_case + uppercase allele/peptide
+      // normalise API rows to snake_case + uppercase allele/peptide
       for (const r of apiRows.map(normalizeRowI_api)) {
-        // standardize case for reliable joins
         r.allele  = String(r.allele || "").toUpperCase();
         r.peptide = String(r.peptide || "").toUpperCase();
         apiRowsAll.push(r);
@@ -2507,10 +2578,19 @@ function makeDownloadButton(label, rowsMut, filename) {
   return btn;
 }
 
-const downloadCSVI  = makeDownloadButton("Download Class-I CSV",
-                                         resultsArrayI,  "mhcI_predictions.csv");
-const downloadCSVII = makeDownloadButton("Download Class-II CSV",
-                                         resultsArrayII, "mhcII_predictions.csv");
+const downloadCSVI  = downloadButton({
+  filename: "mhcI_predictions.csv",
+  data    : () => resultsArrayI.value,
+  tooltipTitle: "Download Class I predictions",
+  tooltipBody : "netMHCpan EL/BA scores and percentiles for selected Class I alleles and peptide workset. Outputs as .csv"
+});
+
+const downloadCSVII = downloadButton({
+  filename: "mhcII_predictions.csv",
+  data    : () => resultsArrayII.value,
+  tooltipTitle: "Download Class II predictions",
+  tooltipBody : "netMHCIIpan EL/BA scores and percentiles for selected Class II alleles and uploaded peptides. Outputs as .csv"
+});
 ```
 
 ```js

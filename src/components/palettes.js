@@ -16,7 +16,7 @@ export const peptidePalette = [
 ];
 
 /** Given a list of category keys, return an ordinal scale that
- *  cycles deterministically through `peptidePalette`. */
+ *  cycles deterministically through peptidePalette. */
 export function makePeptideScale(keys) {
   const colours = keys.map((_, i) =>
     peptidePalette[i % peptidePalette.length]
