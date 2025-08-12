@@ -226,7 +226,7 @@ const db = extendDB(
   await DuckDBClient.of({
     proteins: FileAttachment("data/IAV6-all.parquet").parquet(),
     sequencecalc: FileAttachment("data/IAV8_sequencecalc.parquet").parquet(),
-    netmhccalc: FileAttachment("data/iedb_netmhcpan_30k_allalleles_results.parquet").parquet(),
+    netmhccalc: FileAttachment("data/iedb_netmhc_slim.parquet").parquet(),
     hla: FileAttachment("data/HLAlistClassI.parquet").parquet()
   })
 );
@@ -2316,26 +2316,29 @@ const committedProteinId = (() => {
 ```js
 /* ── Unified schema (snake_case) for Class I rows ─────────────── */
 const keyMapI = {
-  // API display names → snake_case
   "peptide": "peptide",
   "allele": "allele",
   "netmhcpan_el percentile": "netmhcpan_el_percentile",
-  "netmhcpan_ba percentile": "netmhcpan_ba_percentile",
-  "netmhcpan_el score": "netmhcpan_el_score",
-  "netmhcpan_ba ic50": "netmhcpan_ba_ic50"
-  // add more if you need them in the UI
+  "netmhcpan_ba percentile": "netmhcpan_ba_percentile"
 };
+// Cache rows already come in these 4 columns.
+function normalizeRowI_cache(r) {
+  return {
+    allele: String(r.allele).toUpperCase(),    // keep HLA- prefix; pushdown uses exact match
+    peptide: String(r.peptide).toUpperCase(),
+    netmhcpan_el_percentile: +r.netmhcpan_el_percentile,  // already 2dp in slim file
+    netmhcpan_ba_percentile: +r.netmhcpan_ba_percentile
+  };
+}
 
-/* Cache rows are already snake_case → pass-through */
-function normalizeRowI_cache(r) { return r; }
-
-/* API table rows (display headers) → snake_case */
+/* API table rows (display headers) → only the 4 fields we keep */
 function normalizeRowI_api(r) {
-  const out = {};
-  for (const [k, v] of Object.entries(r)) {
-    out[keyMapI[k] || k] = v;
-  }
-  return out;
+  return {
+    allele: String(r["allele"] ?? r.allele).toUpperCase(),
+    peptide: String(r["peptide"] ?? r.peptide).toUpperCase(),
+    netmhcpan_el_percentile: +r["netmhcpan_el percentile"],
+    netmhcpan_ba_percentile: +r["netmhcpan_ba percentile"]
+  };
 }
 
 ```
@@ -2366,25 +2369,22 @@ const cachePreviewI = await (async () => {
   selectedI;
   committedProteinId;
 
-  const allelesRaw = Array.from(alleleCtrl1.value || []);
+  const allelesRaw = Array.from(alleleCtrl1.value || []);   // e.g. "HLA-A*01:01"
   const pepsRaw    = peptidesIWorkset;
 
   if (!committedProteinId || !allelesRaw.length || !pepsRaw.length) return [];
 
-  // Normalise: UPPER + drop HLA- prefix. Also uppercase peptides.
-  const allelesNorm = allelesRaw.map(a => String(a).toUpperCase().replace(/^HLA-/, ""));
-  const pepsNorm    = pepsRaw.map(p => String(p).toUpperCase());
-
+  // Keep exact strings for pushdown; uppercase later in JS for merging
   const cacheRows = (
     await db.sql`
-      SELECT *
+      SELECT allele, peptide,
+             netmhcpan_el_percentile, netmhcpan_ba_percentile
       FROM   netmhccalc
-      WHERE  UPPER(REPLACE(allele,'HLA-','')) IN (${allelesNorm})
-        AND  UPPER(peptide)                   IN (${pepsNorm})
+      WHERE  allele  IN (${allelesRaw})
+        AND  peptide IN (${pepsRaw})
     `
   ).toArray();
 
-  // cache is already snake_case; still normalise for safety
   return cacheRows.map(normalizeRowI_cache);
 })();
 
@@ -2419,6 +2419,7 @@ const chartRowsI = (() => {
   }
   return [...map.values()];
 })();
+
 ```
 
 ```js
@@ -2430,7 +2431,7 @@ const NETMHC_CHUNK_SIZE = 1000;   // was ~25 before; now 1000 as requested
 ```js
 /* ▸ RUN results – Class I (per-protein workset; batch missing by 1000) */
 const runResultsI = await (async () => {
-  trigI; // still gate on the run click
+  trigI;
 
   const allelesSel = Array.from(committedI || []);
   const pepsSel    = Array.from(committedWorksetI || []);
@@ -2440,22 +2441,19 @@ const runResultsI = await (async () => {
 
   setBanner(`Class I: checking cache for ${pepsSel.length} peptides…`);
 
-  // Normalise for cache join
-  const allelesNorm = allelesSel.map(a => String(a).toUpperCase().replace(/^HLA-/, ""));
-  const pepsNorm    = pepsSel.map(p => String(p).toUpperCase());
-
+  // Exact match (no UPPER/REPLACE) to enable pushdown
   const cacheRows = (
     await db.sql`
-      SELECT *
+      SELECT allele, peptide,
+             netmhcpan_el_percentile, netmhcpan_ba_percentile
       FROM   netmhccalc
-      WHERE  UPPER(REPLACE(allele,'HLA-','')) IN (${allelesNorm})
-        AND  UPPER(peptide)                   IN (${pepsNorm})
+      WHERE  allele  IN (${allelesSel})
+        AND  peptide IN (${pepsSel})
     `
   ).toArray();
 
-  // normalise cache rows (pass-through) and KEY on UPPERCASE for safety
   const normCache = cacheRows.map(normalizeRowI_cache);
-  const cacheKey  = r => `${String(r.allele).toUpperCase()}|${String(r.peptide).toUpperCase()}`;
+  const cacheKey  = r => `${r.allele}|${r.peptide}`;
   const cacheSet  = new Set(normCache.map(cacheKey));
 
   const missingByAllele = new Map();
@@ -2496,11 +2494,9 @@ const runResultsI = await (async () => {
       const tbl = await poll(id);
       const apiRows = rowsFromTable(tbl);
 
-      // normalise API rows to snake_case + uppercase allele/peptide
-      for (const r of apiRows.map(normalizeRowI_api)) {
-        r.allele  = String(r.allele || "").toUpperCase();
-        r.peptide = String(r.peptide || "").toUpperCase();
-        apiRowsAll.push(r);
+      // Keep only the 4 columns + standardize case once
+      for (const r of apiRows) {
+        apiRowsAll.push(normalizeRowI_api(r));
       }
 
       await new Promise(res => setTimeout(res, 150));
@@ -2513,13 +2509,8 @@ const runResultsI = await (async () => {
 
   // merge cache + API (API wins)
   const map = new Map();
-  for (const r of normCache) {
-    const rr = { ...r, allele:String(r.allele).toUpperCase(), peptide:String(r.peptide).toUpperCase() };
-    map.set(`${rr.allele}|${rr.peptide}`, rr);
-  }
-  for (const r of apiRowsAll) {
-    map.set(`${r.allele}|${r.peptide}`, r);
-  }
+  for (const r of normCache) map.set(`${r.allele}|${r.peptide}`, r);
+  for (const r of apiRowsAll) map.set(`${r.allele}|${r.peptide}`, r);
 
   const merged = [...map.values()];
   resultsArrayI.value = merged;
