@@ -127,8 +127,13 @@ banner.className = "banner__bg";
     <div class="file-heading">1. Select Files</div>
     ${referencefasta}
     ${peptideinput}
+    <div class="download-row">
+      ${downloadFastaBtn}
+      ${downloadPeptideBtn}
+      ${downloadCSVI}
+      ${downloadCSVII}
+    </div>
   </div>
-
   <!-- Row 1 · 80 % · Filters -->
   <div class="card" style="display:flex; flex-direction:column; gap:1rem;">
     <div class="file-heading">2. Filter</div>
@@ -153,22 +158,18 @@ banner.className = "banner__bg";
   <div class="card" style="grid-row: 2 / span 3;">
     <div class="file-heading">3. Control Panel</div>
     <br>${facetSelectInput}</br>
-    <br>${colourAttrInput}</br>
+    ${colourAttrInput}
     <br>${peptideKeyEl}</br>
     <br>${colourModeInput}</br>
     <br>${aaKeyEl}</br>
     <br>${seqSetInput}</br>
-    <br>${downloadFastaBtn}</br>
-    <br>${downloadPeptideBtn}</br>
-    <br>${statusBanner}</br>
-    <br>${alleleCtrl1}</br>
-    <br>${alleleCtrl2}</br>
-    <br>${percentileModeInput}</br>
-    <br>${mhcClassInput}</br>
+    ${statusBanner}
+    ${alleleCtrl1}
+    ${alleleCtrl2}
+    ${percentileModeInput}
+    ${mhcClassInput}
     <br>${runBtnI}</br>
     <br>${runBtnII}</br>
-    <br>${downloadCSVI}</br>
-    <br>${downloadCSVII}</br>
 
   </div>
 
@@ -198,6 +199,7 @@ banner.className = "banner__bg";
 /* Imports */
 import {extendDB, sql, extended} from "./components/extenddb.js"
 import {DuckDBClient} from "npm:@observablehq/duckdb";
+import * as duckdb from "@duckdb/duckdb-wasm";
 import {dropSelect} from "./components/dropSelect.js";
 import {comboSelect} from "./components/comboSelect.js"
 import {dateSelect} from "./components/dateSelect.js";
@@ -221,6 +223,7 @@ import * as d3 from "npm:d3";
 ```
 
 ```js
+
 /* Wrap Database */
 const db = extendDB(
   await DuckDBClient.of({
@@ -230,6 +233,11 @@ const db = extendDB(
     hla: FileAttachment("data/HLAlistClassI.parquet").parquet()
   })
 );
+```
+
+```js
+
+
 ```
 
 <!-- Filter Buttons + Helpers -->
@@ -1616,155 +1624,157 @@ const facetSelect = Generators.input(facetSelectInput);
 ```
 
 ```js
-/* ------------------------------------------------------------------ *
- *  positionFacetStats  – runs ONLY when the user has chosen a facet  *
- *  ----------------------------------------------------------------- *
- *  facetSelect   : "None" | "Genotype" | "Host" | "Country"
- *  ────────────────────────────────────────────────────────────────── */
+// how many facet levels to render at once (tune as needed)
+const MAX_FACETS = 6;
 
-/* positionFacetStats – new guard clause -------------------------- */
+// Unique vs All toggle (you already have this elsewhere; mirroring here)
+const useUnique = (seqSet === "Unique sequences");
+
+/* Replaces your entire positionFacetStats cell */
 const positionFacetStats =
   (facetSelect === "None" || noExtraFilters())
     ? null
     : db.sql`
-      WITH
-      proteins_faceted AS (
-        /* Only bring the chosen facet + sequence */
-        SELECT
-          ${
-            facetSelect === "Genotype"
-              ? sql`genotype`
-              : facetSelect === "Host"
-                ? sql`host`
-                : sql`country`
-          } AS facet,
-          sequence
-        FROM proteins
-      ),
+WITH base AS (
+  SELECT
+    ${
+      facetSelect === "Genotype"
+        ? sql`genotype`
+        : facetSelect === "Host"
+          ? sql`host`
+          : sql`country`
+    } AS facet,
+    sequence
+  FROM proteins
+  /* 🔴 push ALL filters here so we only touch the committed protein’s rows */
+  WHERE protein = ${proteinCommitted}
 
-      filtered AS (
-        SELECT facet, sequence
-        FROM   proteins_faceted
-        WHERE  1 = 1
-          AND ${ proteinCommitted ? sql`TRUE` : sql`TRUE` }  -- protein constraint is enforced later via peptide windows/plots
+    AND ${ genotypesCommitted.length
+            ? sql`genotype IN (${ genotypesCommitted })` : sql`TRUE` }
 
-          AND ${ genotypesCommitted.length
-                  ? sql`facet IN (${ genotypesCommitted })`  // when facet is genotype, this still works; otherwise the next block filters
-                  : sql`TRUE` }
+    AND ${ hostsCommitted.length
+            ? sql`host IN (${ hostsCommitted })` : sql`TRUE` }
 
-          /* Also keep the same *other* filters — these will hit the original table;
-             because proteins_faceted only has (facet, sequence), we push the rest
-             of the constraints into the base WHERE when facet matches; otherwise,
-             we'll filter earlier (safe fallback).
-          */
-      ),
+    AND ${
+          hostCategoryCommitted.includes('Human') &&
+          !hostCategoryCommitted.includes('Non-human')
+            ? sql`host = 'Homo sapiens'`
+            : (!hostCategoryCommitted.includes('Human') &&
+               hostCategoryCommitted.includes('Non-human'))
+                ? sql`host <> 'Homo sapiens'`
+                : sql`TRUE`
+        }
 
-      /* re-attach real filters directly from proteins when needed */
-      base_filtered AS (
-        SELECT pf.facet, p.sequence
-        FROM   proteins p
-        JOIN   proteins_faceted pf ON pf.sequence = p.sequence
-        WHERE  p.protein = ${proteinCommitted}
+    AND ${ countriesCommitted.length
+            ? sql`country IN (${ countriesCommitted })` : sql`TRUE` }
 
-          AND ${ hostsCommitted.length
-                  ? sql`p.host IN (${ hostsCommitted })`
-                  : sql`TRUE` }
+    AND ${
+      collectionDatesCommitted.from || collectionDatesCommitted.to
+        ? sql`
+            TRY_CAST(
+              CASE
+                WHEN collection_date IS NULL OR collection_date = '' THEN NULL
+                WHEN LENGTH(collection_date)=4  THEN collection_date || '-01-01'
+                WHEN LENGTH(collection_date)=7  THEN collection_date || '-01'
+                ELSE collection_date
+              END AS DATE
+            )
+            ${
+              collectionDatesCommitted.from && collectionDatesCommitted.to
+                ? sql`BETWEEN CAST(${collectionDatesCommitted.from} AS DATE)
+                         AND   CAST(${collectionDatesCommitted.to  } AS DATE)`
+                : collectionDatesCommitted.from
+                    ? sql`>= CAST(${collectionDatesCommitted.from} AS DATE)`
+                    : sql`<= CAST(${collectionDatesCommitted.to   } AS DATE)`
+            }
+          ` : sql`TRUE`
+    }
 
-          AND ${
-                hostCategoryCommitted.includes('Human') &&
-                !hostCategoryCommitted.includes('Non-human')
-                  ? sql`p.host = 'Homo sapiens'`
-                  : (!hostCategoryCommitted.includes('Human') &&
-                     hostCategoryCommitted.includes('Non-human'))
-                      ? sql`p.host <> 'Homo sapiens'`
-                      : sql`TRUE`
-              }
+    AND ${
+      releaseDatesCommitted.from || releaseDatesCommitted.to
+        ? sql`
+            TRY_CAST(
+              CASE
+                WHEN release_date IS NULL OR release_date = '' THEN NULL
+                WHEN LENGTH(release_date)=4 THEN release_date || '-01-01'
+                WHEN LENGTH(release_date)=7 THEN release_date || '-01'
+                ELSE release_date
+              END AS DATE
+            )
+            ${
+              releaseDatesCommitted.from && releaseDatesCommitted.to
+                ? sql`BETWEEN CAST(${releaseDatesCommitted.from} AS DATE)
+                         AND   CAST(${releaseDatesCommitted.to  } AS DATE)`
+                : releaseDatesCommitted.from
+                    ? sql`>= CAST(${releaseDatesCommitted.from} AS DATE)`
+                    : sql`<= CAST(${releaseDatesCommitted.to   } AS DATE)`
+            }
+          ` : sql`TRUE`
+    }
+),
 
-          AND ${ countriesCommitted.length
-                  ? sql`p.country IN (${ countriesCommitted })`
-                  : sql`TRUE` }
+/* for the “Unique” path, dedupe sequences now to avoid doubling later */
+b AS (
+  ${ useUnique
+      ? sql`SELECT DISTINCT facet, sequence FROM base`
+      : sql`SELECT facet, sequence FROM base` }
+),
 
-          AND ${
-            collectionDatesCommitted.from || collectionDatesCommitted.to
-              ? sql`
-                  TRY_CAST(
-                    CASE
-                      WHEN p.collection_date IS NULL OR p.collection_date = '' THEN NULL
-                      WHEN LENGTH(p.collection_date)=4  THEN p.collection_date || '-01-01'
-                      WHEN LENGTH(p.collection_date)=7  THEN p.collection_date || '-01'
-                      ELSE p.collection_date
-                    END AS DATE
-                  )
-                  ${
-                    collectionDatesCommitted.from && collectionDatesCommitted.to
-                      ? sql`BETWEEN CAST(${ collectionDatesCommitted.from } AS DATE)
-                               AND   CAST(${ collectionDatesCommitted.to   } AS DATE)`
-                      : collectionDatesCommitted.from
-                          ? sql`>= CAST(${ collectionDatesCommitted.from } AS DATE)`
-                          : sql`<= CAST(${ collectionDatesCommitted.to   } AS DATE)`
-                  }
-                `
-              : sql`TRUE`
-          }
+/* keep only the busiest facet levels to cap worst-case memory */
+top_facets AS (
+  SELECT facet
+  FROM b
+  GROUP BY facet
+  ORDER BY COUNT(*) DESC NULLS LAST
+  LIMIT ${MAX_FACETS}
+),
 
-          AND ${
-            releaseDatesCommitted.from || releaseDatesCommitted.to
-              ? sql`
-                  TRY_CAST(
-                    CASE
-                      WHEN p.release_date IS NULL OR p.release_date = '' THEN NULL
-                      WHEN LENGTH(p.release_date)=4 THEN p.release_date || '-01-01'
-                      WHEN LENGTH(p.release_date)=7 THEN p.release_date || '-01'
-                      ELSE p.release_date
-                    END AS DATE
-                  )
-                  ${
-                    releaseDatesCommitted.from && releaseDatesCommitted.to
-                      ? sql`BETWEEN CAST(${ releaseDatesCommitted.from } AS DATE)
-                               AND   CAST(${ releaseDatesCommitted.to   } AS DATE)`
-                      : releaseDatesCommitted.from
-                          ? sql`>= CAST(${ releaseDatesCommitted.from } AS DATE)`
-                          : sql`<= CAST(${ releaseDatesCommitted.to   } AS DATE)`
-                  }
-                `
-              : sql`TRUE`
-          }
-      ),
+b2 AS (
+  SELECT b.facet, b.sequence
+  FROM b
+  JOIN top_facets t USING (facet)
+),
 
-      /* downstream tallies identical but against base_filtered … */
-      parsed_a AS ( SELECT facet, sequence, LENGTH(sequence) AS len FROM base_filtered ),
-      pos_a    AS ( SELECT facet, p.sequence, gs.position
-                    FROM parsed_a p CROSS JOIN generate_series(1, p.len) AS gs(position) ),
-      chars_a  AS ( SELECT facet, position, SUBSTRING(sequence, position, 1) AS aminoacid FROM pos_a ),
-      counts_a AS ( SELECT facet, position, aminoacid, COUNT(*) AS cnt_all FROM chars_a GROUP BY facet, position, aminoacid ),
-      totals_a AS ( SELECT facet, position, SUM(cnt_all) AS total_all FROM counts_a GROUP BY facet, position ),
+/* explode *only* the already-filtered, capped set */
+parsed AS ( SELECT facet, sequence, LENGTH(sequence) AS len FROM b2 ),
+pos    AS ( SELECT facet, sequence, gs.position
+           FROM parsed p, generate_series(1, p.len) AS gs(position) ),
+chars  AS ( SELECT facet, position,
+                   SUBSTRING(sequence, position, 1) AS aminoacid
+            FROM pos ),
 
-      filtered_u AS ( SELECT DISTINCT facet, sequence FROM base_filtered ),
-      parsed_u   AS ( SELECT facet, sequence, LENGTH(sequence) AS len FROM filtered_u ),
-      pos_u      AS ( SELECT facet, p.sequence, gs.position
-                      FROM parsed_u p CROSS JOIN generate_series(1, p.len) AS gs(position) ),
-      chars_u    AS ( SELECT facet, position, SUBSTRING(sequence, position, 1) AS aminoacid FROM pos_u ),
-      counts_u   AS ( SELECT facet, position, aminoacid, COUNT(*) AS cnt_unique FROM chars_u GROUP BY facet, position, aminoacid ),
-      totals_u   AS ( SELECT facet, position, SUM(cnt_unique) AS total_unique FROM counts_u GROUP BY facet, position ),
+/* counts + totals */
+counts AS ( SELECT facet, position, aminoacid, COUNT(*) AS cnt
+            FROM chars
+            GROUP BY facet, position, aminoacid ),
+totals AS ( SELECT facet, position, SUM(cnt) AS total
+            FROM counts
+            GROUP BY facet, position ),
 
-      combined AS (
-        SELECT
-          COALESCE(ca.facet, cu.facet)         AS facet,
-          COALESCE(ca.position, cu.position)   AS position,
-          COALESCE(ca.aminoacid, cu.aminoacid) AS aminoacid,
-          CAST(COALESCE(ca.cnt_all,0)  AS INT) AS frequency_all,
-          CAST(ta.total_all            AS INT) AS total_all,
-          CASE WHEN ta.total_all = 0 THEN 0.0 ELSE COALESCE(ca.cnt_all,0)*1.0 / ta.total_all END AS value,
-          CAST(COALESCE(cu.cnt_unique,0) AS INT) AS frequency_unique,
-          CAST(tu.total_unique           AS INT) AS total_unique,
-          CASE WHEN tu.total_unique = 0 THEN 0.0 ELSE COALESCE(cu.cnt_unique,0)*1.0 / tu.total_unique END AS value_unique
-        FROM counts_a ca
-        FULL JOIN counts_u cu USING (facet, position, aminoacid)
-        LEFT JOIN totals_a ta USING (facet, position)
-        LEFT JOIN totals_u tu USING (facet, position)
-      )
-      SELECT * FROM combined ORDER BY facet, position, aminoacid
-    `;
+/* rank in SQL so we only return the single top-AA per position */
+ranked AS (
+  SELECT
+    facet, position, aminoacid,
+    CAST(cnt   AS INT)   AS frequency,
+    CAST(total AS INT)   AS total,
+    (cnt::DOUBLE)/total  AS value_current,  -- the only metric we need
+    ROW_NUMBER() OVER (
+      PARTITION BY facet, position
+      ORDER BY (cnt::DOUBLE)/total DESC, aminoacid
+    ) AS r
+  FROM counts JOIN totals USING (facet, position)
+)
+
+/* name the column to match your JS switch: value or value_unique */
+SELECT
+  facet, position, aminoacid, frequency, total,
+  ${ useUnique
+      ? sql`value_current AS value_unique, NULL::DOUBLE AS value`
+      : sql`value_current AS value,        NULL::DOUBLE AS value_unique` }
+FROM ranked
+WHERE r = 1
+ORDER BY facet, position, aminoacid
+`;
 
 ```
 
