@@ -220,6 +220,8 @@ import {aaColourKey} from "./components/aaColourKey.js";
 import {runButton} from "./components/runButton.js";
 import {peptideColourKey} from "./components/peptideColourKey.js";
 import * as d3 from "npm:d3";
+import {downloadSvgButton} from "./components/downloadSvgButton.js";
+
 ```
 
 ```js
@@ -2607,3 +2609,32 @@ const committedII       = snapshotOn(runBtnII, () => Array.from(alleleCtrl2.valu
 
 
 ```
+
+
+```js
+
+const dashboardSVG = createIAVDashboard();
+
+```
+
+
+```js
+/* Buttons to download current SVGs */
+proteinCommitted; // make filename reactive
+
+const downloadHeatmapSvgBtn = downloadSvgButton({
+  label: "Download heatmap SVG",
+  filename: `heatmap_${proteinCommitted || "all"}.svg`,
+  getSvg: () => (heatmapSVG?.tagName?.toLowerCase() === "svg" ? heatmapSVG : heatmapSVG?.querySelector?.("svg"))
+});
+
+const downloadDashboardSvgBtn = downloadSvgButton({
+  label: "Download dashboard SVG",
+  filename: `dashboard_${proteinCommitted || "all"}.svg`,
+  getSvg: () => (dashboardSVG?.tagName?.toLowerCase() === "svg" ? dashboardSVG : dashboardSVG?.querySelector?.("svg"))
+});
+
+```
+
+${downloadHeatmapSvgBtn}
+${downloadDashboardSvgBtn}
