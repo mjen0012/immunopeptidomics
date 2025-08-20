@@ -1030,6 +1030,7 @@ function createIAVDashboard({
 
   /* 8 ▸ shared zoom (integer ticks preserved) ----------------- */
   const updaters = [pep.update, stack.update, seqcmp.update, area.update, ...facetUpdaters];
+  svg.node().__exportRefresh = () => { updaters.forEach(fn => fn(xCurrent)); };
   const EPS      = 1e-6;
   const zoom = d3.zoom()
     .scaleExtent([1,15])
