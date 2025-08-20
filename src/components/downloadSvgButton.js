@@ -15,43 +15,31 @@ export function downloadSvgButton({ label = "Download SVG", filename = "chart.sv
 
   btn.addEventListener("click", async () => {
     const src = typeof getSvg === "function" ? getSvg() : getSvg;
-    if (!src || src.tagName?.toLowerCase() !== "svg") {
-      alert("SVG not found.");
-      return;
-    }
+    if (!src || src.tagName?.toLowerCase() !== "svg") { alert("SVG not found."); return; }
 
-    // Let charts reflow to the *current* state (zoomed domain, etc.)
-    try { src.__exportRefresh?.(); } catch {}
-
-    // Wait a frame so the DOM reflects any reflow
+    // Freeze the DOM to the exact zoomed view, then wait a frame for layout
+    try { src.__exportFreezeToZoom?.(); } catch {}
     await new Promise(requestAnimationFrame);
 
-    // Clone so we don’t mutate the live chart
+    // Clone the SVG at the frozen state
     const clone = src.cloneNode(true);
 
-    // ——— Inline computed styles (so ticks/labels/axes survive outside the page)
+    // Immediately restore the on-screen chart
+    try { src.__exportUnfreeze?.(); } catch {}
+
+    // Inline computed styles and save as before…
     inlineAllStyles(src, clone);
-
-    // Size + namespaces
     const { width, height } = src.getBoundingClientRect();
-    if (width && height) {
-      clone.setAttribute("width",  Math.round(width));
-      clone.setAttribute("height", Math.round(height));
-    }
-    if (!clone.getAttribute("xmlns")) {
-      clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
-    }
-    if (!clone.getAttribute("xmlns:xlink")) {
-      clone.setAttributeNS("http://www.w3.org/2000/xmlns/","xmlns:xlink","http://www.w3.org/1999/xlink");
-    }
-
+    if (width && height) { clone.setAttribute("width", Math.round(width)); clone.setAttribute("height", Math.round(height)); }
+    if (!clone.getAttribute("xmlns")) clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+    if (!clone.getAttribute("xmlns:xlink")) clone.setAttributeNS("http://www.w3.org/2000/xmlns/","xmlns:xlink","http://www.w3.org/1999/xlink");
     const xml = `<?xml version="1.0" encoding="UTF-8"?>\n${new XMLSerializer().serializeToString(clone)}`;
     const blob = new Blob([xml], { type: "image/svg+xml;charset=utf-8" });
     const url  = URL.createObjectURL(blob);
-    const a    = Object.assign(document.createElement("a"), { href: url, download: filename });
-    a.click();
+    Object.assign(document.createElement("a"), { href:url, download: filename }).click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   });
+
 
   return btn;
 }

@@ -1030,26 +1030,44 @@ function createIAVDashboard({
 
   /* 8 ▸ shared zoom (integer ticks preserved) ----------------- */
   const updaters = [pep.update, stack.update, seqcmp.update, area.update, ...facetUpdaters];
-  svg.node().__exportRefresh = () => { updaters.forEach(fn => fn(xCurrent)); };
-  const EPS      = 1e-6;
-  const zoom = d3.zoom()
-    .scaleExtent([1,15])
-    .translateExtent([[margin.left,0],
-                      [svgWidth - margin.right, yOff]])
-    .on("zoom", function (ev) {
-      /* --- 1. snap to identity when user is fully zoomed out --- */
-      if (Math.abs(ev.transform.k - 1) < EPS &&
-          (Math.abs(ev.transform.x) > EPS)) {
-        // force-reset — affects every chart simultaneously
-        svg.call(zoom.transform, d3.zoomIdentity);
-        return;                              // skip stale update
-      }
 
-      /* --- 2. normal re-flow for any other transform ----------- */
+  // ❗ Replace the old __exportRefresh with a freeze/unfreeze pair.
+  // They temporarily set the base scale (x0) to the *current zoomed* domain,
+  // force a full reflow, then allow restoring the on-screen state immediately.
+  svg.node().__exportFreezeToZoom = () => {
+    // compute the currently visible domain from xCurrent
+    const d0 = xCurrent.invert(margin.left);
+    const d1 = xCurrent.invert(svgWidth - margin.right);
+    // stash and overwrite domain on the base scale
+    svg.node().__exportPrevDomain = x0.domain();
+    x0.domain([d0, d1]);
+    // reflow EVERY sub-chart using x0
+    updaters.forEach(fn => fn(x0));
+  };
+  svg.node().__exportUnfreeze = () => {
+    const prev = svg.node().__exportPrevDomain;
+    if (prev) {
+      x0.domain(prev);
+      // put the on-screen chart back to the real zoomed view
+      updaters.forEach(fn => fn(xCurrent));
+      svg.node().__exportPrevDomain = null;
+    }
+  };
+
+  const EPS = 1e-6;
+  const zoom = d3.zoom()
+    .scaleExtent([1, 15])
+    .translateExtent([[margin.left, 0], [svgWidth - margin.right, yOff]])
+    .on("zoom", function (ev) {
+      if (Math.abs(ev.transform.k - 1) < EPS && (Math.abs(ev.transform.x) > EPS)) {
+        svg.call(zoom.transform, d3.zoomIdentity);
+        return;
+      }
       xCurrent = ev.transform.rescaleX(x0);
       updaters.forEach(fn => fn(xCurrent));
     });
   svg.call(zoom);
+
 
   return svg.node();
 }
@@ -2612,14 +2630,11 @@ const committedII       = snapshotOn(runBtnII, () => Array.from(alleleCtrl2.valu
 ```
 
 
-```js
 
+
+
+```js
 const dashboardSVG = createIAVDashboard();
-
-```
-
-
-```js
 /* Buttons to download current SVGs */
 proteinCommitted; // make filename reactive
 
@@ -2632,7 +2647,7 @@ const downloadHeatmapSvgBtn = downloadSvgButton({
 const downloadDashboardSvgBtn = downloadSvgButton({
   label: "Download dashboard SVG",
   filename: `dashboard_${proteinCommitted || "all"}.svg`,
-  getSvg: () => (dashboardSVG?.tagName?.toLowerCase() === "svg" ? dashboardSVG : dashboardSVG?.querySelector?.("svg"))
+  getSvg: () => dashboardSVG   // <-- the same node that owns the hooks
 });
 
 ```
