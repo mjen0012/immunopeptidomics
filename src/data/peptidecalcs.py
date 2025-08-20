@@ -24,7 +24,7 @@ import requests
 FREQ_PARQUET   = Path(r"C:\Users\mcjen\Documents\GitHub\immunopeptidomics\src\data\IAV8_sequencecalc.parquet")
 
 PEPTIDE_OUT    = Path(r"C:\Users\mcjen\Documents\GitHub\immunopeptidomics\src\data\peptides_30k_8-14.csv")
-RESULTS_OUT    = Path(r"C:\Users\mcjen\Documents\GitHub\immunopeptidomics\src\data\iedb_netmhcpan_30k_allalleles_results.csv")
+RESULTS_OUT    = Path(r"C:\Users\mcjen\Documents\GitHub\immunopeptidomics\src\data\iedb_netmhcpan_30k_allalleles_results_YES.csv")
 
 THRESHOLD      = 30_000
 EXCLUDE_PROTS  = {"HA", "NA"}
