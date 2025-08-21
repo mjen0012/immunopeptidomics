@@ -40,6 +40,7 @@ export function areaChart(
   const clip = slotG.append("defs")
     .append("clipPath")
       .attr("id", clipId)
+      .attr("clipPathUnits", "userSpaceOnUse") // PPT is happier when explicit
     .append("rect")
       .attr("x", x0)
       .attr("y", margin.top)
@@ -75,13 +76,13 @@ export function areaChart(
       .style("font", "12px sans-serif")
       .style("opacity", 0);
 
-  const hRects = gClipped.append("g")
+  const hRects = gClipped.append("g").attr("class", "hover-rects")
     .selectAll("rect")
     .data(data)
     .enter().append("rect")
       .attr("y", margin.top)
       .attr("height", height - margin.top - margin.bottom)
-      .attr("fill", "transparent")
+      .attr("fill", "none")
       .attr("pointer-events", "all")
       .on("mouseover", (e, d) => {
         tooltip
