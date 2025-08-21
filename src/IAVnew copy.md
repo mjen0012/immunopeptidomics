@@ -189,7 +189,7 @@ banner.className = "banner__bg";
 
   <!-- Row 4 · 80 % · single wide card -->
   <div class="card" style="min-height:200px;">
-    ${dashboardSVG}
+    ${dashboardSVG()}
   </div>
 
 </div>
