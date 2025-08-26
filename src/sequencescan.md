@@ -290,9 +290,13 @@ async function parsePeptidesCSV(input) {
 /* ── IEDB API helpers + normalizer (single cell so names are always in scope) ── */
 
 /* Build body for a single predictor, multiple alleles, all sequences.
-   We ALWAYS send peptide_length_range: null to avoid server-side .split errors. */
-function buildBody(opts) {
-  const { cls, method, alleles, fastaText } = opts; // lengths intentionally ignored
+   Always send peptide_length_range as a STRING (e.g., "8,9,10") to avoid server .split errors. */
+function buildBody({ cls, method, alleles, lengths, fastaText }) {
+  const lengthStr =
+    Array.isArray(lengths) && lengths.length
+      ? lengths.join(",")             // e.g. "8,9,10"
+      : (cls === "II" ? "15" : "9");  // sensible defaults if user left it blank
+
   return {
     run_stage_range: [1, 1],
     stages: [{
@@ -301,13 +305,14 @@ function buildBody(opts) {
       tool_group  : cls === "II" ? "mhcii" : "mhci",
       input_sequence_text: fastaText,
       input_parameters: {
-        alleles: alleles.join(","),      // server expects comma-joined string
-        peptide_length_range: null,      // ← critical
+        alleles: alleles.join(","),   // server expects a comma-joined string
+        peptide_length_range: lengthStr,
         predictors: [{ type: "binding", method }]
       }
     }]
   };
 }
+
 
 async function submit(body) {
   const r = await fetch("/api/iedb-pipeline", {
@@ -482,18 +487,19 @@ const downloadPredsBtn = downloadCSVButton();
         continue;
       }
 
-      // UI lengths (for display only; NOT sent to API)
+      // UI lengths (for display + API)
       const pred = getPredictor();
       const lens = parseLengths(typeof lengthText === "string" ? lengthText : "", pred.cls);
 
       // Build multi-FASTA
       const fastaText = seqs.map(s => `>${s.id}\n${s.sequence}`).join("\n");
 
-      // Submit (peptide_length_range=null inside buildBody)
+      // Submit (peptide_length_range now sent as string via buildBody)
       const body = buildBody({
         cls     : pred.cls,
         method  : pred.method,
         alleles : alleles,
+        lengths : lens,
         fastaText
       });
 
@@ -502,10 +508,10 @@ const downloadPredsBtn = downloadCSVButton();
         method    : pred.method,
         nSequences: seqs.length,
         nAlleles  : alleles.length,
-        input_parameters: body.stages[0].input_parameters,
-        ui_lengths: lens,
+        peptide_length_range: body.stages[0].input_parameters.peptide_length_range, // ← confirm it's a string
         fastaPreview: fastaText.slice(0, 120)
       });
+
 
       setBanner(`Submitting ${seqs.length} seq(s), ${alleles.length} allele(s)…`);
       const resultId = await submit(body);
