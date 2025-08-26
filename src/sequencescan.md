@@ -178,6 +178,7 @@ const chosenAlleles = Generators.input(alleleSelectEl);
   })();
 }
 
+
 ```
 
 ```js
@@ -272,11 +273,9 @@ async function parsePeptidesCSV(input) {
 ```
 
 ```js
-/* Build body for a single predictor, multiple alleles, lengths, all sequences */
-function buildBody({cls, method, alleles, lengths, fastaText}) {
-  const lengthStr = (Array.isArray(lengths) && lengths.length)
-    ? lengths.join(",")   // e.g. "8,9,10"
-    : null;               // API is happy with null too (default lengths)
+/* Build body for a single predictor, multiple alleles, all sequences
+   — IMPORTANT: always send peptide_length_range: null (matches working code) */
+function buildBody({cls, method, alleles, /* lengths unused for API */, fastaText}) {
   return {
     run_stage_range: [1,1],
     stages: [{
@@ -285,14 +284,13 @@ function buildBody({cls, method, alleles, lengths, fastaText}) {
       tool_group  : cls === "II" ? "mhcii" : "mhci",
       input_sequence_text: fastaText,
       input_parameters: {
-        alleles: alleles.join(","),     // string as in your working code
-        peptide_length_range: lengthStr,
-        predictors: [{type:"binding", method}]
+        alleles: alleles.join(","),    // server expects a comma-joined string
+        peptide_length_range: null,    // ← avoid server .split on undefined
+        predictors: [{ type:"binding", method }]
       }
     }]
   };
 }
-
 
 async function submit(body) {
   const r = await fetch("/api/iedb-pipeline", {
@@ -322,8 +320,7 @@ async function poll(resultId, interval=1500, timeout=120_000) {
   throw new Error("Timed out polling IEDB");
 }
 
-
-/* Poll with status updates (additive helper) */
+/* Poll with status updates (banner ticks) */
 async function pollWithStatus(resultId, { interval = 1000, timeout = 120_000, onTick } = {}) {
   const t0 = Date.now();
   let iter = 0;
@@ -343,22 +340,19 @@ async function pollWithStatus(resultId, { interval = 1000, timeout = 120_000, on
   throw new Error("Timed out polling IEDB");
 }
 
-
 function rowsFromTable(tbl) {
   const keys = tbl.table_columns.map(c => c.display_name || c.name);
   return tbl.table_data.map(r => Object.fromEntries(r.map((v,i)=>[keys[i],v])));
 }
 
-/* Normalize result rows to a common shape */
+/* Normalize result rows to a common shape (unchanged) */
 function normalizeRows(rows, {cls, method}) {
-  // Try to locate columns with flexible headers
   const findCol = (obj, names) => {
     const keys = Object.keys(obj);
     for (const n of names) {
       const k = keys.find(k => k.toLowerCase() === n.toLowerCase());
       if (k) return k;
     }
-    // fallback: regex contains
     for (const k of keys) {
       if (names.some(n => k.toLowerCase().includes(n.toLowerCase()))) return k;
     }
@@ -371,7 +365,6 @@ function normalizeRows(rows, {cls, method}) {
     const alK    = findCol(r, ["allele"]);
     const startK = findCol(r, ["start","start position","start_position"]);
     const lenK   = findCol(r, ["length","peptide length","peptide_length"]);
-    // predictor percentile column
     const pctK = findCol(r, [
       method==="netmhcpan_el"    ? "netmhcpan_el percentile"
     : method==="netmhcpan_ba"    ? "netmhcpan_ba percentile"
@@ -428,9 +421,7 @@ const downloadPredsBtn = downloadCSVButton();
 ```js
 /* ▶ Run pipeline — only after clicking Run */
 {
-  await (async () => {
-    await triggerRun;  // ← do nothing until the button fires
-
+  for await (const _ of Generators.input(runBtn)) {
     try {
       console.groupCollapsed("▶️ Run prediction");
       setBanner("Preparing input…");
@@ -448,45 +439,44 @@ const downloadPredsBtn = downloadCSVButton();
         ...parseFastaOrRaw(fromFileText)
       ].filter(s => s.sequence && /^[ACDEFGHIKLMNPQRSTVWY-]+$/i.test(s.sequence));
 
-      if (!seqs.length) { setBanner("Please enter or upload at least one sequence."); console.warn("No sequences"); console.groupEnd(); return; }
+      if (!seqs.length) { setBanner("Please enter or upload at least one sequence."); console.warn("No sequences"); console.groupEnd(); continue; }
       if (seqListMut && "value" in seqListMut) seqListMut.value = seqs;
       if (chosenSeqIdMut && "value" in chosenSeqIdMut && !chosenSeqIdMut.value) chosenSeqIdMut.value = seqs[0].id;
 
       // Alleles (array)
       const alleles = Array.isArray(chosenAlleles) ? chosenAlleles : Array.from(chosenAlleles || []);
-      if (!alleles.length) { setBanner("Please select at least one allele."); console.warn("No alleles"); console.groupEnd(); return; }
+      if (!alleles.length) { setBanner("Please select at least one allele."); console.warn("No alleles"); console.groupEnd(); continue; }
 
-      // Lengths (class-aware default)
+      // Lengths (UI defaulting only; not sent to API to avoid server split bug)
       const pred = getPredictor();
       const lens = parseLengths(typeof lengthText === "string" ? lengthText : "", pred.cls);
-      // (OK to be empty: buildBody will send null which matches your working code)
-      
+
       // Build multi-FASTA
       const fastaText = seqs.map(s => `>${s.id}\n${s.sequence}`).join("\n");
 
-      // Submit
+      // Submit (peptide_length_range = null inside buildBody)
       const body = buildBody({
         cls     : pred.cls,
         method  : pred.method,
         alleles : alleles,
-        lengths : lens,
         fastaText
       });
 
-      console.log("Submitting /api/iedb-pipeline", {
-        tool_group : body.stages[0].tool_group,
-        method     : pred.method,
-        nSequences : seqs.length,
-        nAlleles   : alleles.length,
-        lengths    : lens
+      console.log("Submitting /api/iedb-pipeline →", {
+        tool_group: body.stages[0].tool_group,
+        method    : pred.method,
+        nSequences: seqs.length,
+        nAlleles  : alleles.length,
+        input_parameters: body.stages[0].input_parameters,
+        ui_lengths: lens
       });
-      setBanner(`Submitting ${seqs.length} seq(s), ${alleles.length} allele(s)${lens?.length ? `, lengths ${lens.join(", ")}` : ""}…`);
 
+      setBanner(`Submitting ${seqs.length} seq(s), ${alleles.length} allele(s)…`);
       const resultId = await submit(body);
       console.log("→ resultId:", resultId);
       setBanner(`Submitted. Result id: ${resultId}. Polling…`);
 
-      // Poll with live ticks in the banner
+      // Poll with banner ticks
       let lastSec = -1;
       const tbl = await pollWithStatus(resultId, {
         interval: 1500,
@@ -513,7 +503,7 @@ const downloadPredsBtn = downloadCSVButton();
       setBanner(`Error: ${err?.message || err}`);
       console.groupEnd();
     }
-  })();
+  }
 }
 
 ```
@@ -525,6 +515,7 @@ function getPredictor() {
   if (!p) return { cls: "I", method: "netmhcpan_el" };
   return p.value && p.value.cls ? p.value : p; // if option wrapper, use .value
 }
+
 ```
 
 
@@ -600,13 +591,12 @@ function getSeqRecord(id) {
 }
 
 /* Build heatmap cells (min-pct per position, per allele) from normalized rows */
-function buildHeatmapData({rows, seqId, sequence, method}) {
+function buildHeatmapData({rows, seqId, sequence, method, cls}) {
   if (!rows?.length || !sequence) return [];
-  // Accumulate best (min) percentile per allele/pos
   const AA = sequence.toUpperCase();
   const best = new Map(); // key: allele|pos → {pct, peptide, aa}
   for (const r of rows.filter(x => x.start != null && x.length != null)) {
-    if (r.cls && predictor.cls && r.cls !== predictor.cls) continue;
+    if (r.cls && cls && r.cls !== cls) continue;   // ← use passed cls
     const kAllele = r.allele;
     const start = +r.start;
     const len   = +r.length;
@@ -672,6 +662,7 @@ function buildOverlayRows({peptides, sequence}) {
       : null;
 
   const seqRec = getSeqRecord(currChosenId);
+  const pred = getPredictor();
 
   if (seqRec) {
     const seqId  = seqRec.id;
@@ -680,7 +671,7 @@ function buildOverlayRows({peptides, sequence}) {
 
     // Heatmap data across *all alleles selected in predictor run*
     const heatData = buildHeatmapData({
-      rows, seqId, sequence: seqAA, method: predictor.method
+      rows, seqId, sequence: seqAA, method: pred.method, cls: pred.cls
     });
 
     // Shared zoom state
@@ -732,38 +723,37 @@ function buildOverlayRows({peptides, sequence}) {
         alleleData : rows.filter(r => r.allele === allele).map(r => ({
           allele: r.allele,
           peptide: r.peptide,
-          netmhcpan_el_percentile: predictor.method.includes("el") ? r.pct : undefined,
-          netmhcpan_ba_percentile: predictor.method.includes("ba") ? r.pct : undefined
+          netmhcpan_el_percentile: pred.method.includes("el") ? r.pct : undefined,
+          netmhcpan_ba_percentile: pred.method.includes("ba") ? r.pct : undefined
         })),
         xScale     : currentScale,
         sizeFactor : 1.2,
         rowHeight  : 18,
         gap        : 2,
         margin     : { top:20, right:20, bottom:30, left:40 },
-        colourBy   : allele,            // color by this allele (matches heatmap mapping)
+        colourBy   : allele,
         onZoom     : (x, t) => {
           if (syncing) return;
           syncing = true;
           currentScale = x; currentTransform = t;
-          heatEl.__setZoom?.(t);        // drive heatmap back
+          heatEl.__setZoom?.(t);
           syncing = false;
         }
       });
 
-      // Optional: add a very light, separate overlay row for uploaded peptides
+      // Optional overlay row
       if (overlayRows.length) {
         const g2 = g.append("g").attr("transform", `translate(0, ${chart.height})`);
         const overlay = peptideScanChart(g2, {
           data       : overlayRows,
-          alleleData : [],               // no scoring; neutral fill inside component when not allele mode
+          alleleData : [],
           xScale     : currentScale,
           sizeFactor : 1.0,
           rowHeight  : 14,
           gap        : 2,
           margin     : { top:12, right:20, bottom:24, left:40 },
-          colourBy   : "attribute_1"     // forces neutral color in component
+          colourBy   : "attribute_1"
         });
-        // grow svg to fit overlay
         svg.attr("height", chart.height + overlay.height);
       } else {
         svg.attr("height", chart.height);
@@ -777,9 +767,8 @@ function buildOverlayRows({peptides, sequence}) {
       if (currentTransform) pepAPI.setZoom(currentTransform);
       pepAPI.update(currentScale);
     }
-  } // if (seqRec)
+  }
 }
-
 
 ```
 
