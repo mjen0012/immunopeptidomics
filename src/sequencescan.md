@@ -273,20 +273,23 @@ async function parsePeptidesCSV(input) {
 ```
 
 ```js
-/* Build body for a single predictor, multiple alleles, all sequences
-   — IMPORTANT: always send peptide_length_range: null (matches working code) */
-function buildBody({cls, method, alleles, /* lengths unused for API */, fastaText}) {
+/* ── IEDB API helpers + normalizer (single cell so names are always in scope) ── */
+
+/* Build body for a single predictor, multiple alleles, all sequences.
+   We ALWAYS send peptide_length_range: null to avoid server-side .split errors. */
+function buildBody(opts) {
+  const { cls, method, alleles, fastaText } = opts; // lengths intentionally ignored
   return {
-    run_stage_range: [1,1],
+    run_stage_range: [1, 1],
     stages: [{
       stage_number: 1,
       stage_type  : "prediction",
       tool_group  : cls === "II" ? "mhcii" : "mhci",
       input_sequence_text: fastaText,
       input_parameters: {
-        alleles: alleles.join(","),    // server expects a comma-joined string
-        peptide_length_range: null,    // ← avoid server .split on undefined
-        predictors: [{ type:"binding", method }]
+        alleles: alleles.join(","),      // server expects comma-joined string
+        peptide_length_range: null,      // ← critical
+        predictors: [{ type: "binding", method }]
       }
     }]
   };
@@ -300,7 +303,7 @@ async function submit(body) {
   });
   const txt = await r.text();
   const j   = (()=>{try{return JSON.parse(txt);}catch{return txt;}})();
-  if (!r.ok) throw new Error(j.errors?.join("; ") || r.statusText);
+  if (!r.ok) throw new Error(j?.errors?.join?.("; ") || r.statusText);
   return j.results_uri.split("/").pop(); // result_id
 }
 
@@ -320,7 +323,7 @@ async function poll(resultId, interval=1500, timeout=120_000) {
   throw new Error("Timed out polling IEDB");
 }
 
-/* Poll with status updates (banner ticks) */
+/* Poll with status updates into the banner */
 async function pollWithStatus(resultId, { interval = 1000, timeout = 120_000, onTick } = {}) {
   const t0 = Date.now();
   let iter = 0;
@@ -345,7 +348,7 @@ function rowsFromTable(tbl) {
   return tbl.table_data.map(r => Object.fromEntries(r.map((v,i)=>[keys[i],v])));
 }
 
-/* Normalize result rows to a common shape (unchanged) */
+/* Normalize result rows to a common shape */
 function normalizeRows(rows, {cls, method}) {
   const findCol = (obj, names) => {
     const keys = Object.keys(obj);
@@ -386,7 +389,6 @@ function normalizeRows(rows, {cls, method}) {
   return out;
 }
 
-
 ```
 
 ```js
@@ -421,6 +423,9 @@ const downloadPredsBtn = downloadCSVButton();
 ```js
 /* ▶ Run pipeline — only after clicking Run */
 {
+  // Make this cell explicitly depend on helper functions (builds a hard edge in the graph).
+  buildBody; submit; pollWithStatus; rowsFromTable; normalizeRows;
+
   for await (const _ of Generators.input(runBtn)) {
     try {
       console.groupCollapsed("▶️ Run prediction");
@@ -447,14 +452,14 @@ const downloadPredsBtn = downloadCSVButton();
       const alleles = Array.isArray(chosenAlleles) ? chosenAlleles : Array.from(chosenAlleles || []);
       if (!alleles.length) { setBanner("Please select at least one allele."); console.warn("No alleles"); console.groupEnd(); continue; }
 
-      // Lengths (UI defaulting only; not sent to API to avoid server split bug)
+      // UI lengths (for display only; NOT sent to API)
       const pred = getPredictor();
       const lens = parseLengths(typeof lengthText === "string" ? lengthText : "", pred.cls);
 
       // Build multi-FASTA
       const fastaText = seqs.map(s => `>${s.id}\n${s.sequence}`).join("\n");
 
-      // Submit (peptide_length_range = null inside buildBody)
+      // Submit (peptide_length_range=null inside buildBody)
       const body = buildBody({
         cls     : pred.cls,
         method  : pred.method,
