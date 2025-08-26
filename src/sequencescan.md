@@ -203,20 +203,44 @@ function parseFastaOrRaw(text) {
 }
 
 
-// Hardened file→text helper (accepts File, uploadButton root, or [File])
-async function readFileText(file) {
-  if (!file) return "";
+// Hardened file→text helper (accepts File, [File], uploadButton root, or <input type=file>)
+async function readFileText(fileish) {
+  if (!fileish) return "";
+
   const isFileLike = (f) => f && typeof f.text === "function";
 
-  if (isFileLike(file)) {
-    return await file.text();
+  // Direct File
+  if (isFileLike(fileish)) return await fileish.text();
+
+  // { value: File }
+  if (fileish && fileish.value && isFileLike(fileish.value)) {
+    return await fileish.value.text();
   }
-  if (file && file.value && isFileLike(file.value)) {
-    return await file.value.text();
+
+  // [File]
+  if (Array.isArray(fileish) && fileish.length && isFileLike(fileish[0])) {
+    return await fileish[0].text();
   }
-  if (Array.isArray(file) && file.length && isFileLike(file[0])) {
-    return await file[0].text();
+
+  // { files: [File, ...] }
+  if (fileish && Array.isArray(fileish.files) && fileish.files.length && isFileLike(fileish.files[0])) {
+    return await fileish.files[0].text();
   }
+
+  // <input type="file"> element
+  if (fileish && fileish.tagName && fileish.tagName.toLowerCase() === "input" && fileish.type === "file") {
+    const f = fileish.files && fileish.files[0];
+    if (isFileLike(f)) return await f.text();
+  }
+
+  // uploadButton root element that *contains* an <input type="file">
+  if (fileish && typeof fileish.querySelector === "function") {
+    const inp = fileish.querySelector('input[type="file"]');
+    if (inp && inp.files && inp.files[0] && isFileLike(inp.files[0])) {
+      return await inp.files[0].text();
+    }
+  }
+
   return "";
 }
 
@@ -413,7 +437,6 @@ const downloadPredsBtn = downloadCSVButton();
 ```js
 /* ▶ Run pipeline — only after clicking Run */
 {
-  // Make this cell explicitly depend on helper functions (builds a hard edge in the graph).
   buildBody; submit; pollWithStatus; rowsFromTable; normalizeRows;
 
   for await (const _ of Generators.input(runBtn)) {
@@ -425,23 +448,39 @@ const downloadPredsBtn = downloadCSVButton();
       const seqFile =
         (uploadSeqBtn && uploadSeqBtn.value && typeof uploadSeqBtn.value.text === "function")
           ? uploadSeqBtn.value
-          : null;
+          : uploadSeqBtn; // also allow the root itself in case the File is nested
 
-      const fromFileText = seqFile ? await readFileText(seqFile) : "";
-      const fromText     = typeof seqText === "string" ? seqText : "";
-      const seqs = [
-        ...parseFastaOrRaw(fromText),
-        ...parseFastaOrRaw(fromFileText)
-      ].filter(s => s.sequence && /^[ACDEFGHIKLMNPQRSTVWY-]+$/i.test(s.sequence));
+      const fromFileText = await readFileText(seqFile);
+      const fromText     = (typeof seqText === "string") ? seqText : "";
 
-      if (!seqs.length) { setBanner("Please enter or upload at least one sequence."); console.warn("No sequences"); console.groupEnd(); continue; }
+      const parsedFromText = parseFastaOrRaw(fromText);
+      const parsedFromFile = parseFastaOrRaw(fromFileText);
+
+      const seqs = [...parsedFromText, ...parsedFromFile]
+        .filter(s => s.sequence && /^[ACDEFGHIKLMNPQRSTVWY-]+$/i.test(s.sequence));
+
+      if (!seqs.length) {
+        setBanner(
+          `Please enter or upload at least one sequence. ` +
+          `(seqTextLen=${fromText.length}, fileTextLen=${fromFileText.length}, ` +
+          `parsedFromText=${parsedFromText.length}, parsedFromFile=${parsedFromFile.length})`
+        );
+        console.warn("No sequences", { fromTextLen: fromText.length, fromFileTextLen: fromFileText.length, parsedFromText, parsedFromFile });
+        console.groupEnd();
+        continue;
+      }
+
       if (seqListMut && "value" in seqListMut) seqListMut.value = seqs;
       if (chosenSeqIdMut && "value" in chosenSeqIdMut && !chosenSeqIdMut.value) chosenSeqIdMut.value = seqs[0].id;
 
       // Alleles (array)
       const alleles = getChosenAlleles();
-      if (!alleles.length) { setBanner("Please select at least one allele."); console.warn("No alleles"); console.groupEnd(); continue; }
-
+      if (!alleles.length) {
+        setBanner("Please select at least one allele.");
+        console.warn("No alleles", { chosen: alleles });
+        console.groupEnd();
+        continue;
+      }
 
       // UI lengths (for display only; NOT sent to API)
       const pred = getPredictor();
@@ -464,7 +503,8 @@ const downloadPredsBtn = downloadCSVButton();
         nSequences: seqs.length,
         nAlleles  : alleles.length,
         input_parameters: body.stages[0].input_parameters,
-        ui_lengths: lens
+        ui_lengths: lens,
+        fastaPreview: fastaText.slice(0, 120)
       });
 
       setBanner(`Submitting ${seqs.length} seq(s), ${alleles.length} allele(s)…`);
@@ -501,6 +541,7 @@ const downloadPredsBtn = downloadCSVButton();
     }
   }
 }
+
 
 ```
 
@@ -840,3 +881,72 @@ async function collectSequences(uploadFile) {
   <div id="pep-wrap" class="chart-row"></div>
 </div>
 
+```js
+/* Live debug panel — shows current inputs/state */
+const debugPanel = html`<details open style="margin-top:10px;">
+  <summary style="cursor:pointer;">Debug: input snapshot</summary>
+  <pre style="background:#fafafa;border:1px solid #eee;padding:8px;max-height:320px;overflow:auto;margin-top:6px;"></pre>
+</details>`;
+
+{
+  // make it reactive
+  predictor; lengthText; chosenAlleles; seqText; uploadSeqBtn;
+
+  const pre = debugPanel.querySelector("pre");
+
+  // probe the upload control
+  const ref = uploadSeqBtn;
+  const v   = ref?.value ?? null;
+
+  const nameFrom =
+    v?.name ||
+    v?.value?.name ||
+    (Array.isArray(v) && v[0]?.name) ||
+    ref?.files?.[0]?.name ||
+    (ref?.querySelector?.('input[type="file"]')?.files?.[0]?.name) ||
+    null;
+
+  let fileText = "";
+  try { fileText = await readFileText(v || ref); } catch {}
+
+  const seqTextStr = (typeof seqText === "string") ? seqText : "";
+
+  const info = {
+    predictor: getPredictor(),
+    lengthTextRaw: lengthText,
+    parsedLengths: parseLengths(lengthText, getPredictor().cls),
+
+    seqText: {
+      type: typeof seqText,
+      length: seqTextStr.length,
+      preview: seqTextStr.slice(0, 120)
+    },
+
+    uploadSeq: {
+      hasValue: !!v,
+      typeofValue: v ? Object.prototype.toString.call(v) : null,
+      fileName: nameFrom,
+      fileTextLen: fileText.length,
+      fileTextPreview: fileText.slice(0, 120)
+    },
+
+    parsed: {
+      fromTextCount: parseFastaOrRaw(seqTextStr).length,
+      fromFileCount: parseFastaOrRaw(fileText).length
+    },
+
+    chosenAlleles: getChosenAlleles()
+  };
+
+  pre.textContent = JSON.stringify(info, null, 2);
+}
+
+/* Add the panel somewhere visible in your UI */
+const debugSection = html`<div class="section"><h2>Debug</h2>${debugPanel}</div>`;
+
+```
+
+
+
+<!-- Debug (live snapshot) -->
+${debugSection}
