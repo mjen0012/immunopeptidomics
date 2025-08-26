@@ -158,31 +158,14 @@ function getChosenAlleles() {
 ```
 
 ```js
-/* Keep allele list in sync when predictor class changes (guarded) */
+/* When predictor class changes, clear current allele picks.
+   comboSelectLazy will fetch the right class on the next search. */
 {
-  predictor;  // reactive
-
-  (async () => {
-    if (!alleleSelectEl) return;
-    const input = alleleSelectEl.querySelector("input");
-    const list  = alleleSelectEl.querySelector("select");
-    if (!list) return;
-
-    if (input) input.value = "";
-    list.replaceChildren();
-
-    const items = await fetchAlleles(getPredictor().cls, "");
-    for (const a of items) {
-      const opt = document.createElement("option");
-      opt.textContent = opt.value = a;
-      list.appendChild(opt);
-    }
-
-    if ("value" in alleleSelectEl) {
-      alleleSelectEl.value = [];
-      alleleSelectEl.dispatchEvent(new CustomEvent("input"));
-    }
-  })();
+  predictor; // reactive dependency
+  if (alleleCtrl && "value" in alleleCtrl) {
+    alleleCtrl.value = [];
+    alleleCtrl.dispatchEvent?.(new CustomEvent("input"));
+  }
 }
 
 
