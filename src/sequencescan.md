@@ -362,25 +362,67 @@ async function poll(resultId, interval=1500, timeout=120_000) {
   throw new Error("Timed out polling IEDB");
 }
 
-/* Poll with status updates into the banner */
-async function pollWithStatus(resultId, { interval = 1000, timeout = 120_000, onTick } = {}) {
+/* Robust poller for IEDB results with backoff + live status */
+async function pollWithStatus(
+  resultId,
+  {
+    timeout = 10 * 60_000,         // 10 minutes default
+    minDelay = 900,                // initial delay between polls
+    maxDelay = 5_000,              // cap the delay
+    backoff = 1.35,                // multiplicative backoff
+    onTick
+  } = {}
+) {
   const t0 = Date.now();
-  let iter = 0;
+  let delay = minDelay;
+  let tries = 0;
+
   while (Date.now() - t0 < timeout) {
-    iter++;
-    onTick?.({ iter, elapsed: Date.now() - t0 });
-    const r = await fetch(`/api/iedb-result?id=${resultId}`);
-    const txt = await r.text();
-    const j = (()=>{ try { return JSON.parse(txt); } catch { return txt; } })();
-    if (j.status === "done") {
+    tries++;
+    onTick?.({ iter: tries, elapsed: Date.now() - t0 });
+
+    let j;
+    try {
+      const r = await fetch(`/api/iedb-result?id=${resultId}`);
+      const txt = await r.text();
+      j = (() => { try { return JSON.parse(txt); } catch { return txt; } })();
+    } catch (e) {
+      // transient network issue — keep going after a short wait
+      await new Promise(res => setTimeout(res, delay));
+      delay = Math.min(Math.floor(delay * backoff), maxDelay);
+      continue;
+    }
+
+    // If the proxy supplies explicit errors even while pending, surface them
+    const apiErrors =
+      (j && j.data && Array.isArray(j.data.errors) && j.data.errors.length)
+        ? j.data.errors
+        : [];
+
+    if (j?.status === "done") {
+      if (apiErrors.length) throw new Error(apiErrors.join("; "));
       const tbl = j.data?.results?.find(t => t.type === "peptide_table");
       if (tbl) return tbl;
       throw new Error("No peptide_table in result");
     }
-    await new Promise(res => setTimeout(res, interval));
+
+    if (j?.status === "error") {
+      const msg = apiErrors.length ? apiErrors.join("; ") : "IEDB returned error status";
+      throw new Error(msg);
+    }
+
+    // pending / queued / running — keep waiting
+    const status = j?.status ?? "pending";
+    const sec = Math.floor((Date.now() - t0) / 1000);
+    setBanner?.(`IEDB status: ${status} — ${sec}s (try ${tries})`);
+
+    await new Promise(res => setTimeout(res, delay));
+    delay = Math.min(Math.floor(delay * backoff), maxDelay);
   }
+
   throw new Error("Timed out polling IEDB");
 }
+
 
 function rowsFromTable(tbl) {
   const keys = tbl.table_columns.map(c => c.display_name || c.name);
@@ -538,11 +580,13 @@ const downloadPredsBtn = downloadCSVButton();
       console.log("→ resultId:", resultId);
       setBanner(`Submitted. Result id: ${resultId}. Polling…`);
 
-      // Poll with banner ticks
+      // Poll with backoff + live status (longer timeout)
       let lastSec = -1;
       const tbl = await pollWithStatus(resultId, {
-        interval: 1500,
-        timeout : 120_000,
+        timeout : 10 * 60_000,   // 10 minutes
+        minDelay: 900,
+        maxDelay: 5_000,
+        backoff : 1.35,
         onTick  : ({ iter, elapsed }) => {
           const sec = Math.floor(elapsed / 1000);
           if (sec !== lastSec) {
@@ -551,6 +595,7 @@ const downloadPredsBtn = downloadCSVButton();
           }
         }
       });
+
 
       // Normalize and publish rows
       const rawRows  = rowsFromTable(tbl);
