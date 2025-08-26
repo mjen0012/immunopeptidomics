@@ -25,6 +25,16 @@ const db = extendDB(
 ```
 
 ```js
+
+/* Mutable stores (place ABOVE any cells that reference them) */
+const predRowsMut      = Mutable([]);   // normalized rows across all seqs
+const seqListMut       = Mutable([]);   // [{id, sequence}]
+const uploadedPepsMut  = Mutable([]);   // [peptide]
+const chosenSeqIdMut   = Mutable(null); // which sequence to view
+
+```
+
+```js
 /* Predictor selector (single option) */
 const predictorOptions = [
   { label: "Class I — netMHCpan 4.1 EL", value: { cls:"I", method:"netmhcpan_el" } },
@@ -138,19 +148,33 @@ function lazyAlleleSelect({label, cls}) {
 const alleleSelectEl = lazyAlleleSelect({label:"Alleles", cls: predictor.cls});
 const chosenAlleles = Generators.input(alleleSelectEl);
 
-/* Keep allele list in sync when predictor class changes */
+```
+
+```js
+/* Keep allele list in sync when predictor class changes (guarded) */
 {
-  predictor; // reactive
+  predictor;  // reactive
+
   (async () => {
-    const el = alleleSelectEl.querySelector("input");
-    if (el) el.value = "";
-    // reload list matching class
-    const list = alleleSelectEl.querySelector("select");
+    if (!alleleSelectEl) return;
+    const input = alleleSelectEl.querySelector("input");
+    const list  = alleleSelectEl.querySelector("select");
+    if (!list) return;
+
+    if (input) input.value = "";
     list.replaceChildren();
+
     const items = await fetchAlleles(predictor.cls, "");
-    for (const a of items) list.appendChild(Object.assign(document.createElement("option"), {textContent:a, value:a}));
-    alleleSelectEl.value = [];
-    alleleSelectEl.dispatchEvent(new CustomEvent("input"));
+    for (const a of items) {
+      const opt = document.createElement("option");
+      opt.textContent = opt.value = a;
+      list.appendChild(opt);
+    }
+
+    if ("value" in alleleSelectEl) {
+      alleleSelectEl.value = [];
+      alleleSelectEl.dispatchEvent(new CustomEvent("input"));
+    }
   })();
 }
 
@@ -188,41 +212,62 @@ function parseFastaOrRaw(text) {
   return [{id:"seq1", sequence: s.replace(/\s+/g,"").toUpperCase()}];
 }
 
-async function readFileText(file) { return file ? await file.text() : ""; }
+// Hardened file→text helper (accepts File, uploadButton root, or [File])
+async function readFileText(file) {
+  if (!file) return "";
+  const isFileLike = (f) => f && typeof f.text === "function";
 
-async function collectSequences() {
-  const fromText = parseFastaOrRaw(seqText);
-  const file = uploadSeqBtn.value;
-  const fromFile = file ? parseFastaOrRaw(await readFileText(file)) : [];
-  const all = [...fromText, ...fromFile].filter(s => s.sequence && /^[ACDEFGHIKLMNPQRSTVWY-]+$/i.test(s.sequence));
-  // de-dup by id; if duplicate id, append suffix
-  const seen = new Set(), out = [];
-  for (const r of all) {
-    let id = r.id || `seq${out.length+1}`;
-    while (seen.has(id)) id = id + "_x";
-    seen.add(id);
-    out.push({id, sequence: r.sequence});
+  if (isFileLike(file)) {
+    return await file.text();
   }
-  return out;
+  if (file && file.value && isFileLike(file.value)) {
+    return await file.value.text();
+  }
+  if (Array.isArray(file) && file.length && isFileLike(file[0])) {
+    return await file[0].text();
+  }
+  return "";
 }
 
-/* Peptides CSV with column “peptide” (case-insensitive) */
-async function parsePeptidesCSV(file) {
-  if (!file) return [];
-  const text = await file.text();
-  const lines = text.trim().split(/\r?\n/);
+
+/* Peptides CSV with column “peptide” (case-insensitive) — robust input */
+async function parsePeptidesCSV(input) {
+  if (!input) return [];
+
+  const isFileLike = (f) => f && typeof f.text === "function";
+
+  // Normalize to CSV text
+  let csv = "";
+  if (typeof input === "string") {
+    csv = input;
+  } else if (isFileLike(input)) {
+    csv = await input.text();
+  } else if (input && input.value && isFileLike(input.value)) {
+    csv = await input.value.text();
+  } else if (Array.isArray(input) && input.length && isFileLike(input[0])) {
+    csv = await input[0].text();
+  } else if (uploadPepBtn && isFileLike(uploadPepBtn.value)) {
+    // last-resort: read directly from the upload control's current value
+    csv = await uploadPepBtn.value.text();
+  } else {
+    return [];
+  }
+
+  const lines = csv.trim().split(/\r?\n/);
   if (lines.length <= 1) return [];
-  const headers = lines[0].split(",").map(s=>s.trim().toLowerCase());
+  const headers = lines[0].split(",").map((s) => s.trim().toLowerCase());
   const iPep = headers.indexOf("peptide");
   if (iPep < 0) return [];
+
   const peps = [];
-  for (let i=1;i<lines.length;i++){
+  for (let i = 1; i < lines.length; i++) {
     const cols = lines[i].split(",");
-    const p = (cols[iPep]||"").trim().toUpperCase();
+    const p = (cols[iPep] || "").trim().toUpperCase();
     if (p) peps.push(p);
   }
   return [...new Set(peps)];
 }
+
 
 ```
 
@@ -333,11 +378,7 @@ function setBanner(msg) { statusBanner.textContent = msg; }
 const runBtn = Inputs.button("Run prediction");
 const triggerRun = Generators.input(runBtn);
 
-/* Mutable stores */
-const predRowsMut = Mutable([]);         // normalized rows across all seqs
-const seqListMut  = Mutable([]);         // [{id, sequence}]
-const uploadedPepsMut = Mutable([]);     // [peptide]
-const chosenSeqIdMut  = Mutable(null);   // which sequence to view
+
 
 /* Download CSV (normalized rows) */
 function downloadCSVButton() {
@@ -359,82 +400,70 @@ const downloadPredsBtn = downloadCSVButton();
 ```
 
 ```js
-/* Top-level runner */
+triggerRun; predictor; lengthText
+```
+
+```js
+/* Sequence picker (single, hardened) */
+const currentSeqList = (seqListMut && typeof seqListMut === "object" && "value" in seqListMut)
+  ? (seqListMut.value || [])
+  : [];
+
+const seqIds = currentSeqList.map(s => s.id);
+
+const safeChosenId =
+  (chosenSeqIdMut && typeof chosenSeqIdMut === "object" && "value" in chosenSeqIdMut)
+    ? chosenSeqIdMut.value
+    : null;
+
+const seqPickerEl = Inputs.select(seqIds, {
+  label: "Sequence to view",
+  value: seqIds.length
+    ? (seqIds.includes(safeChosenId) ? safeChosenId : seqIds[0])
+    : undefined
+});
+
+const chosenSeqId = Generators.input(seqPickerEl);
 {
-  triggerRun; predictor; lengthText; chosenAlleles; // reactive
-
-  (async () => {
-    try {
-      setBanner("Preparing input…");
-
-      // Collect sequences
-      const seqs = await collectSequences();
-      if (!seqs.length) { setBanner("Please enter or upload at least one sequence."); return; }
-      seqListMut.value = seqs;
-      if (!chosenSeqIdMut.value) chosenSeqIdMut.value = seqs[0].id;
-
-      // Alleles
-      const alleles = Array.from(chosenAlleles || []);
-      if (!alleles.length) { setBanner("Please select at least one allele."); return; }
-
-      // Lengths
-      const lens = parseLengths(lengthText, predictor.cls);
-      if (!lens.length) { setBanner("Please enter a valid length or range."); return; }
-
-      // FASTA (multi)
-      const fastaText = seqs.map(s => `>${s.id}\n${s.sequence}`).join("\n");
-
-      // Build + submit
-      const body = buildBody({
-        cls: predictor.cls,
-        method: predictor.method,
-        alleles: alleles,
-        lengths: lens,
-        fastaText
-      });
-
-      setBanner(`Submitting ${seqs.length} sequence(s), ${alleles.length} allele(s), lengths ${lens.join(", ")}…`);
-      const resultId = await submit(body);
-
-      setBanner("Polling IEDB…");
-      const rawRows  = await poll(resultId);
-      const normRows = normalizeRows(rawRows, predictor);
-
-      predRowsMut.value = normRows;
-      setBanner(`Done — ${normRows.length} rows.`);
-    } catch (err) {
-      console.error(err);
-      setBanner(`Error: ${err.message}`);
-    }
-  })();
+  chosenSeqId; // reactive
+  if (
+    chosenSeqId !== undefined &&
+    chosenSeqId !== null &&
+    chosenSeqIdMut &&
+    typeof chosenSeqIdMut === "object" &&
+    "value" in chosenSeqIdMut
+  ) {
+    chosenSeqIdMut.value = chosenSeqId;
+  }
 }
+
 
 ```
 
 ```js
-/* Sequence selector (choose which sequence to view) */
-const seqPickerEl = Inputs.select(() => seqListMut.value.map(s=>s.id), {
-  label: "Sequence to view",
-  format: id => id,
-  value: () => (seqListMut.value[0]?.id ?? null)
-});
-const chosenSeqId = Generators.input(seqPickerEl);
-{
-  // keep Mutable in sync both ways
-  chosenSeqId; seqListMut;
-  if (chosenSeqId && chosenSeqId !== chosenSeqIdMut.value) chosenSeqIdMut.value = chosenSeqId;
-  if (!seqListMut.value.find(s => s.id === chosenSeqIdMut.value))
-    chosenSeqIdMut.value = seqListMut.value[0]?.id ?? null;
-}
+// Subscribe to the upload control (fires when the user chooses/clears a file)
+const pepUploadChange = Generators.input(uploadPepBtn);
 
-/* Parse uploaded peptides (neutral overlay) */
+/* Parse the chosen peptide CSV into uploadedPepsMut (hardened) */
 {
-  const file = uploadPepBtn.value;
-  if (file) {
-    uploadedPepsMut.value = await parsePeptidesCSV(file);
+  pepUploadChange; // re-run on every change
+
+  const isFileLike = (f) => f && typeof f.text === "function";
+  const file = (uploadPepBtn && isFileLike(uploadPepBtn.value))
+    ? uploadPepBtn.value
+    : null;
+
+  const parsed = file ? await parsePeptidesCSV(file) : [];
+
+  if (uploadedPepsMut && typeof uploadedPepsMut === "object" && "value" in uploadedPepsMut) {
+    uploadedPepsMut.value = parsed;
   }
 }
 
+
+```
+
+```js
 /* Derive: sequence length for the chosen sequence */
 function getSeqRecord(id) {
   const arr = seqListMut.value || [];
@@ -494,6 +523,7 @@ function buildOverlayRows({peptides, sequence}) {
 
 ```
 
+
 ```js
 /* Chart mounting (inside your HTML container) */
 {
@@ -507,113 +537,120 @@ function buildOverlayRows({peptides, sequence}) {
   pepWrap.replaceChildren();
   hintEl.style.display = ""; // shown until a row/allele is clicked
 
-  const seqRec = getSeqRecord(chosenSeqIdMut.value);
-  if (!seqRec) return;
+  const currChosenId =
+    (chosenSeqIdMut && typeof chosenSeqIdMut === "object" && "value" in chosenSeqIdMut)
+      ? chosenSeqIdMut.value
+      : null;
 
-  const seqId  = seqRec.id;
-  const seqAA  = seqRec.sequence;
-  const rows   = predRowsMut.value || [];
+  const seqRec = getSeqRecord(currChosenId);
 
-  // Heatmap data across *all alleles selected in predictor run*
-  const heatData = buildHeatmapData({
-    rows, seqId, sequence: seqAA, method: predictor.method
-  });
+  if (seqRec) {
+    const seqId  = seqRec.id;
+    const seqAA  = seqRec.sequence;
+    const rows   = predRowsMut.value || [];
 
-  // Shared zoom state
-  let currentScale = null, currentTransform = null, syncing = false;
-  let pepAPI = { update:()=>{}, setZoom:()=>{} };
+    // Heatmap data across *all alleles selected in predictor run*
+    const heatData = buildHeatmapData({
+      rows, seqId, sequence: seqAA, method: predictor.method
+    });
 
-  const seqLen = seqAA.length || d3.max(heatData, d => d.pos) || 1;
-  const heatEl = heatmapChart({
-    data: heatData,
-    posExtent: [1, seqLen],
-    margin: { top:16, right:20, bottom:60, left:90 },
+    // Shared zoom state
+    let currentScale = null, currentTransform = null, syncing = false;
+    let pepAPI = { update:()=>{}, setZoom:()=>{} };
 
-    onReady: (x) => { currentScale = x; },
-    onZoom : (x, t) => {
-      if (syncing) return;
-      syncing = true;
-      currentScale = x; currentTransform = t;
-      pepAPI.update?.(x);
-      pepAPI.setZoom?.(t);
-      syncing = false;
-    },
+    const seqLen = seqAA.length || d3.max(heatData, d => d.pos) || 1;
+    const heatEl = heatmapChart({
+      data: heatData,
+      posExtent: [1, seqLen],
+      margin: { top:16, right:20, bottom:60, left:90 },
 
-    // Click a row (allele) to show all peptides for that allele
-    onRowToggle: (allele) => showPeptidesFor(allele)
-  });
-  heatWrap.appendChild(heatEl);
-
-  function showHint(show) { hintEl.style.display = show ? "" : "none"; }
-
-  async function showPeptidesFor(allele) {
-    pepWrap.replaceChildren();
-    pepAPI = { update:()=>{}, setZoom:()=>{} };
-
-    if (!allele) { showHint(true); return; }
-    showHint(false);
-
-    // Main peptide tracks from predictions (selected allele)
-    const pepRows = buildPeptideRows({rows, seqId, allele});
-
-    // Overlay uploaded peptides (neutral color)
-    const overlayRows = buildOverlayRows({ peptides: uploadedPepsMut.value, sequence: seqAA });
-
-    const svg = d3.create("svg").style("width","100%");
-    const g   = svg.append("g");
-    pepWrap.appendChild(svg.node());
-
-    const chart = peptideScanChart(g, {
-      data       : pepRows,
-      alleleData : rows.filter(r => r.allele === allele).map(r => ({
-        allele: r.allele,
-        peptide: r.peptide,
-        netmhcpan_el_percentile: predictor.method.includes("el") ? r.pct : undefined,
-        netmhcpan_ba_percentile: predictor.method.includes("ba") ? r.pct : undefined
-      })),
-      xScale     : currentScale,
-      sizeFactor : 1.2,
-      rowHeight  : 18,
-      gap        : 2,
-      margin     : { top:20, right:20, bottom:30, left:40 },
-      colourBy   : allele,            // color by this allele (matches heatmap mapping)
-      onZoom     : (x, t) => {
+      onReady: (x) => { currentScale = x; },
+      onZoom : (x, t) => {
         if (syncing) return;
         syncing = true;
         currentScale = x; currentTransform = t;
-        heatEl.__setZoom?.(t);        // drive heatmap back
+        pepAPI.update?.(x);
+        pepAPI.setZoom?.(t);
         syncing = false;
-      }
+      },
+
+      // Click a row (allele) to show all peptides for that allele
+      onRowToggle: (allele) => showPeptidesFor(allele)
     });
+    heatWrap.appendChild(heatEl);
 
-    // Optional: add a very light, separate overlay row for uploaded peptides
-    if (overlayRows.length) {
-      const g2 = g.append("g").attr("transform", `translate(0, ${chart.height})`);
-      const overlay = peptideScanChart(g2, {
-        data       : overlayRows,
-        alleleData : [],               // no scoring; neutral fill inside component when not allele mode
+    function showHint(show) { hintEl.style.display = show ? "" : "none"; }
+
+    async function showPeptidesFor(allele) {
+      pepWrap.replaceChildren();
+      pepAPI = { update:()=>{}, setZoom:()=>{} };
+
+      if (!allele) { showHint(true); return; }
+      showHint(false);
+
+      // Main peptide tracks from predictions (selected allele)
+      const pepRows = buildPeptideRows({rows, seqId, allele});
+
+      // Overlay uploaded peptides (neutral color)
+      const overlayRows = buildOverlayRows({ peptides: uploadedPepsMut.value, sequence: seqAA });
+
+      const svg = d3.create("svg").style("width","100%");
+      const g   = svg.append("g");
+      pepWrap.appendChild(svg.node());
+
+      const chart = peptideScanChart(g, {
+        data       : pepRows,
+        alleleData : rows.filter(r => r.allele === allele).map(r => ({
+          allele: r.allele,
+          peptide: r.peptide,
+          netmhcpan_el_percentile: predictor.method.includes("el") ? r.pct : undefined,
+          netmhcpan_ba_percentile: predictor.method.includes("ba") ? r.pct : undefined
+        })),
         xScale     : currentScale,
-        sizeFactor : 1.0,
-        rowHeight  : 14,
+        sizeFactor : 1.2,
+        rowHeight  : 18,
         gap        : 2,
-        margin     : { top:12, right:20, bottom:24, left:40 },
-        colourBy   : "attribute_1"     // forces neutral color in component
+        margin     : { top:20, right:20, bottom:30, left:40 },
+        colourBy   : allele,            // color by this allele (matches heatmap mapping)
+        onZoom     : (x, t) => {
+          if (syncing) return;
+          syncing = true;
+          currentScale = x; currentTransform = t;
+          heatEl.__setZoom?.(t);        // drive heatmap back
+          syncing = false;
+        }
       });
-      // grow svg to fit overlay
-      svg.attr("height", chart.height + overlay.height);
-    } else {
-      svg.attr("height", chart.height);
+
+      // Optional: add a very light, separate overlay row for uploaded peptides
+      if (overlayRows.length) {
+        const g2 = g.append("g").attr("transform", `translate(0, ${chart.height})`);
+        const overlay = peptideScanChart(g2, {
+          data       : overlayRows,
+          alleleData : [],               // no scoring; neutral fill inside component when not allele mode
+          xScale     : currentScale,
+          sizeFactor : 1.0,
+          rowHeight  : 14,
+          gap        : 2,
+          margin     : { top:12, right:20, bottom:24, left:40 },
+          colourBy   : "attribute_1"     // forces neutral color in component
+        });
+        // grow svg to fit overlay
+        svg.attr("height", chart.height + overlay.height);
+      } else {
+        svg.attr("height", chart.height);
+      }
+
+      const [r0, r1] = currentScale.range();
+      const w = (r1 - r0) + 90 + 20;
+      svg.attr("viewBox", `0 0 ${w} ${svg.attr("height")}`);
+
+      pepAPI = chart;
+      if (currentTransform) pepAPI.setZoom(currentTransform);
+      pepAPI.update(currentScale);
     }
-
-    const [r0, r1] = currentScale.range();
-    const w = (r1 - r0) + 90 + 20;
-    svg.attr("viewBox", `0 0 ${w} ${svg.attr("height")}`);
-
-    pepAPI = chart;
-    if (currentTransform) pepAPI.setZoom(currentTransform);
-    pepAPI.update(currentScale);
-  }
+  } // if (seqRec)
 }
+
 
 ```
 
@@ -636,6 +673,29 @@ seqPickerRow.append(seqPickerEl);
 
 // Expose for HTML slots
 ({inputDataControls, paramsControls, runRow, seqPickerRow});
+
+```
+
+
+
+
+```js
+async function collectSequences(uploadFile) {
+  const fromText = parseFastaOrRaw(seqText);
+  const fromFile = uploadFile ? parseFastaOrRaw(await readFileText(uploadFile)) : [];
+
+  const all = [...fromText, ...fromFile]
+    .filter(s => s.sequence && /^[ACDEFGHIKLMNPQRSTVWY-]+$/i.test(s.sequence));
+
+  const seen = new Set(), out = [];
+  for (const r of all) {
+    let id = r.id || `seq${out.length+1}`;
+    while (seen.has(id)) id = id + "_x";
+    seen.add(id);
+    out.push({ id, sequence: r.sequence });
+  }
+  return out;
+}
 
 ```
 
