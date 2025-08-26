@@ -318,7 +318,8 @@ async function poll(resultId, interval=1500, timeout=120_000) {
   throw new Error("Timed out polling IEDB");
 }
 
-/* Poll with status updates (doesn't replace your poll(); this is an additive helper) */
+
+/* Poll with status updates (additive helper) */
 async function pollWithStatus(resultId, { interval = 1000, timeout = 120_000, onTick } = {}) {
   const t0 = Date.now();
   let iter = 0;
@@ -337,6 +338,7 @@ async function pollWithStatus(resultId, { interval = 1000, timeout = 120_000, on
   }
   throw new Error("Timed out polling IEDB");
 }
+
 
 function rowsFromTable(tbl) {
   const keys = tbl.table_columns.map(c => c.display_name || c.name);
@@ -420,90 +422,93 @@ const downloadPredsBtn = downloadCSVButton();
 ```
 
 ```js
-/* ▶ Run pipeline for the current predictor selection (submits + polls + fills predRowsMut) */
+/* ▶ Run pipeline (submits + polls + fills predRowsMut) — runs ONLY on button clicks */
 {
-  // Re-run this block when the Run button is clicked or inputs change,
-  // but do the network only on clicks.
-  triggerRun; predictor; lengthText; chosenAlleles; seqText;
+  // ⏳ Wait here until the Run button is actually clicked.
+  await triggerRun;
 
-  (async () => {
-    try {
-      console.groupCollapsed("▶️ Run prediction");
-      setBanner("Preparing input…");
+  try {
+    console.groupCollapsed("▶️ Run prediction");
+    setBanner("Preparing input…");
 
-      // Collect sequences from textarea + optional upload
-      const seqFile =
-        (uploadSeqBtn && uploadSeqBtn.value && typeof uploadSeqBtn.value.text === "function")
-          ? uploadSeqBtn.value
-          : null;
+    // ---- Collect sequences (textarea + optional FASTA upload) ----
+    const seqFile =
+      (uploadSeqBtn && uploadSeqBtn.value && typeof uploadSeqBtn.value.text === "function")
+        ? uploadSeqBtn.value
+        : null;
 
-      const seqs = await collectSequences(seqFile);
-      if (!seqs.length) { setBanner("Please enter or upload at least one sequence."); console.warn("No sequences"); console.groupEnd(); return; }
-      // expose to rest of the app
-      if (seqListMut && "value" in seqListMut) seqListMut.value = seqs;
-      if (chosenSeqIdMut && "value" in chosenSeqIdMut && !chosenSeqIdMut.value) chosenSeqIdMut.value = seqs[0].id;
+    // Read uploaded file text if present; always hand a string to the parser
+    const fromFileText = seqFile ? await readFileText(seqFile) : "";
+    const fromText     = typeof seqText === "string" ? seqText : "";
+    const seqs = [
+      ...parseFastaOrRaw(fromText),
+      ...parseFastaOrRaw(fromFileText)
+    ].filter(s => s.sequence && /^[ACDEFGHIKLMNPQRSTVWY-]+$/i.test(s.sequence));
 
-      // Alleles
-      const alleles = Array.isArray(chosenAlleles) ? chosenAlleles : Array.from(chosenAlleles || []);
-      if (!alleles.length) { setBanner("Please select at least one allele."); console.warn("No alleles"); console.groupEnd(); return; }
+    if (!seqs.length) { setBanner("Please enter or upload at least one sequence."); console.warn("No sequences"); console.groupEnd(); return; }
 
-      // Lengths (class-aware default)
-      const lens = parseLengths(lengthText, predictor.cls);
-      if (!lens.length) { setBanner("Please enter a valid length or range."); console.warn("No lengths"); console.groupEnd(); return; }
+    // expose list and default selection
+    if (seqListMut && "value" in seqListMut) seqListMut.value = seqs;
+    if (chosenSeqIdMut && "value" in chosenSeqIdMut && !chosenSeqIdMut.value) chosenSeqIdMut.value = seqs[0].id;
 
-      // FASTA (multi)
-      const fastaText = seqs.map(s => `>${s.id}\n${s.sequence}`).join("\n");
+    // ---- Alleles (array) ----
+    const alleles = Array.isArray(chosenAlleles) ? chosenAlleles : Array.from(chosenAlleles || []);
+    if (!alleles.length) { setBanner("Please select at least one allele."); console.warn("No alleles"); console.groupEnd(); return; }
 
-      // Build + submit
-      const body = buildBody({
-        cls     : predictor.cls,
-        method  : predictor.method,
-        alleles : alleles,
-        lengths : lens,
-        fastaText
-      });
+    // ---- Lengths (class-aware default) ----
+    const lens = parseLengths(typeof lengthText === "string" ? lengthText : "", predictor?.cls || "I");
+    if (!lens.length) { setBanner("Please enter a valid length or range."); console.warn("No lengths"); console.groupEnd(); return; }
 
-      console.log("Submitting /api/iedb-pipeline", {
-        cls: predictor.cls, method: predictor.method,
-        nSequences: seqs.length, nAlleles: alleles.length, lengths: lens
-      });
-      setBanner(`Submitting ${seqs.length} seq(s), ${alleles.length} allele(s), lengths ${lens.join(", ")}…`);
+    // ---- Build multi-FASTA ----
+    const fastaText = seqs.map(s => `>${s.id}\n${s.sequence}`).join("\n");
 
-      console.time("submit+poll");
-      const resultId = await submit(body);
-      console.log("→ resultId:", resultId);
+    // ---- Submit ----
+    const body = buildBody({
+      cls     : predictor?.cls || "I",
+      method  : predictor?.method || "netmhcpan_el",
+      alleles : alleles,
+      lengths : lens,
+      fastaText
+    });
 
-      // Poll with visible ticks
-      let lastSec = -1;
-      const tbl = await pollWithStatus(resultId, {
-        interval: 1500,
-        timeout : 120_000,
-        onTick  : ({ iter, elapsed }) => {
-          const sec = Math.floor(elapsed / 1000);
-          if (sec !== lastSec) {
-            lastSec = sec;
-            setBanner(`Polling IEDB… ${sec}s (try ${iter})`);
-          }
+    console.log("Submitting /api/iedb-pipeline", {
+      cls: body.stages[0].tool_group, method: predictor?.method,
+      nSequences: seqs.length, nAlleles: alleles.length, lengths: lens
+    });
+    setBanner(`Submitting ${seqs.length} seq(s), ${alleles.length} allele(s), lengths ${lens.join(", ")}…`);
+    const resultId = await submit(body);
+    console.log("→ resultId:", resultId);
+    setBanner(`Submitted. Result id: ${resultId}. Polling…`);
+
+    // ---- Poll with live ticks ----
+    let lastSec = -1;
+    const tbl = await pollWithStatus(resultId, {
+      interval: 1500,
+      timeout : 120_000,
+      onTick  : ({ iter, elapsed }) => {
+        const sec = Math.floor(elapsed / 1000);
+        if (sec !== lastSec) {
+          lastSec = sec;
+          setBanner(`Polling IEDB… ${sec}s (try ${iter})`);
         }
-      });
+      }
+    });
 
-      // Normalize
-      const rawRows  = rowsFromTable(tbl);
-      const normRows = normalizeRows(rawRows, predictor);
+    // ---- Normalize and publish rows ----
+    const rawRows  = rowsFromTable(tbl);
+    const normRows = normalizeRows(rawRows, predictor || {cls:"I", method:"netmhcpan_el"});
+    if (predRowsMut && "value" in predRowsMut) predRowsMut.value = normRows;
 
-      if (predRowsMut && "value" in predRowsMut) predRowsMut.value = normRows;
-
-      console.timeEnd("submit+poll");
-      console.log("Received rows:", normRows.length);
-      setBanner(`Done — ${normRows.length} rows.`);
-      console.groupEnd();
-    } catch (err) {
-      console.error("Run error:", err);
-      setBanner(`Error: ${err.message}`);
-      console.groupEnd();
-    }
-  })();
+    console.log("Received rows:", normRows.length);
+    setBanner(`Done — ${normRows.length} rows.`);
+    console.groupEnd();
+  } catch (err) {
+    console.error("Run error:", err);
+    setBanner(`Error: ${err?.message || err}`);
+    console.groupEnd();
+  }
 }
+
 
 ```
 
