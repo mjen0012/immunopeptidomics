@@ -318,6 +318,26 @@ async function poll(resultId, interval=1500, timeout=120_000) {
   throw new Error("Timed out polling IEDB");
 }
 
+/* Poll with status updates (doesn't replace your poll(); this is an additive helper) */
+async function pollWithStatus(resultId, { interval = 1000, timeout = 120_000, onTick } = {}) {
+  const t0 = Date.now();
+  let iter = 0;
+  while (Date.now() - t0 < timeout) {
+    iter++;
+    onTick?.({ iter, elapsed: Date.now() - t0 });
+    const r = await fetch(`/api/iedb-result?id=${resultId}`);
+    const txt = await r.text();
+    const j = (()=>{ try { return JSON.parse(txt); } catch { return txt; } })();
+    if (j.status === "done") {
+      const tbl = j.data?.results?.find(t => t.type === "peptide_table");
+      if (tbl) return tbl;
+      throw new Error("No peptide_table in result");
+    }
+    await new Promise(res => setTimeout(res, interval));
+  }
+  throw new Error("Timed out polling IEDB");
+}
+
 function rowsFromTable(tbl) {
   const keys = tbl.table_columns.map(c => c.display_name || c.name);
   return tbl.table_data.map(r => Object.fromEntries(r.map((v,i)=>[keys[i],v])));
@@ -398,6 +418,95 @@ function downloadCSVButton() {
 const downloadPredsBtn = downloadCSVButton();
 
 ```
+
+```js
+/* ▶ Run pipeline for the current predictor selection (submits + polls + fills predRowsMut) */
+{
+  // Re-run this block when the Run button is clicked or inputs change,
+  // but do the network only on clicks.
+  triggerRun; predictor; lengthText; chosenAlleles; seqText;
+
+  (async () => {
+    try {
+      console.groupCollapsed("▶️ Run prediction");
+      setBanner("Preparing input…");
+
+      // Collect sequences from textarea + optional upload
+      const seqFile =
+        (uploadSeqBtn && uploadSeqBtn.value && typeof uploadSeqBtn.value.text === "function")
+          ? uploadSeqBtn.value
+          : null;
+
+      const seqs = await collectSequences(seqFile);
+      if (!seqs.length) { setBanner("Please enter or upload at least one sequence."); console.warn("No sequences"); console.groupEnd(); return; }
+      // expose to rest of the app
+      if (seqListMut && "value" in seqListMut) seqListMut.value = seqs;
+      if (chosenSeqIdMut && "value" in chosenSeqIdMut && !chosenSeqIdMut.value) chosenSeqIdMut.value = seqs[0].id;
+
+      // Alleles
+      const alleles = Array.isArray(chosenAlleles) ? chosenAlleles : Array.from(chosenAlleles || []);
+      if (!alleles.length) { setBanner("Please select at least one allele."); console.warn("No alleles"); console.groupEnd(); return; }
+
+      // Lengths (class-aware default)
+      const lens = parseLengths(lengthText, predictor.cls);
+      if (!lens.length) { setBanner("Please enter a valid length or range."); console.warn("No lengths"); console.groupEnd(); return; }
+
+      // FASTA (multi)
+      const fastaText = seqs.map(s => `>${s.id}\n${s.sequence}`).join("\n");
+
+      // Build + submit
+      const body = buildBody({
+        cls     : predictor.cls,
+        method  : predictor.method,
+        alleles : alleles,
+        lengths : lens,
+        fastaText
+      });
+
+      console.log("Submitting /api/iedb-pipeline", {
+        cls: predictor.cls, method: predictor.method,
+        nSequences: seqs.length, nAlleles: alleles.length, lengths: lens
+      });
+      setBanner(`Submitting ${seqs.length} seq(s), ${alleles.length} allele(s), lengths ${lens.join(", ")}…`);
+
+      console.time("submit+poll");
+      const resultId = await submit(body);
+      console.log("→ resultId:", resultId);
+
+      // Poll with visible ticks
+      let lastSec = -1;
+      const tbl = await pollWithStatus(resultId, {
+        interval: 1500,
+        timeout : 120_000,
+        onTick  : ({ iter, elapsed }) => {
+          const sec = Math.floor(elapsed / 1000);
+          if (sec !== lastSec) {
+            lastSec = sec;
+            setBanner(`Polling IEDB… ${sec}s (try ${iter})`);
+          }
+        }
+      });
+
+      // Normalize
+      const rawRows  = rowsFromTable(tbl);
+      const normRows = normalizeRows(rawRows, predictor);
+
+      if (predRowsMut && "value" in predRowsMut) predRowsMut.value = normRows;
+
+      console.timeEnd("submit+poll");
+      console.log("Received rows:", normRows.length);
+      setBanner(`Done — ${normRows.length} rows.`);
+      console.groupEnd();
+    } catch (err) {
+      console.error("Run error:", err);
+      setBanner(`Error: ${err.message}`);
+      console.groupEnd();
+    }
+  })();
+}
+
+```
+
 
 ```js
 triggerRun; predictor; lengthText
