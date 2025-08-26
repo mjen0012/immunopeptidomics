@@ -14,6 +14,7 @@ import {extendDB, sql} from "./components/extenddb.js";
 import {heatmapChart} from "./components/heatmapChart.js";
 import {peptideScanChart} from "./components/peptideScanChart.js";
 import {uploadButton} from "./components/uploadButton.js";
+import {comboSelectLazy} from "./components/comboSelectLazy.js";
 
 // Tiny DB for HLA lists
 const db = extendDB(
@@ -123,30 +124,36 @@ async function fetchAlleles(cls, q = "", offset = 0, limit = PAGE_LIMIT_DEFAULT)
   return rows.map(r=>r.allele);
 }
 
-/* Minimal async multi-select using Inputs + fetch */
-function lazyAlleleSelect({label, cls}) {
-  const root = html`<div style="display:flex; gap:8px; align-items:center;"></div>`;
-  const input = Inputs.text({placeholder: `Type ${cls} allele…`});
-  const list  = html`<select multiple size="6" style="min-width:260px;"></select>`;
-  const load  = async (q="") => {
-    list.replaceChildren();
-    const items = await fetchAlleles(cls, q);
-    for (const a of items) list.appendChild(Object.assign(document.createElement("option"), {textContent:a, value:a}));
-  };
-  input.addEventListener("input", () => load(input.value));
-  load("");
+/* Build the control once; it queries by current predictor class on demand */
+const alleleCtrl = comboSelectLazy({
+  label: "Alleles",
+  placeholder: "Type allele…",
+  fontFamily: "'Roboto', sans-serif",
+  initialLimit: 20,
+  pageLimit: 50,
+  fetch: ({ q, offset, limit }) => fetchAlleles(getPredictor().cls, q, offset, limit)
+});
 
-  root.value = [];
-  list.addEventListener("change", () => {
-    root.value = Array.from(list.selectedOptions).map(o=>o.value);
-    root.dispatchEvent(new CustomEvent("input"));
-  });
-  root.append(input, list);
-  return root;
+/* Stream of selections from the control */
+const chosenAlleles = Generators.input(alleleCtrl);
+
+/* Helper that always returns a clean array of selected alleles */
+function getChosenAlleles() {
+  // prefer the generator’s current value
+  const v = chosenAlleles;
+  if (Array.isArray(v)) return v.filter(Boolean);
+  // fallback to the control’s .value (comboSelectLazy keeps an Array there too)
+  return Array.from(alleleCtrl?.value || []).filter(Boolean);
 }
 
-const alleleSelectEl = lazyAlleleSelect({label:"Alleles", cls: getPredictor().cls});
-const chosenAlleles = Generators.input(alleleSelectEl);
+/* If predictor class changes, clear current picks (so you don't mix I/II) */
+{
+  predictor; // reactive
+  if (alleleCtrl && "value" in alleleCtrl) {
+    alleleCtrl.value = [];
+    alleleCtrl.dispatchEvent?.(new CustomEvent("input"));
+  }
+}
 
 ```
 
@@ -449,8 +456,9 @@ const downloadPredsBtn = downloadCSVButton();
       if (chosenSeqIdMut && "value" in chosenSeqIdMut && !chosenSeqIdMut.value) chosenSeqIdMut.value = seqs[0].id;
 
       // Alleles (array)
-      const alleles = Array.isArray(chosenAlleles) ? chosenAlleles : Array.from(chosenAlleles || []);
+      const alleles = getChosenAlleles();
       if (!alleles.length) { setBanner("Please select at least one allele."); console.warn("No alleles"); console.groupEnd(); continue; }
+
 
       // UI lengths (for display only; NOT sent to API)
       const pred = getPredictor();
@@ -784,7 +792,8 @@ inputDataControls.append(uploadSeqBtn, seqTextarea, uploadPepBtn);
 
 // Parameters section
 const paramsControls = html`<div style="display:grid; grid-template-columns: repeat(3, minmax(220px, 1fr)); gap:12px;"></div>`;
-paramsControls.append(predictorSelectEl, lengthTextEl, alleleSelectEl);
+paramsControls.append(predictorSelectEl, lengthTextEl, alleleCtrl); // ← replaced alleleSelectEl with alleleCtrl
+
 
 // Run + status + downloads
 const runRow = html`<div style="display:flex; flex-wrap:wrap; gap:12px; align-items:center; margin-top:8px;"></div>`;
