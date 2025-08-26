@@ -290,12 +290,20 @@ async function parsePeptidesCSV(input) {
 /* ── IEDB API helpers + normalizer (single cell so names are always in scope) ── */
 
 /* Build body for a single predictor, multiple alleles, all sequences.
-   Always send peptide_length_range as a STRING (e.g., "8,9,10") to avoid server .split errors. */
+   API expects peptide_length_range as a *list* [min, max]. For a single
+   length (e.g. 9), send [9, 9]. If user leaves it blank, use class defaults. */
 function buildBody({ cls, method, alleles, lengths, fastaText }) {
-  const lengthStr =
-    Array.isArray(lengths) && lengths.length
-      ? lengths.join(",")             // e.g. "8,9,10"
-      : (cls === "II" ? "15" : "9");  // sensible defaults if user left it blank
+  // turn [8,9,10,11] → [8,11]; [] → class default
+  const toRange = (lens, cls) => {
+    if (Array.isArray(lens) && lens.length) {
+      const lo = Math.min(...lens);
+      const hi = Math.max(...lens);
+      return [lo, hi];
+    }
+    return cls === "II" ? [15, 15] : [9, 9]; // sensible defaults
+  };
+
+  const peptide_length_range = toRange(lengths, cls);
 
   return {
     run_stage_range: [1, 1],
@@ -305,8 +313,8 @@ function buildBody({ cls, method, alleles, lengths, fastaText }) {
       tool_group  : cls === "II" ? "mhcii" : "mhci",
       input_sequence_text: fastaText,
       input_parameters: {
-        alleles: alleles.join(","),   // server expects a comma-joined string
-        peptide_length_range: lengthStr,
+        alleles: (alleles || []).join(","),   // server expects a comma-joined string
+        peptide_length_range,                 // ← array [min,max]
         predictors: [{ type: "binding", method }]
       }
     }]
@@ -314,17 +322,29 @@ function buildBody({ cls, method, alleles, lengths, fastaText }) {
 }
 
 
+
 async function submit(body) {
   const r = await fetch("/api/iedb-pipeline", {
-    method:"POST",
-    headers:{"content-type":"application/json"},
+    method: "POST",
+    headers: { "content-type": "application/json" },
     body: JSON.stringify(body)
   });
+
   const txt = await r.text();
-  const j   = (()=>{try{return JSON.parse(txt);}catch{return txt;}})();
-  if (!r.ok) throw new Error(j?.errors?.join?.("; ") || r.statusText);
-  return j.results_uri.split("/").pop(); // result_id
+  const j   = (() => { try { return JSON.parse(txt); } catch { return txt; } })();
+
+  // Treat server-returned errors as failures even if HTTP 200
+  if (!r.ok || (j && Array.isArray(j.errors) && j.errors.length)) {
+    const msg = Array.isArray(j?.errors) && j.errors.length ? j.errors.join("; ") : r.statusText;
+    throw new Error(msg || "Pipeline submission failed");
+  }
+
+  // result id can be the last path segment of results_uri
+  const id = j?.results_uri?.split?.("/")?.pop?.();
+  if (!id) throw new Error("No result id in pipeline response");
+  return id;
 }
+
 
 async function poll(resultId, interval=1500, timeout=120_000) {
   const t0 = Date.now();
@@ -508,7 +528,7 @@ const downloadPredsBtn = downloadCSVButton();
         method    : pred.method,
         nSequences: seqs.length,
         nAlleles  : alleles.length,
-        peptide_length_range: body.stages[0].input_parameters.peptide_length_range, // ← confirm it's a string
+        peptide_length_range: body.stages[0].input_parameters.peptide_length_range, // should be [min,max]
         fastaPreview: fastaText.slice(0, 120)
       });
 
