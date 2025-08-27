@@ -22,11 +22,12 @@ const chosenSeqIdMut   = Mutable(null);  // string | null
 const fastaTextMut     = Mutable("");
 const chosenAllelesMut = Mutable([]);    // kept in sync with allele control
 const predRowsMut      = Mutable([]);    // raw peptide_table rows as objects
-const latestRowsMut    = Mutable([]);    // stable runtime cache for rows
-
-// purely numeric sequence selection (no circular state)
 let seqCount = 1;      // number of sequences in current input
 let chosenSeqNum = 1;  // 1-based selected sequence number
+
+
+/* NEW: stable runtime cache for rows using Observable Mutable */
+const latestRowsMut    = Mutable([]);
 
 /* tiny hook for console debugging */
 window.__heatLatestRows = () => latestRowsMut.value;
@@ -51,7 +52,6 @@ function cleanAlleles(arr) {
 }
 const allelesI  = cleanAlleles(extractColumnValues(hlaTable, ["Class I","class_i","classi"]));
 const allelesII = cleanAlleles(extractColumnValues(hlaTable, ["Class II","class_ii","classii"]));
-
 ```
 
 ```js
@@ -66,12 +66,6 @@ const predictorDrop = dropSelect(predictorItems, { label: "Predictor" });
 
 const lengthCtrl = rangeSlider({ label: "Peptide length" });
 
-function getPredictor() {
-  const id = predictorDrop?.value || predictorItems[0].id;
-  const cls = id.includes("iipan") ? "II" : "I";
-  return { id, cls };
-}
-
 // keep slider in sync when predictor changes Class I/II
 const applyClassToSlider = () => {
   const { cls } = getPredictor();
@@ -80,7 +74,6 @@ const applyClassToSlider = () => {
 applyClassToSlider();
 predictorDrop.addEventListener("input", applyClassToSlider);
 invalidation.then(() => predictorDrop.removeEventListener("input", applyClassToSlider));
-
 
 
 function getPredictor() {
@@ -92,7 +85,7 @@ function getPredictor() {
 
 
 ```js
-/* ── Allele control (Class-aware lazy fetch) ─────────────────────── */
+/* ── Allele control factory (Class-aware lazy fetch) ─────────────── */
 const INITIAL_LIMIT = 20;
 const PAGE_LIMIT    = 50;
 
@@ -103,7 +96,7 @@ function createAlleleCtrl() {
     initialLimit : INITIAL_LIMIT,
     pageLimit    : PAGE_LIMIT,
     fetch        : async ({ q = "", offset = 0, limit = PAGE_LIMIT }) => {
-      const { cls } = getPredictor();
+      const { cls } = getPredictor();                // ← current class
       const base = cls === "II" ? allelesII : allelesI;
 
       let list = base;
@@ -119,116 +112,102 @@ function createAlleleCtrl() {
   });
 }
 
+/* Slot element that will hold the live allele control */
 const alleleSlot = html`<div></div>`;
-
-{
-  let ctrl = createAlleleCtrl();
-  alleleSlot.replaceChildren(ctrl);
-
-  const wireSelection = c => {
-    const push = () => { chosenAllelesMut.value = Array.from(c?.value || []); };
-    c.addEventListener("input", push); push();
-    return () => c.removeEventListener("input", push);
-  };
-  let unwire = wireSelection(ctrl);
-
-  const onPredChange = () => {
-    ctrl.destroy?.();
-    ctrl = createAlleleCtrl();
-    alleleSlot.replaceChildren(ctrl);
-    unwire();
-    unwire = wireSelection(ctrl);
-  };
-
-  predictorDrop.addEventListener("input", onPredChange);
-  invalidation.then(() => { predictorDrop.removeEventListener("input", onPredChange); unwire(); });
-}
-
 ```
 
 ```js
-/* ── FASTA upload + parsing ──────────────────────────────────────── */
+/* ── FASTA upload only (no textarea, no peptide CSV) ─────────────── */
 const uploadSeqBtn = uploadButton({ label:"Upload Sequence (.fasta)", accept: ".fasta" });
 
+/* ── FASTA parsing + IEDB sanitization ───────────────────────────── */
+
 const AA20 = new Set("ACDEFGHIKLMNPQRSTVWY".split(""));
+
+/* Split into entries: [{header:">id ...", body:"raw"}] or raw-seq fallback */
 function splitFastaOrRaw(text) {
   const s = String(text ?? "").trim();
   if (!s) return [];
   if (!s.startsWith(">")) return [{ header: ">seq1", body: s }];
-  const out = []; let header = null, buf = [];
+
+  const out = [];
+  let header = null, buf = [];
   for (const line of s.split(/\r?\n/)) {
-    if (line.startsWith(">")) { if (header !== null) out.push({ header, body: buf.join("") }); header = line; buf = []; }
-    else buf.push(line.trim());
+    if (line.startsWith(">")) {
+      if (header !== null) out.push({ header, body: buf.join("") });
+      header = line;
+      buf = [];
+    } else {
+      buf.push(line.trim());
+    }
   }
   if (header !== null) out.push({ header, body: buf.join("") });
   return out;
 }
+
+/* Keep first token, safe chars only; ensure uniqueness with suffixes */
 function sanitizeId(rawHeader, index, taken) {
   let id = String(rawHeader || "").replace(/^>\s*/, "").trim();
   id = id.split(/\s+|\|/)[0] || `seq${index + 1}`;
   id = id.replace(/[^A-Za-z0-9_.-]/g, "_");
   if (id.length > 64) id = id.slice(0, 64);
-  const base = id; let k = 1; while (taken.has(id)) id = `${base}_${++k}`; taken.add(id); return id;
+
+  const base = id;
+  let k = 1;
+  while (taken.has(id)) id = `${base}_${++k}`;
+  taken.add(id);
+  return id;
 }
+
+/* Uppercase, strip whitespace, remove gaps and stop marks */
 function normalizeAA(raw) {
-  return String(raw || "").replace(/[\s\r\n\t]/g, "").replace(/[-*]/g, "").toUpperCase();
+  return String(raw || "")
+    .replace(/[\s\r\n\t]/g, "")
+    .replace(/[-*]/g, "")
+    .toUpperCase();
 }
+
+/* Return set of non-AA20 characters (after gap removal) */
 function invalidChars(seq) {
-  const bad = new Set(); for (const c of seq) if (!AA20.has(c)) bad.add(c); return [...bad];
+  const bad = new Set();
+  for (const c of seq) if (!AA20.has(c)) bad.add(c);
+  return [...bad];
 }
+
+/* Main: parse + sanitize + validate for IEDB; optional wrap at 60 if desired */
 function parseFastaForIEDB(text, { wrap = false } = {}) {
   const entries = splitFastaOrRaw(text);
-  const taken = new Set(), seqs = [], issues = [];
+  const taken = new Set();
+  const seqs = [];
+  const issues = [];
+
   entries.forEach((e, i) => {
     const id = sanitizeId(e.header, i, taken);
     const seq = normalizeAA(e.body);
-    if (!seq) { issues.push({ id, type: "empty_after_clean" }); return; }
+
+    if (!seq) {
+      issues.push({ id, type: "empty_after_clean" });
+      return;
+    }
     const bad = invalidChars(seq);
-    if (bad.length) { issues.push({ id, type: "invalid_chars", chars: bad.sort().join("") }); return; }
+    if (bad.length) {
+      issues.push({ id, type: "invalid_chars", chars: bad.sort().join("") });
+      return;
+    }
     seqs.push({ id, sequence: seq });
   });
-  const fastaText = seqs.map(({ id, sequence }) => !wrap
-      ? `>${id}\n${sequence}`
-      : `>${id}\n${sequence.match(/.{1,60}/g).join("\n")}`
-  ).join("\n");
+
+  const fastaText = seqs
+    .map(({ id, sequence }) => {
+      if (!wrap) return `>${id}\n${sequence}`;
+      const lines = [];
+      for (let i = 0; i < sequence.length; i += 60) lines.push(sequence.slice(i, i + 60));
+      return `>${id}\n${lines.join("\n")}`;
+    })
+    .join("\n");
+
   return { seqs, fastaText, issues };
 }
-
-// Upload wiring
-{
-  const isFileLike = (f) => f && typeof f.text === "function";
-  const processFile = async (file) => {
-    if (!isFileLike(file)) { setMut(seqListMut, []); setMut(chosenSeqIdMut, null); setMut(fastaTextMut, ""); return; }
-    let txt = ""; try { txt = await file.text(); } catch {}
-    const { seqs, fastaText, issues } = parseFastaForIEDB(txt, { wrap: false });
-
-    seqListMut.value = seqs;
-    chosenSeqIdMut.value = seqs[0]?.id ?? null;
-    fastaTextMut.value = fastaText;
-
-    // numeric sequence selection (1..N)
-    seqCount = Math.max(1, (seqs?.length || 0));
-    chosenSeqNum = 1;
-    // seqCtrl may not exist yet during session restore; guard:
-    try { seqCtrl?.setCount?.(seqCount, chosenSeqNum); } catch {}
-
-    if (issues.length) console.warn("FASTA issues (skipped sequences):", issues);
-  };
-
-  const onRootInput = async () => {
-    const v = uploadSeqBtn?.value; const file = Array.isArray(v) ? v[0] : v; await processFile(file ?? null);
-  };
-  uploadSeqBtn.addEventListener("input", onRootInput);
-
-  const fileEl = uploadSeqBtn?.querySelector?.('input[type="file"]');
-  const onFileChange = async () => { await processFile(fileEl?.files?.[0] ?? null); };
-  fileEl?.addEventListener("change", onFileChange);
-
-  if (fileEl?.files?.length) onFileChange();
-
-  invalidation.then(() => { uploadSeqBtn.removeEventListener("input", onRootInput); fileEl?.removeEventListener("change", onFileChange); });
-}
-
 
 ```
 
@@ -625,7 +604,6 @@ function setMut(mut, val) {
 ```js
 /* ── Heatmap length selector (adaptive to slider + data) ─────────── */
 const heatLenSlot = html`<div></div>`;
-/* ── Length selector (depends on helpers; anchors exist) ─────────── */
 const LOG_LEN = "🟦 heatmap";
 
 function makeHeatLenSelect({ onChange } = {}) {
@@ -688,12 +666,16 @@ function makeHeatLenSelect({ onChange } = {}) {
   return root;
 }
 
+// from slider → continuous [a..b]
 function sliderLengths() {
   const v = Array.isArray(lengthCtrl?.value) ? lengthCtrl.value : [9, 9];
   const a = Math.min(...v), b = Math.max(...v);
-  const out = []; for (let n = a; n <= b; n++) out.push(n); return out;
+  const out = [];
+  for (let n = a; n <= b; n++) out.push(n);
+  return out;
 }
 function intersectSorted(a, b) { const B = new Set(b); return a.filter(x => B.has(x)); }
+
 
 const heatLenCtrl = makeHeatLenSelect();
 heatLenSlot.replaceChildren(heatLenCtrl);
@@ -701,8 +683,11 @@ heatLenSlot.replaceChildren(heatLenCtrl);
 function refreshHeatLenChoices() {
   const fromSlider = sliderLengths();
   const cached     = latestRowsMut.value || [];
-  const rowsForLens = cached.length ? cached : (Array.isArray(predRowsMut.value) ? predRowsMut.value : []);
-  let seqNum = 1; try { seqNum = getSelectedSeqNum(); } catch {}
+  const rowsForLens = cached.length
+    ? cached
+    : (Array.isArray(predRowsMut.value) ? predRowsMut.value : []);
+  let seqNum = 1;
+  try { seqNum = getSelectedSeqNum(); } catch {}
   const fromData = lengthsFromRows(rowsForLens, seqNum);
   const lens   = fromData.length ? intersectSorted(fromSlider, fromData) : fromSlider;
   const prefer = heatLenCtrl.value ?? lens[0];
@@ -715,9 +700,14 @@ function refreshHeatLenChoices() {
 
   heatLenCtrl.setOptions(lens, { prefer });
 }
+
+
 refreshHeatLenChoices();
 
-const onSliderInput = () => { console.log(`${LOG_LEN} slider input →`, lengthCtrl.value); refreshHeatLenChoices(); };
+const onSliderInput = () => {
+  console.log(`${LOG_LEN} slider input →`, lengthCtrl.value);
+  refreshHeatLenChoices();
+};
 lengthCtrl.addEventListener("input", onSliderInput);
 invalidation.then(() => lengthCtrl.removeEventListener("input", onSliderInput));
 
@@ -729,7 +719,7 @@ invalidation.then(() => lengthCtrl.removeEventListener("input", onSliderInput));
 
 
 ```js
-/* ── Helpers (define early; used across cells) ───────────────────── */
+/* ── Helpers (single source of truth; no exports) ───────────────── */
 
 const PCT_FIELDS = {
   netmhcpan_el   : "netmhcpan_el percentile",
@@ -763,19 +753,15 @@ function lengthsFromRows(rows, seqNum = 1) {
   return [...set].sort((a,b)=>a-b);
 }
 
+
+/* ── Sequence helpers ───────────────────────────────────────────── */
+
 function getSelectedSeqNum() {
   return Math.max(1, Number(chosenSeqNum) || 1);
 }
 function getSelectedSeqLabel() {
   return `seq${getSelectedSeqNum()}`;
 }
-
-/* Safe setter for Mutables */
-function setMut(mut, val) {
-  try { if (mut) mut.value = val; }
-  catch (e) { console.warn("Mutable not ready:", { val, err: e?.message }); }
-}
-
 ```
 
 
@@ -794,8 +780,6 @@ const heatmapSlot = html`<div style="margin-top:12px"></div>`;
 const seqSelSlot = html`<div></div>`;
 
 // Debug panel (scoped to this cell)
-/* ── DOM anchors created early so layout can always reference them ─ */
-
 function makeHeatDebugBox() {
   const det = document.createElement("details");
   det.open = false;
@@ -809,14 +793,8 @@ function makeHeatDebugBox() {
   det.__setText = (obj) => { pre.textContent = JSON.stringify(obj, null, 2); };
   return det;
 }
-
-const heatLenSlot = html`<div></div>`;
-const seqSelSlot  = html`<div></div>`;
-const heatmapSlot = html`<div style="margin-top:12px"></div>`;
-const heatDebug   = makeHeatDebugBox();
+const heatDebug = makeHeatDebugBox();
 function updateHeatDebug(payload) { try { heatDebug.__setText(payload); } catch {} }
-
-/* ── Heatmap prep + render ───────────────────────────────────────── */
 
 function buildHeatmapData(rows, method, lengthFilter, seqNum) {
   const wantedLen = Number(lengthFilter);
@@ -865,6 +843,7 @@ function buildHeatmapData(rows, method, lengthFilter, seqNum) {
 
   return { cells, posExtent: [1, posMax], alleles: [...alleleSet].sort() };
 }
+
 
 let HM_RENDER_COUNT = 0;
 
@@ -921,7 +900,7 @@ function renderHeatmap(rows, lengthFilter) {
       span.textContent = "No heat-map data for selected sequence/length.";
       span.style.fontStyle = "italic";
       heatmapSlot.appendChild(span);
-      return;
+      return
     }
 
     const el = heatmapChart({
@@ -950,7 +929,10 @@ function renderHeatmap(rows, lengthFilter) {
   }
 }
 
-/* ── Sequence selector (numeric 1..N, no names) ──────────────────── */
+
+
+/* ── Sequence selector (by uploaded FASTA entries) ──────────────── */
+
 function makeSeqSelect({ onChange } = {}) {
   const root = document.createElement("div");
   root.style.fontFamily = "'Roboto', sans-serif";
@@ -965,10 +947,15 @@ function makeSeqSelect({ onChange } = {}) {
     padding:8px 10px; border:1px solid #bbb; border-radius:6px; background:#fff;
     font:500 14px/1.2 'Roboto',sans-serif; color:#006DAE; cursor:pointer;
   `;
+
   root.append(label, sel);
 
-  Object.defineProperty(root, "value", { get(){ return sel.value ? Number(sel.value) : undefined; }, set(v){ sel.value = String(v); } });
+  Object.defineProperty(root, "value", {
+    get(){ return sel.value ? Number(sel.value) : undefined; },
+    set(v){ sel.value = String(v); }
+  });
 
+  // NEW: set count → 1..count options
   root.setCount = (count, prefer = 1) => {
     const n = Math.max(1, Number(count) | 0);
     const before = Array.from(sel.querySelectorAll("option")).map(o => o.value);
@@ -989,7 +976,8 @@ function makeSeqSelect({ onChange } = {}) {
     console.log("before → after", before, "→", after, "prefer:", prefer, "now:", sel.value);
     console.groupEnd();
 
-    handle(); // propagate programmatic change
+    // propagate programmatic change
+    handle();
   };
 
   const handle = () => {
@@ -998,10 +986,7 @@ function makeSeqSelect({ onChange } = {}) {
     const rowsNow = (latestRowsMut.value && latestRowsMut.value.length)
       ? latestRowsMut.value
       : (Array.isArray(predRowsMut.value) ? predRowsMut.value : []);
-    if (rowsNow.length && typeof renderHeatmap === "function") {
-      const len = Number(heatLenCtrl.value);
-      if (Number.isFinite(len)) renderHeatmap(rowsNow, len);
-    }
+    if (rowsNow.length) renderHeatmap(rowsNow, Number(heatLenCtrl.value));
     if (typeof onChange === "function") onChange(sel.value);
   };
   sel.addEventListener("input", handle);
@@ -1013,7 +998,6 @@ function makeSeqSelect({ onChange } = {}) {
 const seqCtrl = makeSeqSelect();
 seqSelSlot.replaceChildren(seqCtrl);
 seqCtrl.setCount(1, 1); // default before any upload
-
 
 
 ```
