@@ -362,15 +362,40 @@ async function pollResult(resultId, { timeoutMs=10*60_000, minDelay=900, maxDela
 ```
 
 ```js
-/* ── Run + Download (consolidated) ─────────────────────────────── */
+/* ── Run + Download (consolidated, safe) ─────────────────────────── */
 
-/* Utilities */
+/* assumes setMut(mut,val) is defined earlier */
 function rowsFromTable(tbl) {
   const keys = (tbl.table_columns || []).map(c => c.display_name || c.name);
   return (tbl.table_data || []).map(r => Object.fromEntries(r.map((v,i)=>[keys[i], v])));
 }
 
-/* Build body with explicit FASTA */
+/* FASTA getter – use cached text if present, otherwise read from current file */
+async function getLatestFastaText() {
+  const cached = (fastaTextMut && typeof fastaTextMut === "object" && "value" in fastaTextMut)
+    ? String(fastaTextMut.value || "").trim()
+    : "";
+  if (cached) return cached;
+
+  const tryRead = async (file) => {
+    if (!file || typeof file.text !== "function") return "";
+    let t = ""; try { t = await file.text(); } catch {}
+    const { fastaText } = parseFastaForIEDB(t, { wrap:false });
+    return (fastaText || "").trim();
+  };
+
+  const v = uploadSeqBtn?.value;
+  const file1 = Array.isArray(v) ? v[0] : v;
+  let fasta = await tryRead(file1);
+  if (!fasta) {
+    const fileEl = uploadSeqBtn?.querySelector?.('input[type="file"]');
+    fasta = await tryRead(fileEl?.files?.[0]);
+  }
+  if (fasta) setMut(fastaTextMut, fasta);
+  return fasta;
+}
+
+/* Body builder */
 function buildBody(fastaText) {
   const { id: method, cls } = getPredictor();
   const alleles = (chosenAllelesMut.value || []).join(",");
@@ -379,26 +404,23 @@ function buildBody(fastaText) {
     stages: [{
       stage_number: 1,
       stage_type  : "prediction",
-      tool_group  : cls === "II" ? "mhcii" : "mhci",
+      tool_group  : (cls === "II" ? "mhcii" : "mhci"),
       input_sequence_text: fastaText,
       input_parameters: {
         alleles,
         peptide_length_range: [9,9],
-        predictors: [{ type: "binding", method }]
+        predictors: [{ type:"binding", method }]
       }
     }]
   };
 }
 
-/* Download wiring */
-let latestRows = [];
+/* CSV prep */
 let csvUrl = null;
-
 function buildCSV(rows) {
   if (!rows || !rows.length) return "";
   const cols = Array.from(rows.reduce((set, r) => {
-    Object.keys(r || {}).forEach(k => set.add(k));
-    return set;
+    Object.keys(r||{}).forEach(k => set.add(k)); return set;
   }, new Set()));
   const esc = v => {
     const s = v == null ? "" : String(v);
@@ -406,50 +428,38 @@ function buildCSV(rows) {
   };
   return [cols.join(","), ...rows.map(r => cols.map(c => esc(r[c])).join(","))].join("\n");
 }
-
 function updateDownload(rows) {
-  latestRows = Array.isArray(rows) ? rows : [];
-  if (csvUrl) { try { URL.revokeObjectURL(csvUrl); } catch {} }
-  const csv = buildCSV(latestRows);
-  if (latestRows.length && csv) {
-    csvUrl = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+  if (csvUrl) { try { URL.revokeObjectURL(csvUrl); } catch {} csvUrl = null; }
+  const csv = buildCSV(rows);
+  if (rows && rows.length && csv) {
+    csvUrl = URL.createObjectURL(new Blob([csv], { type:"text/csv" }));
     downloadBtn.disabled = false;
   } else {
-    csvUrl = null;
     downloadBtn.disabled = true;
   }
 }
-
 downloadBtn.onclick = () => {
-  if (!latestRows.length || !csvUrl) {
-    alert("No result table to download.");
-    return;
-  }
+  if (!csvUrl) { alert("No result table to download."); return; }
   const a = document.createElement("a");
   a.href = csvUrl;
   a.download = "iedb_peptide_table.csv";
   a.click();
 };
-
-// Clean up blob if cell invalidates
 invalidation.then(() => { if (csvUrl) URL.revokeObjectURL(csvUrl); });
 
-/* Run */
+/* Immediate raw JSON downloader (for debugging) */
+function downloadRawJSON(obj, filename = "iedb_result_raw.json") {
+  const blob = new Blob([JSON.stringify(obj, null, 2)], { type:"application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = filename; a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
+/* Single run handler */
 runBtn.addEventListener("click", async () => {
   try {
-    // FASTA from cached state or live file
-    const cached = (fastaTextMut?.value || "").trim();
-    let fasta = cached;
-    if (!fasta) {
-      const v = uploadSeqBtn?.value;
-      const file = Array.isArray(v) ? v[0] : v;
-      if (file && typeof file.text === "function") {
-        let txt = "";
-        try { txt = await file.text(); } catch {}
-        fasta = parseFastaForIEDB(txt, { wrap: false }).fastaText || "";
-        if (fasta) fastaTextMut.value = fasta;
-      }
-    }
+    const fasta = await getLatestFastaText();
     if (!fasta) {
       setStatus("Please upload a FASTA file first.", { warn:true });
       return;
@@ -462,7 +472,7 @@ runBtn.addEventListener("click", async () => {
 
     runBtn.disabled = true;
     downloadBtn.disabled = true;
-    updateDownload([]); // reset any previous CSV
+    updateDownload([]); // reset previous CSV, if any
 
     setStatus("Submitting to IEDB…", { busy:true });
     const body = buildBody(fasta);
@@ -471,13 +481,16 @@ runBtn.addEventListener("click", async () => {
     setStatus(`Submitted (result_id: ${rid}).`, { busy:true });
     const result = await pollResult(rid);
 
-    const tbl = (result?.data?.results || []).find(t => t.type === "peptide_table");
+    // (Optional) immediately download the raw JSON for inspection
+    try { downloadRawJSON(result); } catch {}
+
+    // Extract peptide table → rows
+    const tbl  = (result?.data?.results || []).find(t => t.type === "peptide_table");
     if (!tbl) throw new Error("No peptide_table returned in results");
-
     const rows = rowsFromTable(tbl);
-    predRowsMut.value = rows;     // keep state
-    updateDownload(rows);         // enable and prepare CSV
 
+    setMut(predRowsMut, rows);
+    updateDownload(rows);                 // <-- prepare CSV + enable button
     setStatus(`Done — ${rows.length} rows.`, { ok:true });
   } catch (err) {
     console.error(err);
@@ -486,6 +499,7 @@ runBtn.addEventListener("click", async () => {
     runBtn.disabled = false;
   }
 });
+
 ```
 
 ```js
