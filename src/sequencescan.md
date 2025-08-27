@@ -565,10 +565,6 @@ runBtn.addEventListener("click", async () => {
     predRowsMut.value   = rows;
     latestRowsMut.value = rows;
 
-    // Make sure the sequence dropdown is populated
-    ensureSeqListFromFasta();
-    ensureSeqListFromRows(rows);
-
     updateDownload(rows);
     setStatus(`Done — ${rowsLen} rows.`, { ok:true });
     downloadBtn.disabled = rowsLen === 0;
@@ -592,13 +588,12 @@ runBtn.addEventListener("click", async () => {
 ```js
 /* Safe setter for Mutables */
 function setMut(mut, val) {
-  try {
-    if (mut) mut.value = val;   // let Observable’s proxy do its thing
-  } catch (e) {
-    console.warn("Mutable not ready when setting:", { mut, val, err: e?.message });
+  if (mut && typeof mut === "object" && "value" in mut) {
+    mut.value = val;
+  } else {
+    console.warn("Mutable not ready when setting:", { mut, val });
   }
 }
-
 ```
 
 ```js
@@ -686,8 +681,7 @@ function refreshHeatLenChoices() {
   const rowsForLens = cached.length
     ? cached
     : (Array.isArray(predRowsMut.value) ? predRowsMut.value : []);
-  let seqNum = 1;
-  try { seqNum = getSelectedSeqNum(); } catch {}
+  const seqNum = getSelectedSeqNum();
   const fromData = lengthsFromRows(rowsForLens, seqNum);
   const lens   = fromData.length ? intersectSorted(fromSlider, fromData) : fromSlider;
   const prefer = heatLenCtrl.value ?? lens[0];
@@ -755,66 +749,19 @@ function lengthsFromRows(rows, seqNum = 1) {
 /* ── Sequence helpers ───────────────────────────────────────────── */
 
 function getSelectedSeqNum() {
-  const list = Array.isArray(seqListMut?.value) ? seqListMut.value : [];
+  const list = Array.isArray(seqListMut.value) ? seqListMut.value : [];
   if (!list.length) return 1;
-
-  const chosenId = (chosenSeqIdMut && typeof chosenSeqIdMut === "object")
-    ? chosenSeqIdMut.value
-    : null;
-
-  const id  = chosenId ?? list[0]?.id ?? "seq1";
-  const idx = list.findIndex(s => s.id === id);
-  return idx >= 0 ? (idx + 1) : 1; // IEDB uses 1-based indices
+  const chosenId = chosenSeqIdMut.value ?? list[0]?.id;
+  const idx = list.findIndex(s => s.id === chosenId);
+  return idx >= 0 ? (idx + 1) : 1; // IEDB "seq #” is 1-based
 }
 
 function getSelectedSeqLabel() {
-  const list = Array.isArray(seqListMut?.value) ? seqListMut.value : [];
+  const list = Array.isArray(seqListMut.value) ? seqListMut.value : [];
   const n = getSelectedSeqNum();
   return list[n-1]?.id ?? `seq${n}`;
 }
 
-```
-
-```js
-// Use FASTA (if present) to seed seqListMut
-function ensureSeqListFromFasta() {
-  const hasSeqs = Array.isArray(seqListMut?.value) && seqListMut.value.length > 0;
-  const text = String(fastaTextMut?.value || "").trim();
-  if (hasSeqs || !text) return;
-
-  const { seqs } = parseFastaForIEDB(text, { wrap:false });
-  if (seqs && seqs.length) {
-    seqListMut.value = seqs;
-    chosenSeqIdMut.value = seqs[0].id;
-    refreshSeqChoices();
-  }
-}
-
-// If rows returned but we still don't have names, derive seq list from rows
-function deriveSeqListFromRows(rows) {
-  const seqNums = new Set();
-  for (const r of rows || []) {
-    const n = Number(r["seq #"] ?? r["sequence_number"] ?? 1);
-    if (Number.isFinite(n)) seqNums.add(n);
-  }
-  return [...seqNums].sort((a,b)=>a-b).map(n => ({ id: `seq${n}`, sequence: "" }));
-}
-
-function ensureSeqListFromRows(rows) {
-  const hasSeqs = Array.isArray(seqListMut?.value) && seqListMut.value.length > 0;
-  if (hasSeqs) return;
-  const seqs = deriveSeqListFromRows(rows);
-  if (seqs.length) {
-    seqListMut.value = seqs;
-    chosenSeqIdMut.value = seqs[0].id;
-    refreshSeqChoices();
-  }
-}
-
-```
-
-```js
-ensureSeqListFromFasta();
 ```
 
 
