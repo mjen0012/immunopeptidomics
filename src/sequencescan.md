@@ -22,6 +22,7 @@ const chosenSeqIdMut   = Mutable(null);  // string | null
 const fastaTextMut     = Mutable("");
 const chosenAllelesMut = Mutable([]);    // kept in sync with allele control
 const predRowsMut      = Mutable([]);    // raw peptide_table rows as objects
+const selectedLenMut = Mutable(null);
 
 /* NEW: stable runtime cache for rows using Observable Mutable */
 const latestRowsMut    = Mutable([]);
@@ -672,19 +673,10 @@ function intersectSorted(a, b) { const B = new Set(b); return a.filter(x => B.ha
 
 const heatLenCtrl = makeHeatLenSelect({
   onChange: (len) => {
-    const cached = latestRowsMut.value || [];
-    const rowsNow = cached.length
-      ? cached
-      : (Array.isArray(predRowsMut.value) ? predRowsMut.value : []);
-    if (rowsNow.length) {
-      console.log(`${LOG_LEN} re-render on select`, { len, rows: rowsNow.length });
-      renderHeatmap(rowsNow, Number(len));
-    } else {
-      console.warn(`${LOG_LEN} no rows available on select`);
-    }
+    // no direct render here — just store
+    selectedLenMut.value = Number(len);
   }
 });
-
 heatLenSlot.replaceChildren(heatLenCtrl);
 
 function refreshHeatLenChoices() {
@@ -716,6 +708,23 @@ const onSliderInput = () => {
 };
 lengthCtrl.addEventListener("input", onSliderInput);
 invalidation.then(() => lengthCtrl.removeEventListener("input", onSliderInput));
+
+
+// Re-render when the length selector changes
+const onLenChange = () => {
+  const rowsNow = (latestRowsMut.value && latestRowsMut.value.length)
+    ? latestRowsMut.value
+    : (Array.isArray(predRowsMut.value) ? predRowsMut.value : []);
+  if (!rowsNow.length) return;
+  const len = Number(heatLenCtrl.value ?? selectedLenMut.value);
+  if (Number.isFinite(len)) renderHeatmap(rowsNow, len);
+};
+heatLenCtrl.addEventListener("input", onLenChange);
+heatLenCtrl.addEventListener("change", onLenChange);
+invalidation.then(() => {
+  heatLenCtrl.removeEventListener("input", onLenChange);
+  heatLenCtrl.removeEventListener("change", onLenChange);
+});
 
 ```
 
