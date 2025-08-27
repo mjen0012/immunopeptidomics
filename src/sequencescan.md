@@ -380,21 +380,49 @@ async function pollResult(resultId, { timeoutMs=10*60_000, minDelay=900, maxDela
   throw new Error("Timed out polling IEDB");
 }
 
-/* CSV download from predRowsMut */
-function downloadRowsAsCSV() {
-  const rows = predRowsMut.value || [];
-  if (!rows.length) return alert("No result table to download.");
-  const cols = Array.from(rows.reduce((set,r)=>{ Object.keys(r).forEach(k=>set.add(k)); return set; }, new Set()));
+/* ── Download wiring (robust) ─────────────────────────────────── */
+let latestRows = [];     // cache the most recent table
+let csvUrl = null;       // blob URL for the CSV
+
+function buildCSV(rows) {
+  if (!rows || !rows.length) return "";
+  const cols = Array.from(rows.reduce((set, r) => {
+    Object.keys(r || {}).forEach(k => set.add(k));
+    return set;
+  }, new Set()));
   const escape = v => {
-    const s = v==null ? "" : String(v);
-    return /[",\n]/.test(s) ? `"${s.replace(/"/g,'""')}"` : s;
+    const s = v == null ? "" : String(v);
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   };
-  const csv = [cols.join(","), ...rows.map(r => cols.map(c => escape(r[c])).join(","))].join("\n");
-  const blob = new Blob([csv], { type: "text/csv" });
-  const url  = URL.createObjectURL(blob);
-  Object.assign(document.createElement("a"), { href:url, download:"iedb_peptide_table.csv" }).click();
-  URL.revokeObjectURL(url);
+  return [cols.join(","), ...rows.map(r => cols.map(c => escape(r[c])).join(","))].join("\n");
 }
+
+function updateDownload(rows) {
+  latestRows = Array.isArray(rows) ? rows : [];
+  // (re)build blob url
+  if (csvUrl) URL.revokeObjectURL(csvUrl);
+  const csv = buildCSV(latestRows);
+  if (latestRows.length && csv) {
+    csvUrl = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+    downloadBtn.disabled = false;
+  } else {
+    csvUrl = null;
+    downloadBtn.disabled = true;
+  }
+}
+
+// one click handler that always uses the prepared blob URL
+downloadBtn.onclick = () => {
+  if (!latestRows.length || !csvUrl) {
+    alert("No result table to download.");
+    return;
+  }
+  const a = document.createElement("a");
+  a.href = csvUrl;
+  a.download = "iedb_peptide_table.csv";
+  a.click();
+};
+
 
 /* Hook up buttons */
 runBtn.addEventListener("click", async () => {
@@ -427,8 +455,11 @@ runBtn.addEventListener("click", async () => {
     const rows = rowsFromTable(tbl);
     predRowsMut.value = rows;
 
+    setMut?.(predRowsMut, rows) ?? (predRowsMut.value = rows); // keep your mutable in sync
+    updateDownload(rows); // <-- prepare CSV + enable button
+    setStatus(`Done — ${rows.length} rows.`, { ok: true });
+
     setStatus(`Done — ${rows.length} rows.`, {ok:true});
-    downloadBtn.disabled = rows.length === 0;
   } catch (err) {
     console.error(err);
     setStatus(`Error: ${err?.message || err}`, {warn:true});
