@@ -83,9 +83,7 @@ function getPredictor() {
 ```js
 /* ── Heatmap length selector (adaptive to slider + data) ─────────── */
 const heatLenSlot = html`<div></div>`;
-
-/* tiny helper so our logs are easy to search */
-const logTag = "🟦 heatmap";
+const LOG_LEN = "🟦 heatmap";
 
 function makeHeatLenSelect({ onChange } = {}) {
   const root = document.createElement("div");
@@ -124,12 +122,11 @@ function makeHeatLenSelect({ onChange } = {}) {
     else if (lengths.length) sel.value = lengths.includes(+old) ? old : String(lengths[0]);
 
     const after = lengths.slice();
-    console.groupCollapsed(`${logTag} setOptions`);
+    console.groupCollapsed(`${LOG_LEN} setOptions`);
     console.log("options before → after", before, "→", after);
     console.log("prefer:", prefer, "old:", +old, "new:", root.value);
     console.groupEnd();
 
-    // notify programmatic changes too
     if (typeof onChange === "function") onChange(Number(root.value));
     root.dispatchEvent(new CustomEvent("input",  { bubbles: true, composed: true }));
     root.dispatchEvent(new Event("change", { bubbles: true, composed: true }));
@@ -138,7 +135,7 @@ function makeHeatLenSelect({ onChange } = {}) {
   const handle = () => {
     const len = Number(root.value);
     const rowsNow = latestRowsMut.value || [];
-    console.log(`${logTag} selector change →`, len, `(cached rows: ${rowsNow.length})`);
+    console.log(`${LOG_LEN} selector change →`, len, `(cached rows: ${rowsNow.length})`);
     if (typeof onChange === "function") onChange(len);
     root.dispatchEvent(new CustomEvent("input",  { bubbles: true, composed: true }));
   };
@@ -148,19 +145,7 @@ function makeHeatLenSelect({ onChange } = {}) {
   return root;
 }
 
-// helper: lengths present in current result rows (seq #1 only)
-function lengthsFromRows(rows) {
-  const set = new Set();
-  for (const r of rows || []) {
-    const seqNum = Number(r["seq #"] ?? r["sequence_number"] ?? 1);
-    if (seqNum !== 1) continue;
-    const L = rowLen(r);
-    if (Number.isFinite(L)) set.add(L);
-  }
-  return [...set].sort((a,b)=>a-b);
-}
-
-// helper from slider → continuous [a..b]
+// from slider → continuous [a..b]
 function sliderLengths() {
   const v = Array.isArray(lengthCtrl?.value) ? lengthCtrl.value : [9, 9];
   const a = Math.min(...v), b = Math.max(...v);
@@ -170,31 +155,28 @@ function sliderLengths() {
 }
 function intersectSorted(a, b) { const B = new Set(b); return a.filter(x => B.has(x)); }
 
-// create control with a direct re-render callback (uses cached rows)
 const heatLenCtrl = makeHeatLenSelect({
   onChange: (len) => {
     const rowsNow = latestRowsMut.value || [];
     if (rowsNow.length) {
-      console.log(`${logTag} re-render on select`, { len, rows: rowsNow.length });
+      console.log(`${LOG_LEN} re-render on select`, { len, rows: rowsNow.length });
       renderHeatmap(rowsNow, Number(len));
     } else {
-      console.warn(`${logTag} no rows available on select; predRowsMut.value=`, predRowsMut?.value);
+      console.warn(`${LOG_LEN} no rows available on select; predRowsMut.value=`, predRowsMut?.value);
     }
   }
 });
 heatLenSlot.replaceChildren(heatLenCtrl);
 
-// keep selector in sync with BOTH the slider range AND available data
 function refreshHeatLenChoices() {
   const fromSlider = sliderLengths();
   const cached = latestRowsMut.value || [];
-  const fromData   = cached.length
-    ? lengthsFromRows(cached)
-    : Array.isArray(predRowsMut.value) ? lengthsFromRows(predRowsMut.value) : [];
-  const lens       = fromData.length ? intersectSorted(fromSlider, fromData) : fromSlider;
-  const prefer     = heatLenCtrl.value ?? lens[0];
+  const fromData = cached.length ? lengthsFromRows(cached)
+                                 : Array.isArray(predRowsMut.value) ? lengthsFromRows(predRowsMut.value) : [];
+  const lens   = fromData.length ? intersectSorted(fromSlider, fromData) : fromSlider;
+  const prefer = heatLenCtrl.value ?? lens[0];
 
-  console.groupCollapsed(`${logTag} refreshHeatLenChoices`);
+  console.groupCollapsed(`${LOG_LEN} refreshHeatLenChoices`);
   console.log("slider range:", fromSlider);
   console.log("lengths in data(seq#1):", fromData);
   console.log("intersect:", lens, "prefer:", prefer);
@@ -202,13 +184,10 @@ function refreshHeatLenChoices() {
 
   heatLenCtrl.setOptions(lens, { prefer });
 }
-
-// initial fill (before we have data, falls back to slider range)
 refreshHeatLenChoices();
 
-// update choices if the slider range changes (this also fires onChange)
 const onSliderInput = () => {
-  console.log(`${logTag} slider input →`, lengthCtrl.value);
+  console.log(`${LOG_LEN} slider input →`, lengthCtrl.value);
   refreshHeatLenChoices();
 };
 lengthCtrl.addEventListener("input", onSliderInput);
@@ -729,29 +708,122 @@ function setMut(mut, val) {
 ```
 
 ```js
-/* ── Heatmap prep + render (no SQL) — debug UI lives here to avoid cycles ── */
+/* ── Heatmap length selector (adaptive to slider + data) ─────────── */
+const heatLenSlot = html`<div></div>`;
+const LOG_LEN = "🟦 heatmap";
 
-const heatmapSlot = html`<div style="margin-top:12px"></div>`;
+function makeHeatLenSelect({ onChange } = {}) {
+  const root = document.createElement("div");
+  root.style.fontFamily = "'Roboto', sans-serif";
 
-// Debug panel (kept local to this cell)
-function makeHeatDebugBox() {
-  const det = document.createElement("details");
-  det.open = false;
-  const sum = document.createElement("summary");
-  sum.textContent = "Debug";
-  const pre = document.createElement("pre");
-  pre.style.margin = "8px 0 0 0";
-  pre.style.maxHeight = "260px";
-  pre.style.overflow = "auto";
-  det.append(sum, pre);
-  det.__setText = (obj) => { pre.textContent = JSON.stringify(obj, null, 2); };
-  return det;
+  const label = document.createElement("label");
+  label.textContent = "Heatmap length";
+  label.style.cssText = "display:block;margin:0 0 8px 0;font:500 13px/1.3 'Roboto',sans-serif;color:#111;";
+
+  const sel = document.createElement("select");
+  sel.style.cssText = `
+    display:block; width:100%; min-width:160px;
+    padding:8px 10px; border:1px solid #bbb; border-radius:6px; background:#fff;
+    font:500 14px/1.2 'Roboto',sans-serif; color:#006DAE; cursor:pointer;
+  `;
+
+  root.append(label, sel);
+
+  Object.defineProperty(root, "value", {
+    get(){ return sel.value ? Number(sel.value) : undefined; },
+    set(v){ sel.value = String(v); }
+  });
+
+  root.setOptions = (lengths = [], { prefer } = {}) => {
+    const before = Array.from(sel.querySelectorAll("option")).map(o => +o.value);
+    const old = String(sel.value);
+
+    sel.replaceChildren();
+    for (const n of lengths) {
+      const opt = document.createElement("option");
+      opt.value = String(n);
+      opt.textContent = String(n);
+      sel.appendChild(opt);
+    }
+    if (prefer != null && lengths.includes(prefer)) sel.value = String(prefer);
+    else if (lengths.length) sel.value = lengths.includes(+old) ? old : String(lengths[0]);
+
+    const after = lengths.slice();
+    console.groupCollapsed(`${LOG_LEN} setOptions`);
+    console.log("options before → after", before, "→", after);
+    console.log("prefer:", prefer, "old:", +old, "new:", root.value);
+    console.groupEnd();
+
+    if (typeof onChange === "function") onChange(Number(root.value));
+    root.dispatchEvent(new CustomEvent("input",  { bubbles: true, composed: true }));
+    root.dispatchEvent(new Event("change", { bubbles: true, composed: true }));
+  };
+
+  const handle = () => {
+    const len = Number(root.value);
+    const rowsNow = latestRowsMut.value || [];
+    console.log(`${LOG_LEN} selector change →`, len, `(cached rows: ${rowsNow.length})`);
+    if (typeof onChange === "function") onChange(len);
+    root.dispatchEvent(new CustomEvent("input",  { bubbles: true, composed: true }));
+  };
+  sel.addEventListener("input", handle);
+  sel.addEventListener("change", handle);
+
+  return root;
 }
-const heatDebug = makeHeatDebugBox();
-function updateHeatDebug(payload) { try { heatDebug.__setText(payload); } catch {} }
 
-// mount the debug box under the chart
-heatmapSlot.after(heatDebug);
+// from slider → continuous [a..b]
+function sliderLengths() {
+  const v = Array.isArray(lengthCtrl?.value) ? lengthCtrl.value : [9, 9];
+  const a = Math.min(...v), b = Math.max(...v);
+  const out = [];
+  for (let n = a; n <= b; n++) out.push(n);
+  return out;
+}
+function intersectSorted(a, b) { const B = new Set(b); return a.filter(x => B.has(x)); }
+
+const heatLenCtrl = makeHeatLenSelect({
+  onChange: (len) => {
+    const rowsNow = latestRowsMut.value || [];
+    if (rowsNow.length) {
+      console.log(`${LOG_LEN} re-render on select`, { len, rows: rowsNow.length });
+      renderHeatmap(rowsNow, Number(len));
+    } else {
+      console.warn(`${LOG_LEN} no rows available on select; predRowsMut.value=`, predRowsMut?.value);
+    }
+  }
+});
+heatLenSlot.replaceChildren(heatLenCtrl);
+
+function refreshHeatLenChoices() {
+  const fromSlider = sliderLengths();
+  const cached = latestRowsMut.value || [];
+  const fromData = cached.length ? lengthsFromRows(cached)
+                                 : Array.isArray(predRowsMut.value) ? lengthsFromRows(predRowsMut.value) : [];
+  const lens   = fromData.length ? intersectSorted(fromSlider, fromData) : fromSlider;
+  const prefer = heatLenCtrl.value ?? lens[0];
+
+  console.groupCollapsed(`${LOG_LEN} refreshHeatLenChoices`);
+  console.log("slider range:", fromSlider);
+  console.log("lengths in data(seq#1):", fromData);
+  console.log("intersect:", lens, "prefer:", prefer);
+  console.groupEnd();
+
+  heatLenCtrl.setOptions(lens, { prefer });
+}
+refreshHeatLenChoices();
+
+const onSliderInput = () => {
+  console.log(`${LOG_LEN} slider input →`, lengthCtrl.value);
+  refreshHeatLenChoices();
+};
+lengthCtrl.addEventListener("input", onSliderInput);
+invalidation.then(() => lengthCtrl.removeEventListener("input", onSliderInput));
+
+```
+
+```js
+/* ── Helpers (single source of truth; no exports) ───────────────── */
 
 const PCT_FIELDS = {
   netmhcpan_el   : "netmhcpan_el percentile",
@@ -770,8 +842,8 @@ function pickPercentileKey(method, sampleRow) {
   return cand || keys.find(k => /percentile/i.test(k)) || want;
 }
 
-function rowLen(r){
-  return Number(r["peptide length"] ?? r.length ?? r["peptide_length"] ?? r["Length"]);
+function rowLen(r) {
+  return Number(r?.["peptide length"] ?? r?.length ?? r?.["peptide_length"] ?? r?.["Length"]);
 }
 
 function lengthsFromRows(rows) {
@@ -784,6 +856,34 @@ function lengthsFromRows(rows) {
   }
   return [...set].sort((a,b)=>a-b);
 }
+
+```
+
+
+```js
+/* ── Heatmap prep + render (no SQL) ─────────────────────────────── */
+
+const heatmapSlot = html`<div style="margin-top:12px"></div>`;
+
+// Debug panel (scoped to this cell)
+function makeHeatDebugBox() {
+  const det = document.createElement("details");
+  det.open = false;
+  const sum = document.createElement("summary");
+  sum.textContent = "Debug";
+  const pre = document.createElement("pre");
+  pre.style.margin = "8px 0 0 0";
+  pre.style.maxHeight = "260px";
+  pre.style.overflow = "auto";
+  det.append(sum, pre);
+  det.__setText = (obj) => { pre.textContent = JSON.stringify(obj, null, 2); };
+  return det;
+}
+const heatDebug = makeHeatDebugBox();
+function updateHeatDebug(payload) { try { heatDebug.__setText(payload); } catch {} }
+
+// mount the debug box under the chart
+heatmapSlot.after(heatDebug);
 
 function buildHeatmapData(rows, method, lengthFilter) {
   const wantedLen = Number(lengthFilter);
@@ -832,9 +932,7 @@ function buildHeatmapData(rows, method, lengthFilter) {
   return { cells, posExtent: [1, posMax], alleles: [...alleleSet].sort() };
 }
 
-const logTag = "🟦 heatmap";
-/* ── Heatmap render (guarded) ───────────────────────────────────── */
-let __HM_RENDER_COUNT = 0;
+let HM_RENDER_COUNT = 0;
 
 function renderHeatmap(rows, lengthFilter) {
   try {
@@ -846,7 +944,6 @@ function renderHeatmap(rows, lengthFilter) {
 
     const { id: method } = getPredictor();
 
-    // pick a length if none given
     let wantedLen = Number(lengthFilter);
     if (!Number.isFinite(wantedLen)) {
       const first = rowsArr.find(r => Number(r["seq #"] ?? r["sequence_number"] ?? 1) === 1);
@@ -856,8 +953,8 @@ function renderHeatmap(rows, lengthFilter) {
     const tStart = performance.now();
     const { cells, posExtent, alleles } = buildHeatmapData(rowsArr, method, wantedLen);
 
-    __HM_RENDER_COUNT++;
-    heatmapSlot.dataset.renderCount  = String(__HM_RENDER_COUNT);
+    HM_RENDER_COUNT++;
+    heatmapSlot.dataset.renderCount  = String(HM_RENDER_COUNT);
     heatmapSlot.dataset.lastLen      = String(wantedLen);
     heatmapSlot.dataset.lastMethod   = String(method);
     heatmapSlot.dataset.cellCount    = String(cells?.length ?? 0);
@@ -865,14 +962,14 @@ function renderHeatmap(rows, lengthFilter) {
     heatmapSlot.dataset.posMin       = String(posExtent?.[0] ?? "");
     heatmapSlot.dataset.posMax       = String(posExtent?.[1] ?? "");
 
-    console.groupCollapsed(`🎨 render #${__HM_RENDER_COUNT}`);
+    console.groupCollapsed(`🎨 render #${HM_RENDER_COUNT}`);
     console.log("method:", method, "length:", wantedLen);
     console.log("cells:", Array.isArray(cells) ? cells.length : "(not array)");
     console.log("alleles:", Array.isArray(alleles) ? alleles.length : "(not array)", "posExtent:", posExtent);
     console.groupEnd();
 
     updateHeatDebug({
-      render_count : __HM_RENDER_COUNT,
+      render_count : HM_RENDER_COUNT,
       method       : method,
       selected_len : wantedLen,
       cell_count   : Array.isArray(cells) ? cells.length : 0,
@@ -916,7 +1013,6 @@ function renderHeatmap(rows, lengthFilter) {
 }
 
 ```
-
 
 <!-- Layout defined here (no JS layout cell) -->
 <!-- Layout (positions defined here; no JS layout cells) -->
