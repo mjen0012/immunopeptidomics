@@ -660,39 +660,42 @@ const safeChosenId =
 ```js
 /* Sequence picker — rebuilds whenever the current run changes */
 {
-  seqListMut; chosenSeqIdMut; // reactive
+  seqListMut; chosenSeqIdMut; seqPickerRow; // reactive
 
-  // Make sure the container exists (defined in the layout cell)
-  if (!seqPickerRow) return;
-
-  const ids = (seqListMut?.value || []).map(s => s.id);
-  seqPickerRow.replaceChildren(); // clear previous control
-
-  if (!ids.length) {
-    // nothing to pick (e.g., before the first run)
-    seqPickerRow.append(Object.assign(document.createElement("div"), {
-      style: "color:#666;font-style:italic;",
-      textContent: "No sequences in current run."
-    }));
+  if (!seqPickerRow) {
+    console.warn("seqPickerRow not yet defined; skipping rebuild.");
   } else {
-    const initial = (chosenSeqIdMut?.value && ids.includes(chosenSeqIdMut.value))
-      ? chosenSeqIdMut.value
-      : ids[0];
+    const ids = (seqListMut?.value || []).map(s => s.id);
+    seqPickerRow.replaceChildren(); // clear previous control
 
-    const el = Inputs.select(ids, { label: "Sequence to view", value: initial });
-    seqPickerRow.append(el);
+    if (!ids.length) {
+      seqPickerRow.append(Object.assign(document.createElement("div"), {
+        style: "color:#666;font-style:italic;",
+        textContent: "No sequences in current run."
+      }));
+    } else {
+      const initial = (chosenSeqIdMut?.value && ids.includes(chosenSeqIdMut.value))
+        ? chosenSeqIdMut.value
+        : ids[0];
 
-    // keep the mutable in sync with the UI
-    for await (const val of Generators.input(el)) {
-      if (chosenSeqIdMut && "value" in chosenSeqIdMut) chosenSeqIdMut.value = val;
-    }
+      const el = Inputs.select(ids, { label: "Sequence to view", value: initial });
+      seqPickerRow.append(el);
 
-    // ensure the mutable has a valid value immediately
-    if (chosenSeqIdMut && "value" in chosenSeqIdMut) {
-      chosenSeqIdMut.value = initial;
+      // keep the mutable in sync with the UI
+      (async () => {
+        for await (const val of Generators.input(el)) {
+          if (chosenSeqIdMut && "value" in chosenSeqIdMut) chosenSeqIdMut.value = val;
+        }
+      })();
+
+      // ensure the mutable has a valid value immediately
+      if (chosenSeqIdMut && "value" in chosenSeqIdMut) {
+        chosenSeqIdMut.value = initial;
+      }
     }
   }
 }
+
 
 ```
 
