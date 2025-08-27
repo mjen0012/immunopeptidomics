@@ -13,6 +13,7 @@ import {DuckDBClient} from "npm:@observablehq/duckdb";
 import {extendDB, sql} from "./components/extenddb.js";
 import {heatmapChart} from "./components/heatmapChart.js";
 // peptideScanChart intentionally not used to keep MVP simple
+import {peptideScanChart} from "./components/peptideScanChart.js";
 import {uploadButton} from "./components/uploadButton.js";
 import {comboSelectLazy} from "./components/comboSelectLazy.js";
 
