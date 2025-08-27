@@ -120,18 +120,8 @@ function makeHeatLenSelect() {
 
 }
 
-const onHeatLenInput = () => {
-  if (Array.isArray(predRowsMut.value) && predRowsMut.value.length) {
-    renderHeatmap(predRowsMut.value, heatLenCtrl.value);
-  }
-};
-heatLenCtrl.addEventListener("input", onHeatLenInput);
-heatLenCtrl.addEventListener("change", onHeatLenInput);  // <— NEW fallback
-invalidation.then(() => {
-  heatLenCtrl.removeEventListener("input", onHeatLenInput);
-  heatLenCtrl.removeEventListener("change", onHeatLenInput); // <— remove both
-});
-
+const heatLenCtrl = makeHeatLenSelect();
+heatLenSlot.replaceChildren(heatLenCtrl);
 
 // helper from slider → [a..b]
 function sliderLengths() {
@@ -166,7 +156,12 @@ const onHeatLenInput = () => {
   }
 };
 heatLenCtrl.addEventListener("input", onHeatLenInput);
-invalidation.then(() => heatLenCtrl.removeEventListener("input", onHeatLenInput));
+heatLenCtrl.addEventListener("change", onHeatLenInput);  // <— NEW fallback
+invalidation.then(() => {
+  heatLenCtrl.removeEventListener("input", onHeatLenInput);
+  heatLenCtrl.removeEventListener("change", onHeatLenInput); // <— remove both
+});
+
 
 
 ```
