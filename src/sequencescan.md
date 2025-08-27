@@ -313,6 +313,55 @@ function setStatus(txt, {busy=false, warn=false, ok=false} = {}) {
 ```
 
 ```js
+
+/* POST to our proxy */
+async function submitPipeline(body) {
+  const r = await fetch("/api/iedb-pipeline", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body)
+  });
+  const txt = await r.text();
+  let j; try { j = JSON.parse(txt); } catch { j = { _raw: txt }; }
+  if (!r.ok) throw new Error(j?.errors?.join?.("; ") || r.statusText || "Pipeline submission failed");
+  const rid = j?.result_id || j?.results_uri?.split?.("/")?.pop?.();
+  if (!rid) throw new Error("No result_id in response");
+  return rid;
+}
+
+/* Poll with backoff + live status */
+async function pollResult(resultId, { timeoutMs=10*60_000, minDelay=900, maxDelay=5000, backoff=1.35 } = {}) {
+  const t0 = Date.now();
+  let delay = minDelay, tries = 0, lastSec = -1;
+
+  while (Date.now() - t0 < timeoutMs) {
+    tries++;
+    const r = await fetch(`/api/iedb-result?id=${encodeURIComponent(resultId)}`);
+    const txt = await r.text();
+    let j; try { j = JSON.parse(txt); } catch { j = {}; }
+
+    const sec = Math.floor((Date.now() - t0)/1000);
+    if (sec !== lastSec) {
+      lastSec = sec;
+      setStatus(`Polling IEDB… ${sec}s (try ${tries})`, {busy:true});
+    }
+
+    if (j?.status === "done") return j;
+    if (j?.status === "error") {
+      const errs = j?.data?.errors; 
+      throw new Error(Array.isArray(errs) && errs.length ? errs.join("; ") : "IEDB returned error");
+    }
+
+    await new Promise(res => setTimeout(res, delay));
+    delay = Math.min(Math.floor(delay * backoff), maxDelay);
+  }
+  throw new Error("Timed out polling IEDB");
+}
+
+
+```
+
+```js
 /* ── Run + Download (consolidated) ─────────────────────────────── */
 
 /* Utilities */
@@ -437,8 +486,6 @@ runBtn.addEventListener("click", async () => {
     runBtn.disabled = false;
   }
 });
-
-
 ```
 
 ```js
