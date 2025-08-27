@@ -668,11 +668,19 @@ function rowLen(r){
   return Number(r["peptide length"] ?? r.length ?? r["peptide_length"] ?? r["Length"]);
 }
 
+function chosenSeqIndex() {
+  const id  = chosenSeqIdMut.value;
+  const idx = (seqListMut.value || []).findIndex(s => s.id === id);
+  return idx >= 0 ? (idx + 1) : 1;   // 1-based to match IEDB’s “seq #”
+}
+
 function buildHeatmapData(rows, method, lengthFilter) {
   const wantedLen = Number(lengthFilter);
+  const wantSeq   = chosenSeqIndex();
+
   const r1 = rows.filter(r => {
     const seqNum = Number(r["seq #"] ?? r["sequence_number"] ?? 1);
-    return seqNum === 1 && rowLen(r) === wantedLen;
+    return seqNum === wantSeq && rowLen(r) === wantedLen;
   });
   if (!r1.length) return { cells: [], posExtent: [1, 1] };
 
