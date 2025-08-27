@@ -537,8 +537,16 @@ const downloadPredsBtn = downloadCSVButton();
         continue;
       }
 
+      // publish sequence list
       if (seqListMut && "value" in seqListMut) seqListMut.value = seqs;
-      if (chosenSeqIdMut && "value" in chosenSeqIdMut && !chosenSeqIdMut.value) chosenSeqIdMut.value = seqs[0].id;
+
+      // ensure chosenSeqId is valid for the current run’s list
+      if (chosenSeqIdMut && "value" in chosenSeqIdMut) {
+        const current = chosenSeqIdMut.value;
+        const ok = current && seqs.some(s => s.id === current);
+        chosenSeqIdMut.value = ok ? current : seqs[0].id;
+      }
+
 
       // Alleles (array)
       const alleles = getChosenAlleles();
@@ -698,43 +706,64 @@ function getSeqRecord(id) {
   return arr.find(s => s.id === id) || null;
 }
 
-/* Build heatmap cells (min-pct per position, per allele) from normalized rows */
+/* Build heatmap / peptide rows with fallback position inference */
 function buildHeatmapData({rows, seqId, sequence, method, cls}) {
   if (!rows?.length || !sequence) return [];
   const AA = sequence.toUpperCase();
   const best = new Map(); // key: allele|pos → {pct, peptide, aa}
-  for (const r of rows.filter(x => x.start != null && x.length != null)) {
-    if (r.cls && cls && r.cls !== cls) continue;   // ← use passed cls
+
+  for (const r of rows) {
+    if (r.cls && cls && r.cls !== cls) continue;
     const kAllele = r.allele;
-    const start = +r.start;
-    const len   = +r.length;
+
+    // prefer server positions; otherwise infer from first occurrence
+    let start = (r.start == null || Number.isNaN(+r.start)) ? null : +r.start;
+    let len   = (r.length== null || Number.isNaN(+r.length)) ? null : +r.length;
+
+    if ((start == null || len == null) && r.peptide) {
+      const idx = AA.indexOf(String(r.peptide).toUpperCase());
+      if (idx >= 0) { start = idx + 1; len = r.peptide.length; }
+    }
     if (!start || !len) continue;
-    for (let i=0;i<len;i++) {
-      const pos = start + i;                         // 1-based pos
-      const aa  = AA[pos-1] || "-";
-      const key = `${kAllele}|${pos}`;
+
+    const pct = isFinite(r.pct) ? +r.pct : Infinity;
+    for (let i = 0; i < len; i++) {
+      const pos  = start + i;                         // 1-based
+      const aa   = AA[pos - 1] || "-";
+      const key  = `${kAllele}|${pos}`;
       const prev = best.get(key);
-      if (!prev || (isFinite(r.pct) && r.pct < prev.pct)) {
-        best.set(key, {allele:kAllele, pos, pct:r.pct, peptide:r.peptide, aa});
+      if (!prev || pct < prev.pct) {
+        best.set(key, { allele: kAllele, pos, pct, peptide: r.peptide, aa });
       }
     }
   }
+
   return [...best.values()];
 }
 
-/* Build peptide rows for the peptideScanChart from predictions (for a selected allele) */
-function buildPeptideRows({rows, seqId, allele}) {
-  const subset = rows.filter(r => r.allele === allele && r.start != null && r.length != null);
-  return subset.map(r => ({
-    start: +r.start,
-    length: +r.length,
-    peptide: r.peptide,
-    peptide_aligned: r.peptide,   // no gapped alignment here
-    protein: seqId
-  }));
+function buildPeptideRows({rows, seqId, allele, sequence}) {
+  const AA = (sequence || "").toUpperCase();
+  const subset = rows.filter(r => r.allele === allele);
+
+  return subset.map(r => {
+    let start  = (r.start == null) ? null : +r.start;
+    let length = (r.length == null) ? null : +r.length;
+
+    if ((start == null || length == null) && r.peptide && AA) {
+      const idx = AA.indexOf(String(r.peptide).toUpperCase());
+      if (idx >= 0) { start = idx + 1; length = r.peptide.length; }
+    }
+
+    return {
+      start,
+      length,
+      peptide: r.peptide,
+      peptide_aligned: r.peptide,
+      protein: seqId
+    };
+  }).filter(rr => rr.start != null && rr.length != null);
 }
 
-/* Simple overlay rows from uploaded peptides (first occurrence in sequence) */
 function buildOverlayRows({peptides, sequence}) {
   if (!peptides?.length || !sequence) return [];
   const AA = sequence.toUpperCase();
@@ -742,7 +771,7 @@ function buildOverlayRows({peptides, sequence}) {
   for (const p of peptides) {
     const idx = AA.indexOf(p.toUpperCase());
     if (idx >= 0) {
-      rows.push({ start: idx+1, length: p.length, peptide: p, peptide_aligned: p });
+      rows.push({ start: idx + 1, length: p.length, peptide: p, peptide_aligned: p });
     }
   }
   return rows;
@@ -754,11 +783,16 @@ function buildOverlayRows({peptides, sequence}) {
 ```js
 /* Chart mounting (inside your HTML container) */
 {
-  predRowsMut; chosenSeqIdMut; predictor; uploadedPepsMut; // reactive
+  predRowsMut; seqListMut; chosenSeqIdMut; predictor; uploadedPepsMut; // reactive
 
   const heatWrap = document.getElementById("heat-wrap");
   const pepWrap  = document.getElementById("pep-wrap");
   const hintEl   = document.getElementById("scan-hint");
+
+  if (!heatWrap || !pepWrap || !hintEl) {
+    console.warn("Chart containers not found in DOM.");
+    return;
+  }
 
   heatWrap.replaceChildren();
   pepWrap.replaceChildren();
@@ -772,109 +806,123 @@ function buildOverlayRows({peptides, sequence}) {
   const seqRec = getSeqRecord(currChosenId);
   const pred = getPredictor();
 
-  if (seqRec) {
-    const seqId  = seqRec.id;
-    const seqAA  = seqRec.sequence;
-    const rows   = predRowsMut.value || [];
+  if (!seqRec) {
+    heatWrap.appendChild(Object.assign(document.createElement("div"), {
+      style: "padding:8px;color:#666;font-style:italic;",
+      textContent: "No sequence selected (or selection not in current run)."
+    }));
+    return;
+  }
 
-    // Heatmap data across *all alleles selected in predictor run*
-    const heatData = buildHeatmapData({
-      rows, seqId, sequence: seqAA, method: pred.method, cls: pred.cls
-    });
+  const seqId  = seqRec.id;
+  const seqAA  = seqRec.sequence || "";
+  const rows   = predRowsMut.value || [];
 
-    // Shared zoom state
-    let currentScale = null, currentTransform = null, syncing = false;
-    let pepAPI = { update:()=>{}, setZoom:()=>{} };
+  // Heatmap data across *all alleles selected in predictor run*
+  const heatData = buildHeatmapData({
+    rows, seqId, sequence: seqAA, method: pred.method, cls: pred.cls
+  });
 
-    const seqLen = seqAA.length || d3.max(heatData, d => d.pos) || 1;
-    const heatEl = heatmapChart({
-      data: heatData,
-      posExtent: [1, seqLen],
-      margin: { top:16, right:20, bottom:60, left:90 },
+  if (!heatData.length) {
+    heatWrap.appendChild(Object.assign(document.createElement("div"), {
+      style: "padding:8px;color:#666;font-style:italic;",
+      textContent: "No positional hits to plot (no start/length in results and none could be inferred from the sequence)."
+    }));
+    return;
+  }
 
-      onReady: (x) => { currentScale = x; },
-      onZoom : (x, t) => {
+  // Shared zoom state
+  let currentScale = null, currentTransform = null, syncing = false;
+  let pepAPI = { update:()=>{}, setZoom:()=>{} };
+
+  const seqLen = seqAA.length || d3.max(heatData, d => d.pos) || 1;
+  const heatEl = heatmapChart({
+    data: heatData,
+    posExtent: [1, seqLen],
+    margin: { top:16, right:20, bottom:60, left:90 },
+
+    onReady: (x) => { currentScale = x; },
+    onZoom : (x, t) => {
+      if (syncing) return;
+      syncing = true;
+      currentScale = x; currentTransform = t;
+      pepAPI.update?.(x);
+      pepAPI.setZoom?.(t);
+      syncing = false;
+    },
+
+    // Click a row (allele) to show all peptides for that allele
+    onRowToggle: (allele) => showPeptidesFor(allele)
+  });
+  heatWrap.appendChild(heatEl);
+
+  function showHint(show) { hintEl.style.display = show ? "" : "none"; }
+
+  async function showPeptidesFor(allele) {
+    pepWrap.replaceChildren();
+    pepAPI = { update:()=>{}, setZoom:()=>{} };
+
+    if (!allele) { showHint(true); return; }
+    showHint(false);
+
+    // Main peptide tracks from predictions (selected allele)
+    const pepRows = buildPeptideRows({rows, seqId, allele, sequence: seqAA});
+
+    // Overlay uploaded peptides (neutral color)
+    const overlayRows = buildOverlayRows({ peptides: uploadedPepsMut.value, sequence: seqAA });
+
+    const svg = d3.create("svg").style("width","100%");
+    const g   = svg.append("g");
+    pepWrap.appendChild(svg.node());
+
+    const chart = peptideScanChart(g, {
+      data       : pepRows,
+      alleleData : rows.filter(r => r.allele === allele).map(r => ({
+        allele: r.allele,
+        peptide: r.peptide,
+        netmhcpan_el_percentile: pred.method.includes("el") ? r.pct : undefined,
+        netmhcpan_ba_percentile: pred.method.includes("ba") ? r.pct : undefined
+      })),
+      xScale     : currentScale,
+      sizeFactor : 1.2,
+      rowHeight  : 18,
+      gap        : 2,
+      margin     : { top:20, right:20, bottom:30, left:40 },
+      colourBy   : allele,
+      onZoom     : (x, t) => {
         if (syncing) return;
         syncing = true;
         currentScale = x; currentTransform = t;
-        pepAPI.update?.(x);
-        pepAPI.setZoom?.(t);
+        heatEl.__setZoom?.(t);
         syncing = false;
-      },
-
-      // Click a row (allele) to show all peptides for that allele
-      onRowToggle: (allele) => showPeptidesFor(allele)
-    });
-    heatWrap.appendChild(heatEl);
-
-    function showHint(show) { hintEl.style.display = show ? "" : "none"; }
-
-    async function showPeptidesFor(allele) {
-      pepWrap.replaceChildren();
-      pepAPI = { update:()=>{}, setZoom:()=>{} };
-
-      if (!allele) { showHint(true); return; }
-      showHint(false);
-
-      // Main peptide tracks from predictions (selected allele)
-      const pepRows = buildPeptideRows({rows, seqId, allele});
-
-      // Overlay uploaded peptides (neutral color)
-      const overlayRows = buildOverlayRows({ peptides: uploadedPepsMut.value, sequence: seqAA });
-
-      const svg = d3.create("svg").style("width","100%");
-      const g   = svg.append("g");
-      pepWrap.appendChild(svg.node());
-
-      const chart = peptideScanChart(g, {
-        data       : pepRows,
-        alleleData : rows.filter(r => r.allele === allele).map(r => ({
-          allele: r.allele,
-          peptide: r.peptide,
-          netmhcpan_el_percentile: pred.method.includes("el") ? r.pct : undefined,
-          netmhcpan_ba_percentile: pred.method.includes("ba") ? r.pct : undefined
-        })),
-        xScale     : currentScale,
-        sizeFactor : 1.2,
-        rowHeight  : 18,
-        gap        : 2,
-        margin     : { top:20, right:20, bottom:30, left:40 },
-        colourBy   : allele,
-        onZoom     : (x, t) => {
-          if (syncing) return;
-          syncing = true;
-          currentScale = x; currentTransform = t;
-          heatEl.__setZoom?.(t);
-          syncing = false;
-        }
-      });
-
-      // Optional overlay row
-      if (overlayRows.length) {
-        const g2 = g.append("g").attr("transform", `translate(0, ${chart.height})`);
-        const overlay = peptideScanChart(g2, {
-          data       : overlayRows,
-          alleleData : [],
-          xScale     : currentScale,
-          sizeFactor : 1.0,
-          rowHeight  : 14,
-          gap        : 2,
-          margin     : { top:12, right:20, bottom:24, left:40 },
-          colourBy   : "attribute_1"
-        });
-        svg.attr("height", chart.height + overlay.height);
-      } else {
-        svg.attr("height", chart.height);
       }
+    });
 
-      const [r0, r1] = currentScale.range();
-      const w = (r1 - r0) + 90 + 20;
-      svg.attr("viewBox", `0 0 ${w} ${svg.attr("height")}`);
-
-      pepAPI = chart;
-      if (currentTransform) pepAPI.setZoom(currentTransform);
-      pepAPI.update(currentScale);
+    // Optional overlay row
+    if (overlayRows.length) {
+      const g2 = g.append("g").attr("transform", `translate(0, ${chart.height})`);
+      const overlay = peptideScanChart(g2, {
+        data       : overlayRows,
+        alleleData : [],
+        xScale     : currentScale,
+        sizeFactor : 1.0,
+        rowHeight  : 14,
+        gap        : 2,
+        margin     : { top:12, right:20, bottom:24, left:40 },
+        colourBy   : "attribute_1"
+      });
+      svg.attr("height", chart.height + overlay.height);
+    } else {
+      svg.attr("height", chart.height);
     }
+
+    const [r0, r1] = currentScale.range();
+    const w = (r1 - r0) + 90 + 20;
+    svg.attr("viewBox", `0 0 ${w} ${svg.attr("height")}`);
+
+    pepAPI = chart;
+    if (currentTransform) pepAPI.setZoom(currentTransform);
+    pepAPI.update(currentScale);
   }
 }
 
