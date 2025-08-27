@@ -503,7 +503,7 @@ async function pollResult(resultId, { timeoutMs=10*60_000, minDelay=900, maxDela
 ```
 
 ```js
-/* ── Run + Download (consolidated, safe) ─────────────────────────── */
+/* ── Run + Download (consolidated, safe) — no cross-refs back to Heatmap ── */
 
 /* assumes setMut(mut,val) is defined earlier */
 function rowsFromTable(tbl) {
@@ -603,28 +603,6 @@ function downloadRawJSON(obj, filename = "iedb_result_raw.json") {
   setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
-function makeHeatDebugBox() {
-  const det = document.createElement("details");
-  det.open = false;
-  const sum = document.createElement("summary");
-  sum.textContent = "Debug";
-  const pre = document.createElement("pre");
-  pre.style.margin = "8px 0 0 0";
-  pre.style.maxHeight = "260px";
-  pre.style.overflow = "auto";
-  det.append(sum, pre);
-  det.__setText = (obj) => {
-    pre.textContent = JSON.stringify(obj, null, 2);
-  };
-  return det;
-}
-const heatDebug = makeHeatDebugBox();
-
-/* expose a function we can call from renderHeatmap */
-function updateHeatDebug(payload) {
-  try { heatDebug.__setText(payload); } catch {}
-}
-
 /* Single run handler */
 runBtn.addEventListener("click", async () => {
   try {
@@ -645,38 +623,27 @@ runBtn.addEventListener("click", async () => {
 
     setStatus("Submitting to IEDB…", { busy:true });
     const body = buildBody(fasta);
-    console.groupCollapsed("🚀 submitPipeline body");
-    console.log(body);
-    console.groupEnd();
+    console.groupCollapsed("🚀 submitPipeline body"); console.log(body); console.groupEnd();
 
     const rid  = await submitPipeline(body);
     setStatus(`Submitted (result_id: ${rid}).`, { busy:true });
     const result = await pollResult(rid);
 
-    // (Optional) immediately download the raw JSON for inspection
     try { downloadRawJSON(result); } catch {}
 
-    // Extract peptide table → rows
     const tbl  = (result?.data?.results || []).find(t => t.type === "peptide_table");
     if (!tbl) throw new Error("No peptide_table returned in results");
     const rows = rowsFromTable(tbl);
 
-    setMut(predRowsMut, rows);
+    setMut(predRowsMut, rows);        // 🔄 triggers render via call below or autorender cell
     updateDownload(rows);
     setStatus(`Done — ${rows.length} rows.`, { ok:true });
     downloadBtn.disabled = rows.length === 0;
 
-    // lengths present in returned data
-    const lensInData = lengthsFromRows(rows);
-    console.groupCollapsed("📥 result snapshot");
-    console.log("rows:", rows.length);
-    console.log("lengths(seq#1) in data:", lensInData);
-    console.groupEnd();
-
     // refresh selector options to reflect actual data + slider
     refreshHeatLenChoices();
 
-    // render with current selector value
+    // One-way dependency: Run → Heatmap (safe)
     renderHeatmap(rows, Number(heatLenCtrl.value));
   } catch (err) {
     console.error(err);
@@ -700,12 +667,28 @@ function setMut(mut, val) {
 ```
 
 ```js
-/* ── Heatmap prep + render (no SQL) — with visible hooks ────────── */
+/* ── Heatmap prep + render (no SQL) — debug UI lives here to avoid cycles ── */
 
 const heatmapSlot = html`<div style="margin-top:12px"></div>`;
 
-// add the debug box under the chart
-// (place this element in the layout next to the heatmapSlot)
+// Debug panel (kept local to this cell)
+function makeHeatDebugBox() {
+  const det = document.createElement("details");
+  det.open = false;
+  const sum = document.createElement("summary");
+  sum.textContent = "Debug";
+  const pre = document.createElement("pre");
+  pre.style.margin = "8px 0 0 0";
+  pre.style.maxHeight = "260px";
+  pre.style.overflow = "auto";
+  det.append(sum, pre);
+  det.__setText = (obj) => { pre.textContent = JSON.stringify(obj, null, 2); };
+  return det;
+}
+const heatDebug = makeHeatDebugBox();
+function updateHeatDebug(payload) { try { heatDebug.__setText(payload); } catch {} }
+
+// mount the debug box under the chart
 heatmapSlot.after(heatDebug);
 
 const PCT_FIELDS = {
@@ -727,6 +710,17 @@ function pickPercentileKey(method, sampleRow) {
 
 function rowLen(r){
   return Number(r["peptide length"] ?? r.length ?? r["peptide_length"] ?? r["Length"]);
+}
+
+function lengthsFromRows(rows) {
+  const set = new Set();
+  for (const r of rows || []) {
+    const seqNum = Number(r["seq #"] ?? r["sequence_number"] ?? 1);
+    if (seqNum !== 1) continue;
+    const L = rowLen(r);
+    if (Number.isFinite(L)) set.add(L);
+  }
+  return [...set].sort((a,b)=>a-b);
 }
 
 function buildHeatmapData(rows, method, lengthFilter) {
@@ -776,6 +770,7 @@ function buildHeatmapData(rows, method, lengthFilter) {
   return { cells, posExtent: [1, posMax], alleles: [...alleleSet].sort() };
 }
 
+const logTag = "🟦 heatmap";
 let __HM_RENDER_COUNT = 0;
 
 function renderHeatmap(rows, lengthFilter) {
@@ -807,7 +802,7 @@ function renderHeatmap(rows, lengthFilter) {
     console.log("cells:", cells.length, "alleles:", alleles.length, "posExtent:", posExtent);
     console.groupEnd();
 
-    // also mirror into the visible <details> block
+    // mirror into the visible <details> block
     updateHeatDebug({
       render_count : __HM_RENDER_COUNT,
       method       : method,
@@ -834,7 +829,7 @@ function renderHeatmap(rows, lengthFilter) {
       sizeFactor: 1.1
     });
 
-    // tag the chart node too (e.g. for DOM inspection)
+    // tag the chart node too (for DOM inspection)
     el.dataset.len    = String(wantedLen);
     el.dataset.method = String(method);
     el.dataset.cells  = String(cells.length);
@@ -852,7 +847,6 @@ function renderHeatmap(rows, lengthFilter) {
     heatmapSlot.replaceChildren(span);
   }
 }
-
 
 ```
 
