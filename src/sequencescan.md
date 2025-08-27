@@ -22,6 +22,11 @@ const chosenSeqIdMut   = Mutable(null);  // string | null
 const fastaTextMut = Mutable("");
 const chosenAllelesMut  = Mutable([]);                         // kept in sync with allele control
 const predRowsMut       = Mutable([]);                         // raw peptide_table rows as objects
+
+/* NEW: stable runtime cache for rows (safe from reactive scoping) */
+let latestRows = [];
+/* tiny hook for console debugging */
+window.__heatLatestRows = () => latestRows;
 ```
 
 ```js
@@ -129,8 +134,10 @@ function makeHeatLenSelect({ onChange } = {}) {
   };
 
   const handle = () => {
-    console.log(`${logTag} selector change →`, Number(root.value));
-    if (typeof onChange === "function") onChange(Number(root.value));
+    const len = Number(root.value);
+    const rowsLen = Array.isArray(latestRows) ? latestRows.length : NaN;
+    console.log(`${logTag} selector change →`, len, `(cached rows: ${rowsLen})`);
+    if (typeof onChange === "function") onChange(len);
     root.dispatchEvent(new CustomEvent("input",  { bubbles: true, composed: true }));
   };
   sel.addEventListener("input", handle);
@@ -161,11 +168,14 @@ function sliderLengths() {
 }
 function intersectSorted(a, b) { const B = new Set(b); return a.filter(x => B.has(x)); }
 
-// create control with a direct re-render callback
+// create control with a direct re-render callback (uses cached rows)
 const heatLenCtrl = makeHeatLenSelect({
   onChange: (len) => {
-    if (Array.isArray(predRowsMut.value) && predRowsMut.value.length) {
-      renderHeatmap(predRowsMut.value, Number(len));
+    if (Array.isArray(latestRows) && latestRows.length) {
+      console.log(`${logTag} re-render on select`, { len, rows: latestRows.length });
+      renderHeatmap(latestRows, Number(len));
+    } else {
+      console.warn(`${logTag} no rows available on select; predRowsMut.value=`, predRowsMut?.value);
     }
   }
 });
@@ -174,7 +184,9 @@ heatLenSlot.replaceChildren(heatLenCtrl);
 // keep selector in sync with BOTH the slider range AND available data
 function refreshHeatLenChoices() {
   const fromSlider = sliderLengths();
-  const fromData   = Array.isArray(predRowsMut.value) ? lengthsFromRows(predRowsMut.value) : [];
+  const fromData   = Array.isArray(latestRows) && latestRows.length
+    ? lengthsFromRows(latestRows)
+    : Array.isArray(predRowsMut.value) ? lengthsFromRows(predRowsMut.value) : [];
   const lens       = fromData.length ? intersectSorted(fromSlider, fromData) : fromSlider;
   const prefer     = heatLenCtrl.value ?? lens[0];
 
@@ -635,7 +647,10 @@ runBtn.addEventListener("click", async () => {
     if (!tbl) throw new Error("No peptide_table returned in results");
     const rows = rowsFromTable(tbl);
 
-    setMut(predRowsMut, rows);        // 🔄 triggers render via call below or autorender cell
+    setMut(predRowsMut, rows);
+    latestRows = rows;                                     // ← cache for selector
+    console.log("🔁 cached latestRows:", Array.isArray(latestRows), latestRows.length);
+
     updateDownload(rows);
     setStatus(`Done — ${rows.length} rows.`, { ok:true });
     downloadBtn.disabled = rows.length === 0;
@@ -643,8 +658,8 @@ runBtn.addEventListener("click", async () => {
     // refresh selector options to reflect actual data + slider
     refreshHeatLenChoices();
 
-    // One-way dependency: Run → Heatmap (safe)
-    renderHeatmap(rows, Number(heatLenCtrl.value));
+    // initial render with whatever the selector currently shows
+    renderHeatmap(latestRows, Number(heatLenCtrl.value));
   } catch (err) {
     console.error(err);
     setStatus(`Error: ${err?.message || err}`, { warn:true });
