@@ -77,7 +77,7 @@ function getPredictor() {
 /* ── Heatmap length selector (adaptive to slider) ────────────────── */
 const heatLenSlot = html`<div></div>`;
 
-function makeHeatLenSelect() {
+function makeHeatLenSelect({ onChange } = {}) {
   const root = document.createElement("div");
   root.style.fontFamily = "'Roboto', sans-serif";
 
@@ -99,28 +99,43 @@ function makeHeatLenSelect() {
     set(v){ sel.value = String(v); }
   });
 
+  // update options; ensure a selection exists; invoke onChange + fire events
   root.setOptions = (lengths = [], { prefer } = {}) => {
     const old = String(sel.value);
     sel.replaceChildren();
-    lengths.forEach(n => {
+    for (const n of lengths) {
       const opt = document.createElement("option");
       opt.value = String(n);
       opt.textContent = String(n);
       sel.appendChild(opt);
-    });
+    }
     if (prefer != null && lengths.includes(prefer)) sel.value = String(prefer);
     else if (lengths.length) sel.value = lengths.includes(+old) ? old : String(lengths[0]);
+
+    // notify both programmatically and via DOM events
+    if (typeof onChange === "function") onChange(root.value);
+    root.dispatchEvent(new CustomEvent("input",  { bubbles: true, composed: true }));
+    root.dispatchEvent(new Event("change", { bubbles: true, composed: true }));
   };
 
-  // bubble changes from the <select> up as "input"
-  const bubble = () => root.dispatchEvent(new CustomEvent("input"));
-  sel.addEventListener("input", bubble);
-  sel.addEventListener("change", bubble);   // <— NEW: ensure dropdown changes always fire
-  return root;
+  const handle = () => {
+    if (typeof onChange === "function") onChange(root.value);
+    root.dispatchEvent(new CustomEvent("input",  { bubbles: true, composed: true }));
+  };
+  sel.addEventListener("input", handle);
+  sel.addEventListener("change", handle);
 
+  return root;
 }
 
-const heatLenCtrl = makeHeatLenSelect();
+// create control with a direct re-render callback
+const heatLenCtrl = makeHeatLenSelect({
+  onChange: () => {
+    if (Array.isArray(predRowsMut.value) && predRowsMut.value.length) {
+      renderHeatmap(predRowsMut.value, heatLenCtrl.value);
+    }
+  }
+});
 heatLenSlot.replaceChildren(heatLenCtrl);
 
 // helper from slider → [a..b]
@@ -140,29 +155,10 @@ function refreshHeatLenChoices() {
 }
 refreshHeatLenChoices();
 
-const onSliderInput = () => {
-  refreshHeatLenChoices();
-  if (Array.isArray(predRowsMut.value) && predRowsMut.value.length) {
-    renderHeatmap(predRowsMut.value, heatLenCtrl.value); // pass selected length explicitly
-  }
-};
+// when the slider range changes, refresh options (this also triggers onChange)
+const onSliderInput = () => refreshHeatLenChoices();
 lengthCtrl.addEventListener("input", onSliderInput);
 invalidation.then(() => lengthCtrl.removeEventListener("input", onSliderInput));
-
-// re-render on dropdown change
-const onHeatLenInput = () => {
-  if (Array.isArray(predRowsMut.value) && predRowsMut.value.length) {
-    renderHeatmap(predRowsMut.value, heatLenCtrl.value);
-  }
-};
-heatLenCtrl.addEventListener("input", onHeatLenInput);
-heatLenCtrl.addEventListener("change", onHeatLenInput);  // <— NEW fallback
-invalidation.then(() => {
-  heatLenCtrl.removeEventListener("input", onHeatLenInput);
-  heatLenCtrl.removeEventListener("change", onHeatLenInput); // <— remove both
-});
-
-
 
 ```
 
@@ -656,9 +652,11 @@ function rowLen(r){
 }
 
 function buildHeatmapData(rows, method, lengthFilter) {
-  // only seq #1, and only the requested length
   const wantedLen = Number(lengthFilter);
-  const r1 = rows.filter(r => ((r["seq #"] ?? 1) === 1) && rowLen(r) === wantedLen);
+  const r1 = rows.filter(r => {
+    const seqNum = Number(r["seq #"] ?? r["sequence_number"] ?? 1);
+    return seqNum === 1 && rowLen(r) === wantedLen;
+  });
   if (!r1.length) return { cells: [], posExtent: [1, 1] };
 
   const pctKey = pickPercentileKey(method, r1[0]);
