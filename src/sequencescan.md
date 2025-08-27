@@ -32,6 +32,8 @@ const predRowsMut      = Mutable([]);   // normalized rows across all seqs
 const seqListMut       = Mutable([]);   // [{id, sequence}]
 const uploadedPepsMut  = Mutable([]);   // [peptide]
 const chosenSeqIdMut   = Mutable(null); // which sequence to view
+const uploadSeqFileMut = Mutable(null);
+const uploadPepFileMut = Mutable(null);
 
 ```
 
@@ -175,6 +177,34 @@ function getChosenAlleles() {
 /* Upload controls */
 const uploadSeqBtn = uploadButton({ label:"Upload Sequence (.fasta)", accept: ".fasta" });
 const uploadPepBtn = uploadButton({ label:"Upload Peptides (.csv)",   accept: ".csv" });
+
+/* 1) Right after creating the upload buttons, capture their file into the mutables */
+{
+  const isFileLike = f => f && typeof f.text === "function";
+
+  // sequences
+  for await (const _ of Generators.input(uploadSeqBtn)) {
+    let f = null;
+    if (isFileLike(uploadSeqBtn?.value)) f = uploadSeqBtn.value;
+    else {
+      const inp = uploadSeqBtn?.querySelector?.('input[type="file"]');
+      if (inp?.files?.[0]) f = inp.files[0];
+    }
+    uploadSeqFileMut.value = f;
+  }
+
+  // peptides
+  for await (const _ of Generators.input(uploadPepBtn)) {
+    let f = null;
+    if (isFileLike(uploadPepBtn?.value)) f = uploadPepBtn.value;
+    else {
+      const inp = uploadPepBtn?.querySelector?.('input[type="file"]');
+      if (inp?.files?.[0]) f = inp.files[0];
+    }
+    uploadPepFileMut.value = f;
+  }
+}
+
 
 /* Sequence textbox (multi-FASTA or raw AA) */
 const seqTextarea = Inputs.textarea({label:"Sequence(s)", rows: 7, placeholder: ">seq1\nMKTIIAL...\n>seq2\nMNPQRST..."});
@@ -511,34 +541,25 @@ const downloadPredsBtn = downloadCSVButton();
       console.groupCollapsed("▶️ Run prediction");
       setBanner("Preparing input…");
 
-      // Sequences: textarea + optional FASTA upload
-      const seqFile =
-        (uploadSeqBtn && uploadSeqBtn.value && typeof uploadSeqBtn.value.text === "function")
-          ? uploadSeqBtn.value
-          : uploadSeqBtn; // also allow the root itself in case the File is nested
+      const seqFile = uploadSeqFileMut?.value || null;     // ← persistently stored File
+        const fromFileText = await readFileText(seqFile);
+        const fromText     = (typeof seqText === "string") ? seqText : "";
 
-      const fromFileText = await readFileText(seqFile);
-      const fromText     = (typeof seqText === "string") ? seqText : "";
+        const parsedFromText = parseFastaOrRaw(fromText);
+        const parsedFromFile = parseFastaOrRaw(fromFileText);
 
-      const parsedFromText = parseFastaOrRaw(fromText);
-      const parsedFromFile = parseFastaOrRaw(fromFileText);
+        const seqs = [...parsedFromText, ...parsedFromFile]
+          .filter(s => s.sequence && /^[ACDEFGHIKLMNPQRSTVWY-]+$/i.test(s.sequence));
 
-      const seqs = [...parsedFromText, ...parsedFromFile]
-        .filter(s => s.sequence && /^[ACDEFGHIKLMNPQRSTVWY-]+$/i.test(s.sequence));
+        if (seqListMut && "value" in seqListMut) seqListMut.value = seqs; // ← publish
+        if (chosenSeqIdMut && "value" in chosenSeqIdMut) {
+          const current = chosenSeqIdMut.value;
+          const ok = current && seqs.some(s => s.id === current);
+          chosenSeqIdMut.value = ok ? current : (seqs[0]?.id ?? null);
+        }
 
-      if (!seqs.length) {
-        setBanner(
-          `Please enter or upload at least one sequence. ` +
-          `(seqTextLen=${fromText.length}, fileTextLen=${fromFileText.length}, ` +
-          `parsedFromText=${parsedFromText.length}, parsedFromFile=${parsedFromFile.length})`
-        );
-        console.warn("No sequences", { fromTextLen: fromText.length, fromFileTextLen: fromFileText.length, parsedFromText, parsedFromFile });
-        console.groupEnd();
-        continue;
-      }
-
-      // publish sequence list
-      if (seqListMut && "value" in seqListMut) seqListMut.value = seqs;
+        // after polling/normalizing:
+        if (predRowsMut && "value" in predRowsMut) predRowsMut.value = normRows; // ← publish
 
       // ensure chosenSeqId is valid for the current run’s list
       if (chosenSeqIdMut && "value" in chosenSeqIdMut) {
@@ -806,18 +827,16 @@ function buildOverlayRows({peptides, sequence}) {
 ```js
 /* Chart mounting (inside your HTML container) */
 {
-  // make the cell reactive
   predRowsMut; seqListMut; chosenSeqIdMut; predictor; uploadedPepsMut;
 
-  (async () => {
-    const heatWrap = document.getElementById("heat-wrap");
-    const pepWrap  = document.getElementById("pep-wrap");
-    const hintEl   = document.getElementById("scan-hint");
-
-    if (!heatWrap || !pepWrap || !hintEl) {
-      console.warn("Chart containers not found in DOM.");
-      return;
-    }
+  const rows = predRowsMut?.value || [];
+  const seqs = seqListMut?.value || [];
+  if (!rows.length || !seqs.length) {
+    document.getElementById("heat-wrap")?.replaceChildren();
+    document.getElementById("pep-wrap")?.replaceChildren();
+    (document.getElementById("scan-hint")||{}).style.display = "";
+    return;  // nothing to plot yet
+  }
 
     heatWrap.replaceChildren();
     pepWrap.replaceChildren();
@@ -1048,13 +1067,13 @@ const debugPanel = html`<details open style="margin-top:10px;">
 
 {
   // make it reactive
-  predictor; lengthText; chosenAlleles; seqText; uploadSeqBtn;
+  predictor; lengthText; chosenAlleles; seqText; uploadSeqFileMut;
 
   const pre = debugPanel.querySelector("pre");
 
   // probe the upload control
   const ref = uploadSeqBtn;
-  const v   = ref?.value ?? null;
+  const v = uploadSeqFileMut?.value ?? null;      // ← use the Mutable
 
   const nameFrom =
     v?.name ||
@@ -1065,7 +1084,7 @@ const debugPanel = html`<details open style="margin-top:10px;">
     null;
 
   let fileText = "";
-  try { fileText = await readFileText(v || ref); } catch {}
+  try { fileText = await readFileText(v); } catch {}
 
   const seqTextStr = (typeof seqText === "string") ? seqText : "";
 
