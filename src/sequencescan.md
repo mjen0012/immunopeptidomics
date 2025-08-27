@@ -112,13 +112,26 @@ function makeHeatLenSelect() {
     else if (lengths.length) sel.value = lengths.includes(+old) ? old : String(lengths[0]);
   };
 
-  // bubble as "input"
-  sel.addEventListener("input", () => root.dispatchEvent(new CustomEvent("input")));
+  // bubble changes from the <select> up as "input"
+  const bubble = () => root.dispatchEvent(new CustomEvent("input"));
+  sel.addEventListener("input", bubble);
+  sel.addEventListener("change", bubble);   // <— NEW: ensure dropdown changes always fire
   return root;
+
 }
 
-const heatLenCtrl = makeHeatLenSelect();
-heatLenSlot.replaceChildren(heatLenCtrl);
+const onHeatLenInput = () => {
+  if (Array.isArray(predRowsMut.value) && predRowsMut.value.length) {
+    renderHeatmap(predRowsMut.value, heatLenCtrl.value);
+  }
+};
+heatLenCtrl.addEventListener("input", onHeatLenInput);
+heatLenCtrl.addEventListener("change", onHeatLenInput);  // <— NEW fallback
+invalidation.then(() => {
+  heatLenCtrl.removeEventListener("input", onHeatLenInput);
+  heatLenCtrl.removeEventListener("change", onHeatLenInput); // <— remove both
+});
+
 
 // helper from slider → [a..b]
 function sliderLengths() {
