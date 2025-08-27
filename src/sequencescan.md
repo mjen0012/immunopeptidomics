@@ -73,6 +73,94 @@ function getPredictor() {
 }
 ```
 
+```js
+/* ── Heatmap length selector (adaptive to slider) ────────────────── */
+const heatLenSlot = html`<div></div>`;
+
+function makeHeatLenSelect() {
+  const root = document.createElement("div");
+  root.style.fontFamily = "'Roboto', sans-serif";
+
+  const label = document.createElement("label");
+  label.textContent = "Heatmap length";
+  label.style.cssText = "display:block;margin:0 0 8px 0;font:500 13px/1.3 'Roboto',sans-serif;color:#111;";
+
+  const sel = document.createElement("select");
+  sel.style.cssText = `
+    display:block; width:100%; min-width:160px;
+    padding:8px 10px; border:1px solid #bbb; border-radius:6px; background:#fff;
+    font:500 14px/1.2 'Roboto',sans-serif; color:#006DAE; cursor:pointer;
+  `;
+
+  root.append(label, sel);
+
+  // public API
+  Object.defineProperty(root, "value", {
+    get(){ return Number(sel.value); },
+    set(v){ sel.value = String(v); }
+  });
+  root.setOptions = (lengths = [], { prefer } = {}) => {
+    const old = String(sel.value);
+    sel.replaceChildren();
+    lengths.forEach(n => {
+      const opt = document.createElement("option");
+      opt.value = String(n);
+      opt.textContent = String(n);
+      sel.appendChild(opt);
+    });
+    if (prefer != null && lengths.includes(prefer)) sel.value = String(prefer);
+    else if (lengths.length) {
+      // keep old if still valid, else pick first
+      sel.value = lengths.includes(+old) ? old : String(lengths[0]);
+    }
+  };
+
+  // bubble as "input"
+  sel.addEventListener("input", () => {
+    root.dispatchEvent(new CustomEvent("input"));
+  });
+
+  return root;
+}
+
+const heatLenCtrl = makeHeatLenSelect();
+heatLenSlot.replaceChildren(heatLenCtrl);
+
+// helper from slider → [a..b]
+function sliderLengths() {
+  const v = Array.isArray(lengthCtrl?.value) ? lengthCtrl.value : [9, 9];
+  const a = Math.min(...v), b = Math.max(...v);
+  const out = [];
+  for (let n = a; n <= b; n++) out.push(n);
+  return out;
+}
+
+// keep selector in sync with the slider range
+function refreshHeatLenChoices() {
+  const lens = sliderLengths();
+  // prefer currently selected if still valid; else prefer min of range
+  const prefer = heatLenCtrl.value ?? lens[0];
+  heatLenCtrl.setOptions(lens, { prefer });
+}
+refreshHeatLenChoices();
+lengthCtrl.addEventListener("input", () => {
+  refreshHeatLenChoices();
+  // live re-render if we already have data
+  if (Array.isArray(predRowsMut.value) && predRowsMut.value.length) {
+    renderHeatmap(predRowsMut.value, heatLenCtrl.value);
+  }
+});
+invalidation.then(() => lengthCtrl.removeEventListener("input", refreshHeatLenChoices));
+
+// changing dropdown re-renders the heatmap if data exists
+heatLenCtrl.addEventListener("input", () => {
+  if (Array.isArray(predRowsMut.value) && predRowsMut.value.length) {
+    renderHeatmap(predRowsMut.value, heatLenCtrl.value);
+  }
+});
+
+```
+
 
 ```js
 /* ── Allele control factory (Class-aware lazy fetch) ─────────────── */
@@ -514,7 +602,7 @@ runBtn.addEventListener("click", async () => {
     setStatus(`Done — ${rows.length} rows.`, { ok:true });
     downloadBtn.disabled = rows.length === 0;
     // NEW: render the heatmap from the returned table
-    renderHeatmap(rows);
+    renderHeatmap(rows, heatLenCtrl.value);
   } catch (err) {
     console.error(err);
     setStatus(`Error: ${err?.message || err}`, { warn:true });
@@ -541,6 +629,8 @@ function setMut(mut, val) {
 
 const heatmapSlot = html`<div style="margin-top:12px"></div>`;
 
+/* ── Heatmap prep + render (no SQL) — with length filter ─────────── */
+
 const PCT_FIELDS = {
   netmhcpan_el   : "netmhcpan_el percentile",
   netmhcpan_ba   : "netmhcpan_ba percentile",
@@ -554,26 +644,25 @@ function pickPercentileKey(method, sampleRow) {
   const keys = Object.keys(sampleRow);
   if (want && keys.includes(want)) return want;
 
-  // fallback: try fuzzy match on method + 'percentile'
   const m = method.toLowerCase();
   const cand = keys.find(k => k.toLowerCase().includes("percentile") && k.toLowerCase().includes(m));
-  if (cand) return cand;
-
-  // last resort: first key that ends with/contains percentile
-  return keys.find(k => /percentile/i.test(k)) || want;
+  return cand || keys.find(k => /percentile/i.test(k)) || want;
 }
 
-function buildHeatmapData(rows, method) {
-  // Only sequence #1 (per your spec)
-  const r1 = rows.filter(r => (r["seq #"] ?? 1) === 1);
+function rowLen(r){
+  // prefer display_name "peptide length", fall back to other typical spellings
+  return Number(r["peptide length"] ?? r.length ?? r["peptide_length"] ?? r["Length"]);
+}
 
+function buildHeatmapData(rows, method, lengthFilter) {
+  // only seq #1, and if lengthFilter provided, only that length
+  const r1 = rows.filter(r => ((r["seq #"] ?? 1) === 1) && (!lengthFilter || rowLen(r) === Number(lengthFilter)));
   if (!r1.length) return { cells: [], posExtent: [1, 1] };
 
   const pctKey = pickPercentileKey(method, r1[0]);
   if (!pctKey) return { cells: [], posExtent: [1, 1] };
 
-  // Expand windows; keep min percentile per (allele, pos)
-  const byAllelePos = new Map();   // key: `${allele}|${pos}` → {allele,pos,pct,peptide,aa}
+  const byAllelePos = new Map();   // key: `${allele}|${pos}`
   let posMax = 1;
 
   for (const row of r1) {
@@ -584,13 +673,12 @@ function buildHeatmapData(rows, method) {
     const pct     = Number(row[pctKey]);
 
     if (!allele || !peptide || !Number.isFinite(start) || !Number.isFinite(end) || !Number.isFinite(pct)) continue;
-
     if (end > posMax) posMax = end;
 
     for (let pos = start; pos <= end; pos++) {
       const k = `${allele}|${pos}`;
-      const aaIdx = pos - start;                 // JS 0-based
-      const aa    = peptide.charAt(aaIdx) || ""; // no gaps per your note
+      const aaIdx = pos - start;
+      const aa    = peptide.charAt(aaIdx) || "";
 
       const prev = byAllelePos.get(k);
       if (!prev || pct < prev.pct) {
@@ -605,15 +693,19 @@ function buildHeatmapData(rows, method) {
   return { cells, posExtent: [1, posMax] };
 }
 
-function renderHeatmap(rows) {
+function renderHeatmap(rows, forcedLen = null) {
   try {
     const { id: method } = getPredictor();
-    const { cells, posExtent } = buildHeatmapData(rows, method);
+
+    // use chosen heatmap length if supplied; else from the selector; else min of slider
+    const selLen = forcedLen ?? heatLenCtrl?.value ?? sliderLengths()[0];
+
+    const { cells, posExtent } = buildHeatmapData(rows, method, selLen);
 
     heatmapSlot.replaceChildren(); // clear
     if (!cells.length) {
       const span = document.createElement("span");
-      span.textContent = "No heat-map data.";
+      span.textContent = "No heat-map data for selected length.";
       span.style.fontStyle = "italic";
       heatmapSlot.appendChild(span);
       return;
@@ -624,7 +716,6 @@ function renderHeatmap(rows) {
       posExtent,
       cellHeight: 18,
       sizeFactor: 1.1
-      // you can wire onReady/onZoom/onRowToggle later for peptideScan sync
     });
     heatmapSlot.appendChild(el);
   } catch (err) {
@@ -635,6 +726,7 @@ function renderHeatmap(rows) {
     heatmapSlot.replaceChildren(span);
   }
 }
+
 
 ```
 
@@ -662,5 +754,6 @@ function renderHeatmap(rows) {
 
 <div class="section">
   <h2>Heatmap</h2>
+  ${heatLenSlot}
   ${heatmapSlot}
 </div>
