@@ -228,6 +228,11 @@ function parseFastaForIEDB(text, { wrap = false } = {}) {
     setMut(chosenSeqIdMut, seqs[0]?.id ?? null);
     setMut(fastaTextMut, fastaText);
 
+    // with:
+    seqListMut.value      = seqs;
+    chosenSeqIdMut.value  = seqs[0]?.id ?? null;
+    fastaTextMut.value    = fastaText;
+
     if (issues.length) console.warn("FASTA issues (skipped sequences):", issues);
   };
 
@@ -561,6 +566,10 @@ runBtn.addEventListener("click", async () => {
     setMut(predRowsMut, rows);
     setMut(latestRowsMut, rows);
 
+    // with direct, guaranteed assignments:
+    predRowsMut.value   = rows;
+    latestRowsMut.value = rows;
+
     updateDownload(rows);
     setStatus(`Done — ${rowsLen} rows.`, { ok:true });
     downloadBtn.disabled = rowsLen === 0;
@@ -669,22 +678,27 @@ function intersectSorted(a, b) { const B = new Set(b); return a.filter(x => B.ha
 
 const heatLenCtrl = makeHeatLenSelect({
   onChange: (len) => {
-    const rowsNow = latestRowsMut.value || [];
+    const cached = latestRowsMut.value || [];
+    const rowsNow = cached.length
+      ? cached
+      : (Array.isArray(predRowsMut.value) ? predRowsMut.value : []);
     if (rowsNow.length) {
       console.log(`${LOG_LEN} re-render on select`, { len, rows: rowsNow.length });
       renderHeatmap(rowsNow, Number(len));
     } else {
-      console.warn(`${LOG_LEN} no rows available on select; predRowsMut.value=`, predRowsMut?.value);
+      console.warn(`${LOG_LEN} no rows available on select`);
     }
   }
 });
-heatLenSlot.replaceChildren(heatLenCtrl);
+
 
 function refreshHeatLenChoices() {
   const fromSlider = sliderLengths();
-  const cached = latestRowsMut.value || [];
-  const fromData = cached.length ? lengthsFromRows(cached)
-                                 : Array.isArray(predRowsMut.value) ? lengthsFromRows(predRowsMut.value) : [];
+  const cached     = latestRowsMut.value || [];
+  const rowsForLens = cached.length
+    ? cached
+    : (Array.isArray(predRowsMut.value) ? predRowsMut.value : []);
+  const fromData = lengthsFromRows(rowsForLens);
   const lens   = fromData.length ? intersectSorted(fromSlider, fromData) : fromSlider;
   const prefer = heatLenCtrl.value ?? lens[0];
 
@@ -696,6 +710,7 @@ function refreshHeatLenChoices() {
 
   heatLenCtrl.setOptions(lens, { prefer });
 }
+
 refreshHeatLenChoices();
 
 const onSliderInput = () => {
