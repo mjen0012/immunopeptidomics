@@ -1,6 +1,6 @@
-// components/heatmapChart.js
+// components/heatmapChart.js  (minor visible hooks only; logic unchanged)
 /*****************************************************************
- *  heatmapChart()  →  HTMLElement  · v6
+ *  heatmapChart()  →  HTMLElement  · v6+hooks
  *  - Clip-safe rows (no spill into y-axis)
  *  - Bounded pan/zoom
  *  - Row click toggles an allele; emits onRowToggle(allele|null)
@@ -28,14 +28,12 @@ export function heatmapChart({
     return span;
   }
 
-  /* domains */
   const alleles = [...new Set(data.map(d => d.allele))].sort(d3.ascending);
   const [posMin, posMax] = posExtent ?? [
     d3.min(data, d => d.pos),
     d3.max(data, d => d.pos)
   ];
 
-  /* colour scale for non-gap cells (matches peptide view) */
   const BLUE_MAX = 2, RED_MIN = 50;
   const colourScale = p => {
     p = +p;
@@ -44,13 +42,11 @@ export function heatmapChart({
     return d3.interpolateReds(1);
   };
 
-  /* y-band */
   const y = d3.scaleBand()
     .domain(alleles)
     .range([margin.top, margin.top + cellHeight * alleles.length])
     .paddingInner(0.05);
 
-  /* scaffold */
   const height0 = y.range()[1] + margin.bottom;
   const svg = d3.create("svg")
     .attr("viewBox", `0 0 1 ${height0}`)
@@ -59,7 +55,6 @@ export function heatmapChart({
     .style("width", "100%")
     .style("touch-action", "none");
 
-  // defs + clipPath
   const clipId = `clip-${Math.random().toString(36).slice(2)}`;
   const defs   = svg.append("defs");
   const clip   = defs.append("clipPath").attr("id", clipId).append("rect");
@@ -68,7 +63,6 @@ export function heatmapChart({
   const xAxisG = svg.append("g");
   const yAxisG = svg.append("g").attr("transform", `translate(${margin.left-4},0)`);
 
-  // tooltip
   const tip = d3.select(document.body).append("div")
     .style("position","absolute").style("pointer-events","none")
     .style("background","#fff").style("border","1px solid #ccc")
@@ -91,21 +85,17 @@ export function heatmapChart({
       .attr("fill", d => d === selectedAllele ? "#111" : "#424242");
   }
 
-  // zoom with constrained pan
   const zoom = d3.zoom()
     .scaleExtent([1, (posMax - posMin) / 10])
     .on("zoom", ev => {
       let t = ev.transform;
 
-      // clamp translate so x-range never moves past [margin.left, viewW - margin.right]
       const r0 = margin.left;
       const r1 = viewW - margin.right;
-      const minX = (1 - t.k) * r1;   // leftmost allowed translate
-      const maxX = (1 - t.k) * r0;   // rightmost allowed translate
+      const minX = (1 - t.k) * r1;
+      const maxX = (1 - t.k) * r0;
       if (t.x < minX || t.x > maxX) {
-        t = d3.zoomIdentity.translate(
-          Math.max(minX, Math.min(maxX, t.x)), t.y
-        ).scale(t.k);
+        t = d3.zoomIdentity.translate(Math.max(minX, Math.min(maxX, t.x)), t.y).scale(t.k);
         svg.call(zoom.transform, t);
         return;
       }
@@ -114,10 +104,7 @@ export function heatmapChart({
       cellG.selectAll("rect")
         .attr("x", d => zx(d.pos - 0.5))
         .attr("width", d => Math.max(1, zx(d.pos + 0.5) - zx(d.pos - 0.5)));
-      xAxisG.call(
-        d3.axisBottom(zx).tickFormat(d3.format("d"))
-          .ticks(Math.min(15, viewW / 60))
-      ).call(axisStyling);
+      xAxisG.call(d3.axisBottom(zx).tickFormat(d3.format("d")).ticks(Math.min(15, viewW / 60))).call(axisStyling);
 
       onZoom(zx, t);
     });
@@ -137,16 +124,13 @@ export function heatmapChart({
       [margin.left, wPx - margin.right]
     );
 
-    // clip rect to chart area
     clip
       .attr("x", margin.left)
       .attr("y", margin.top)
       .attr("width",  Math.max(1, wPx - margin.left - margin.right))
       .attr("height", y.range()[1] - margin.top);
 
-    // join/update rects
-    const rects = cellG.selectAll("rect")
-      .data(data, d => `${d.allele}|${d.pos}`);
+    const rects = cellG.selectAll("rect").data(data, d => `${d.allele}|${d.pos}`);
     rects.exit().remove();
     rects.enter().append("rect").attr("stroke","none")
       .merge(rects)
@@ -159,28 +143,20 @@ export function heatmapChart({
         .on("mouseover",(e,d)=>{ tip.html(`
              <strong>Allele:</strong> ${d.allele}<br/>
              <strong>Position:</strong> ${d.pos}<br/>
-             <strong>${d.aa==="-"?"Gap":"Percentile"}:</strong> ${
-               d.aa==="-"?"–":(+d.pct).toFixed(2)+" %"
-             }<br/>
+             <strong>${d.aa==="-"?"Gap":"Percentile"}:</strong> ${d.aa==="-"?"–":(+d.pct).toFixed(2)+" %"}<br/>
              <strong>Amino acid:</strong> ${d.aa}<br/>
              <strong>Peptide:</strong> ${d.peptide}`)
-           .style("left",`${e.pageX+10}px`).style("top",`${e.pageY+10}px`)
-           .style("opacity",1); })
-        .on("mousemove",e=>tip.style("left",`${e.pageX+10}px`)
-                               .style("top",`${e.pageY+10}px`))
+           .style("left",`${e.pageX+10}px`).style("top",`${e.pageY+10}px`).style("opacity",1); })
+        .on("mousemove",e=>tip.style("left",`${e.pageX+10}px`).style("top",`${e.pageY+10}px`))
         .on("mouseout", ()=>tip.style("opacity",0));
 
-    // axes
     xAxisG.attr("transform",`translate(0,${y.range()[1]})`)
-      .call(d3.axisBottom(xBase).tickFormat(d3.format("d"))
-              .ticks(Math.min(15,wPx/60))).call(axisStyling);
+      .call(d3.axisBottom(xBase).tickFormat(d3.format("d")).ticks(Math.min(15,wPx/60))).call(axisStyling);
     yAxisG.call(d3.axisLeft(y).tickSize(0)).call(axisStyling);
 
-    // tick click toggles allele
     yAxisG.selectAll(".tick").on("click", (_, a) => toggleAllele(a));
     renderRowHighlight();
 
-    // bound zoom
     zoom
       .extent([[margin.left, 0], [wPx - margin.right, height0]])
       .translateExtent([[margin.left, 0], [wPx - margin.right, height0]]);
@@ -194,10 +170,13 @@ export function heatmapChart({
   wrapper.appendChild(svg.node());
   new ResizeObserver(e=>layout(e[0].contentRect.width)).observe(wrapper);
 
-  // external control hook
-  wrapper.__setZoom = (transform) => {
-    if (transform) svg.call(zoom.transform, transform);
-  };
+  // visible hooks
+  wrapper.dataset.rows    = String(data.length);
+  wrapper.dataset.alleles = String(alleles.length);
+  wrapper.dataset.posMin  = String(posMin);
+  wrapper.dataset.posMax  = String(posMax);
+
+  wrapper.__setZoom = (transform) => { if (transform) svg.call(zoom.transform, transform); };
 
   return wrapper;
 }
