@@ -188,36 +188,52 @@ function parseFastaForIEDB(text, { wrap = false } = {}) {
 ```
 
 ```js
-// Attach one-time listener (no long-pending cells)
+// Replace your whole one-time listener block with this:
 {
-  const inputEl = uploadSeqBtn?.querySelector?.('input[type="file"]');
-  if (inputEl) {
-    const onChange = async () => {
-      const f = inputEl.files?.[0] ?? null;
-      uploadSeqFileMut.value = f;
+  const isFileLike = (f) => f && typeof f.text === "function";
 
-      const txt = await (async () => {
-        if (!f) return "";
-        try { return await f.text(); } catch { return ""; }
-      })();
+  // Core processor: takes a File (or null), parses, and updates mutables
+  const processFile = async (file) => {
+    if (!isFileLike(file)) {
+      // clear if nothing selected
+      seqListMut.value = [];
+      chosenSeqIdMut.value = null;
+      fastaTextMut.value = "";
+      return;
+    }
+    let txt = "";
+    try { txt = await file.text(); } catch {}
+    const { seqs, fastaText, issues } = parseFastaForIEDB(txt, { wrap: false });
 
-      const { seqs, fastaText, issues } = parseFastaForIEDB(txt, { wrap: false });
+    seqListMut.value     = seqs;
+    chosenSeqIdMut.value = seqs[0]?.id ?? null;
+    fastaTextMut.value   = fastaText;
 
-      // Publish normalized sequences and the exact multi-FASTA to send to IEDB
-      seqListMut.value     = seqs;
-      chosenSeqIdMut.value = seqs[0]?.id ?? null;
-      fastaTextMut.value   = fastaText;
+    if (issues.length) console.warn("FASTA issues (skipped sequences):", issues);
+  };
 
-      if (issues.length) {
-        console.warn("FASTA issues (skipped sequences):", issues);
-        // Optional: you can surface this later in a debug panel/table.
-      }
-    };
+  // 1) Listen to the wrapper's 'input' event (uploadButton dispatches this)
+  const onRootInput = async () => {
+    const v = uploadSeqBtn?.value;
+    const file = Array.isArray(v) ? v[0] : v;
+    await processFile(file ?? null);
+  };
+  uploadSeqBtn.addEventListener("input", onRootInput);
 
-    inputEl.addEventListener("input", onChange);
-    if (inputEl.files && inputEl.files.length) onChange(); // browser-restored file
-    invalidation.then(() => inputEl.removeEventListener("input", onChange));
-  }
+  // 2) Also listen to the hidden <input type=file>'s 'change' (native)
+  const fileEl = uploadSeqBtn?.querySelector?.('input[type="file"]');
+  const onFileChange = async () => {
+    await processFile(fileEl?.files?.[0] ?? null);
+  };
+  fileEl?.addEventListener("change", onFileChange);
+
+  // Handle browser session restore (file already present)
+  if (fileEl?.files?.length) onFileChange();
+
+  invalidation.then(() => {
+    uploadSeqBtn.removeEventListener("input", onRootInput);
+    fileEl?.removeEventListener("change", onFileChange);
+  });
 }
 
 ```
