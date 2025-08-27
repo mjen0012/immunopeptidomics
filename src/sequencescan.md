@@ -1057,9 +1057,8 @@ function makeSeqSelect({ onChange } = {}) {
 const seqCtrl = makeSeqSelect();
 seqSelSlot.replaceChildren(seqCtrl);
 
-```
 
-```js
+
 function refreshSeqChoices() {
   if (!seqCtrl) return; // nothing to do until the control exists
   // Prefer seqs from FASTA if present, otherwise derive from rows
