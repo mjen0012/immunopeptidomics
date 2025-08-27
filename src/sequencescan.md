@@ -22,8 +22,8 @@ const chosenSeqIdMut   = Mutable(null);  // string | null
 const fastaTextMut     = Mutable("");
 const chosenAllelesMut = Mutable([]);    // kept in sync with allele control
 const predRowsMut      = Mutable([]);    // raw peptide_table rows as objects
-const seqCountMut     = Mutable(1); // number of sequences in current input
-const chosenSeqNumMut = Mutable(1); // 1-based selected sequence number
+let seqCount = 1;      // number of sequences in current input
+let chosenSeqNum = 1;  // 1-based selected sequence number
 
 
 /* NEW: stable runtime cache for rows using Observable Mutable */
@@ -230,8 +230,10 @@ function parseFastaForIEDB(text, { wrap = false } = {}) {
     // with:
     seqListMut.value      = seqs;
     chosenSeqIdMut.value  = seqs[0]?.id ?? null;
-    fastaTextMut.value    = fastaText;
-    seqCtrl?.setCount?.(seqCountMut.value, chosenSeqNumMut.value);
+    fastaTextMut.value = fastaText;
+    seqCount = Math.max(1, (seqs?.length || 0));
+    chosenSeqNum = 1;
+    seqCtrl?.setCount?.(seqCount, chosenSeqNum);
 
     if (issues.length) console.warn("FASTA issues (skipped sequences):", issues);
   };
@@ -755,7 +757,7 @@ function lengthsFromRows(rows, seqNum = 1) {
 /* ── Sequence helpers ───────────────────────────────────────────── */
 
 function getSelectedSeqNum() {
-  return Math.max(1, Number(chosenSeqNumMut?.value) || 1);
+  return Math.max(1, Number(chosenSeqNum) || 1);
 }
 function getSelectedSeqLabel() {
   return `seq${getSelectedSeqNum()}`;
@@ -979,7 +981,7 @@ function makeSeqSelect({ onChange } = {}) {
   };
 
   const handle = () => {
-    chosenSeqNumMut.value = Math.max(1, Number(sel.value) || 1);
+    chosenSeqNum = Math.max(1, Number(sel.value) || 1);
     refreshHeatLenChoices();
     const rowsNow = (latestRowsMut.value && latestRowsMut.value.length)
       ? latestRowsMut.value
