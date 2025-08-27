@@ -831,7 +831,9 @@ function ensureSeqListFromRows(rows) {
 
 ```
 
-
+```js
+ensureSeqListFromFasta();
+```
 
 
 ```js
@@ -961,7 +963,7 @@ function renderHeatmap(rows, lengthFilter) {
       span.textContent = "No heat-map data for selected sequence/length.";
       span.style.fontStyle = "italic";
       heatmapSlot.appendChild(span);
-      return
+      return;onLenChange
     }
 
     const el = heatmapChart({
@@ -1057,10 +1059,7 @@ function makeSeqSelect({ onChange } = {}) {
 const seqCtrl = makeSeqSelect();
 seqSelSlot.replaceChildren(seqCtrl);
 
-ensureSeqListFromFasta();
-
 function refreshSeqChoices() {
-  if (!seqCtrl) return; // nothing to do until the control exists
   // Prefer seqs from FASTA if present, otherwise derive from rows
   let list = Array.isArray(seqListMut?.value) ? seqListMut.value : [];
 
