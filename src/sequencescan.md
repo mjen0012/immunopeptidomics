@@ -668,19 +668,11 @@ function rowLen(r){
   return Number(r["peptide length"] ?? r.length ?? r["peptide_length"] ?? r["Length"]);
 }
 
-function chosenSeqIndex() {
-  const id  = chosenSeqIdMut.value;
-  const idx = (seqListMut.value || []).findIndex(s => s.id === id);
-  return idx >= 0 ? (idx + 1) : 1;   // 1-based to match IEDB’s “seq #”
-}
-
 function buildHeatmapData(rows, method, lengthFilter) {
   const wantedLen = Number(lengthFilter);
-  const wantSeq   = chosenSeqIndex();
-
   const r1 = rows.filter(r => {
     const seqNum = Number(r["seq #"] ?? r["sequence_number"] ?? 1);
-    return seqNum === wantSeq && rowLen(r) === wantedLen;
+    return seqNum === 1 && rowLen(r) === wantedLen;
   });
   if (!r1.length) return { cells: [], posExtent: [1, 1] };
 
@@ -781,3 +773,25 @@ function renderHeatmap(rows, lengthFilter) {
   ${heatLenSlot}
   ${heatmapSlot}
 </div>
+
+
+```js
+function debugHeat(len) {
+  const rows = predRowsMut.value || [];
+  const want = Number(len);
+  const haveLens = [...new Set(rows.map(rowLen).filter(Number.isFinite))].sort((a,b)=>a-b);
+  const wantSeq  = chosenSeqIndex();
+  const r1 = rows.filter(r => Number(r["seq #"] ?? r["sequence_number"] ?? 1) === wantSeq &&
+                               rowLen(r) === want);
+  const { cells } = buildHeatmapData(rows, getPredictor().id, want);
+  console.group(`Heat debug: len=${want}, seq#=${wantSeq}`);
+  console.log("available lengths:", haveLens);
+  console.log("rows total:", rows.length, "rows for chosen len:", r1.length);
+  console.log("cells rendered:", cells.length);
+  console.groupEnd();
+}
+
+// call inside your selector onChange:
+onChange: (len) => { debugHeat(len); renderHeatmap(predRowsMut.value, Number(len)); }
+
+```
