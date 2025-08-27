@@ -566,7 +566,7 @@ runBtn.addEventListener("click", async () => {
     latestRowsMut.value = rows;
 
     refreshSeqChoices();
-    
+
     // Make sure the sequence dropdown is populated
     ensureSeqListFromFasta();
     ensureSeqListFromRows(rows);
@@ -718,27 +718,7 @@ invalidation.then(() => lengthCtrl.removeEventListener("input", onSliderInput));
 
 ```
 
-```js
-// Build a minimal sequence list from rows: [{id: "seq1"}, {id: "seq2"}, ...]
-function deriveSeqListFromRows(rows) {
-  const seqNums = new Set();
-  for (const r of rows || []) {
-    const n = Number(r["seq #"] ?? r["sequence_number"] ?? 1);
-    if (Number.isFinite(n)) seqNums.add(n);
-  }
-  // Make stable, sorted items with ids seq1, seq2, ...
-  return [...seqNums].sort((a,b)=>a-b).map(n => ({ id: `seq${n}`, sequence: "" }));
-}
 
-// Best-current rows snapshot
-function currentRows() {
-  const latest = Array.isArray(latestRowsMut?.value) ? latestRowsMut.value : [];
-  if (latest.length) return latest;
-  const pred = Array.isArray(predRowsMut?.value) ? predRowsMut.value : [];
-  return pred;
-}
-
-```
 
 ```js
 /* ── Helpers (single source of truth; no exports) ───────────────── */
@@ -815,13 +795,23 @@ function ensureSeqListFromFasta() {
 }
 
 // If rows returned but we still don't have names, derive seq list from rows
+// Build a minimal sequence list from rows: [{id: "seq1"}, {id: "seq2"}, ...]
 function deriveSeqListFromRows(rows) {
   const seqNums = new Set();
   for (const r of rows || []) {
     const n = Number(r["seq #"] ?? r["sequence_number"] ?? 1);
     if (Number.isFinite(n)) seqNums.add(n);
   }
+  // Make stable, sorted items with ids seq1, seq2, ...
   return [...seqNums].sort((a,b)=>a-b).map(n => ({ id: `seq${n}`, sequence: "" }));
+}
+
+// Best-current rows snapshot
+function currentRows() {
+  const latest = Array.isArray(latestRowsMut?.value) ? latestRowsMut.value : [];
+  if (latest.length) return latest;
+  const pred = Array.isArray(predRowsMut?.value) ? predRowsMut.value : [];
+  return pred;
 }
 
 function ensureSeqListFromRows(rows) {
