@@ -565,8 +565,6 @@ runBtn.addEventListener("click", async () => {
     predRowsMut.value   = rows;
     latestRowsMut.value = rows;
 
-    refreshSeqChoices();
-    
     // Make sure the sequence dropdown is populated
     ensureSeqListFromFasta();
     ensureSeqListFromRows(rows);
@@ -715,28 +713,6 @@ invalidation.then(() => lengthCtrl.removeEventListener("input", onSliderInput));
 
 
 
-
-```
-
-```js
-// Build a minimal sequence list from rows: [{id: "seq1"}, {id: "seq2"}, ...]
-function deriveSeqListFromRows(rows) {
-  const seqNums = new Set();
-  for (const r of rows || []) {
-    const n = Number(r["seq #"] ?? r["sequence_number"] ?? 1);
-    if (Number.isFinite(n)) seqNums.add(n);
-  }
-  // Make stable, sorted items with ids seq1, seq2, ...
-  return [...seqNums].sort((a,b)=>a-b).map(n => ({ id: `seq${n}`, sequence: "" }));
-}
-
-// Best-current rows snapshot
-function currentRows() {
-  const latest = Array.isArray(latestRowsMut?.value) ? latestRowsMut.value : [];
-  if (latest.length) return latest;
-  const pred = Array.isArray(predRowsMut?.value) ? predRowsMut.value : [];
-  return pred;
-}
 
 ```
 
@@ -969,7 +945,7 @@ function renderHeatmap(rows, lengthFilter) {
       span.textContent = "No heat-map data for selected sequence/length.";
       span.style.fontStyle = "italic";
       heatmapSlot.appendChild(span);
-      return;onLenChange
+      return;
     }
 
     const el = heatmapChart({
@@ -1066,36 +1042,12 @@ const seqCtrl = makeSeqSelect();
 seqSelSlot.replaceChildren(seqCtrl);
 
 function refreshSeqChoices() {
-  // Prefer seqs from FASTA if present, otherwise derive from rows
-  let list = Array.isArray(seqListMut?.value) ? seqListMut.value : [];
-
-  if (!list.length) {
-    const rows = currentRows();
-    const derived = deriveSeqListFromRows(rows);
-    if (derived.length) {
-      list = derived;
-      // keep state aligned so helpers like getSelectedSeqNum work consistently
-      seqListMut.value = list;
-    }
-  }
-
-  // Still nothing? Show at least seq1 so the control isn’t empty
-  if (!list.length) {
-    list = [{ id: "seq1", sequence: "" }];
-    seqListMut.value = list;
-  }
-
-  const items = list.map((s, i) => ({
-    id   : s.id || `seq${i+1}`,
-    label: `${s.id || `seq${i+1}`}  (seq #${i+1})`
-  }));
-
-  const prefer = (chosenSeqIdMut && chosenSeqIdMut.value) || items[0]?.id;
-  seqCtrl.style.display = "";             // always show, even with 1 item
-  seqCtrl.setOptions(items, prefer);      // triggers an 'input' event in your component
-  chosenSeqIdMut.value = String(seqCtrl.value || prefer);
+  const list = Array.isArray(seqListMut.value) ? seqListMut.value : [];
+  const items = list.map((s, i) => ({ id: s.id, label: `${s.id}  (seq #${i+1})` }));
+  const prefer = chosenSeqIdMut.value || items[0]?.id;
+  seqCtrl.style.display = items.length > 1 ? "" : "none"; // hide if single sequence
+  seqCtrl.setOptions(items, prefer);
 }
-
 // Re-render when the length selector changes
 const onLenChange = () => {
   const rowsNow = (latestRowsMut.value && latestRowsMut.value.length)
