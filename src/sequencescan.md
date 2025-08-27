@@ -22,7 +22,7 @@ const chosenSeqIdMut   = Mutable(null);  // string | null
 const fastaTextMut     = Mutable("");
 const chosenAllelesMut = Mutable([]);    // kept in sync with allele control
 const predRowsMut      = Mutable([]);    // raw peptide_table rows as objects
-
+const selectedLenMut = Mutable(null);
 
 /* NEW: stable runtime cache for rows using Observable Mutable */
 const latestRowsMut    = Mutable([]);
@@ -671,8 +671,12 @@ function sliderLengths() {
 }
 function intersectSorted(a, b) { const B = new Set(b); return a.filter(x => B.has(x)); }
 
-
-const heatLenCtrl = makeHeatLenSelect();
+const heatLenCtrl = makeHeatLenSelect({
+  onChange: (len) => {
+    // no direct render here — just store
+    selectedLenMut.value = Number(len);
+  }
+});
 heatLenSlot.replaceChildren(heatLenCtrl);
 
 function refreshHeatLenChoices() {
@@ -787,6 +791,9 @@ function makeHeatDebugBox() {
 }
 const heatDebug = makeHeatDebugBox();
 function updateHeatDebug(payload) { try { heatDebug.__setText(payload); } catch {} }
+
+// mount the debug box under the chart
+heatmapSlot.after(heatDebug);
 
 function buildHeatmapData(rows, method, lengthFilter, seqNum) {
   const wantedLen = Number(lengthFilter);
@@ -1001,7 +1008,7 @@ const onLenChange = () => {
     ? latestRowsMut.value
     : (Array.isArray(predRowsMut.value) ? predRowsMut.value : []);
   if (!rowsNow.length) return;
-  const len = Number(heatLenCtrl.value);
+  const len = Number(heatLenCtrl.value ?? selectedLenMut.value);
   if (Number.isFinite(len)) renderHeatmap(rowsNow, len);
 };
 heatLenCtrl.addEventListener("input", onLenChange);
