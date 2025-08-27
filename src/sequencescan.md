@@ -22,8 +22,6 @@ const chosenSeqIdMut   = Mutable(null);  // string | null
 const fastaTextMut     = Mutable("");
 const chosenAllelesMut = Mutable([]);    // kept in sync with allele control
 const predRowsMut      = Mutable([]);    // raw peptide_table rows as objects
-const seqCountMut     = Mutable(1); // number of sequences in current input
-const chosenSeqNumMut = Mutable(1); // 1-based selected sequence number
 
 
 /* NEW: stable runtime cache for rows using Observable Mutable */
@@ -231,7 +229,7 @@ function parseFastaForIEDB(text, { wrap = false } = {}) {
     seqListMut.value      = seqs;
     chosenSeqIdMut.value  = seqs[0]?.id ?? null;
     fastaTextMut.value    = fastaText;
-    seqCtrl?.setCount?.(seqCountMut.value, chosenSeqNumMut.value);
+    refreshSeqChoices();
 
     if (issues.length) console.warn("FASTA issues (skipped sequences):", issues);
   };
@@ -567,6 +565,12 @@ runBtn.addEventListener("click", async () => {
     predRowsMut.value   = rows;
     latestRowsMut.value = rows;
 
+    refreshSeqChoices();
+
+    // Make sure the sequence dropdown is populated
+    ensureSeqListFromFasta();
+    ensureSeqListFromRows(rows);
+
     updateDownload(rows);
     setStatus(`Done — ${rowsLen} rows.`, { ok:true });
     downloadBtn.disabled = rowsLen === 0;
@@ -755,18 +759,77 @@ function lengthsFromRows(rows, seqNum = 1) {
 /* ── Sequence helpers ───────────────────────────────────────────── */
 
 function getSelectedSeqNum() {
-  return Math.max(1, Number(chosenSeqNumMut?.value) || 1);
+  const list = Array.isArray(seqListMut?.value) ? seqListMut.value : [];
+  if (!list.length) return 1;
+
+  const chosenId = (chosenSeqIdMut && typeof chosenSeqIdMut === "object")
+    ? chosenSeqIdMut.value
+    : null;
+
+  const id  = chosenId ?? list[0]?.id ?? "seq1";
+  const idx = list.findIndex(s => s.id === id);
+  return idx >= 0 ? (idx + 1) : 1; // IEDB uses 1-based indices
 }
+
 function getSelectedSeqLabel() {
-  return `seq${getSelectedSeqNum()}`;
+  const list = Array.isArray(seqListMut?.value) ? seqListMut.value : [];
+  const n = getSelectedSeqNum();
+  return list[n-1]?.id ?? `seq${n}`;
+}
+
+```
+
+```js
+// Use FASTA (if present) to seed seqListMut
+function ensureSeqListFromFasta() {
+  const hasSeqs = Array.isArray(seqListMut?.value) && seqListMut.value.length > 0;
+  const text = String(fastaTextMut?.value || "").trim();
+  if (hasSeqs || !text) return;
+
+  const { seqs } = parseFastaForIEDB(text, { wrap:false });
+  if (seqs && seqs.length) {
+    seqListMut.value = seqs;
+    chosenSeqIdMut.value = seqs[0].id;
+    refreshSeqChoices();
+  }
+}
+
+// If rows returned but we still don't have names, derive seq list from rows
+// Build a minimal sequence list from rows: [{id: "seq1"}, {id: "seq2"}, ...]
+function deriveSeqListFromRows(rows) {
+  const seqNums = new Set();
+  for (const r of rows || []) {
+    const n = Number(r["seq #"] ?? r["sequence_number"] ?? 1);
+    if (Number.isFinite(n)) seqNums.add(n);
+  }
+  // Make stable, sorted items with ids seq1, seq2, ...
+  return [...seqNums].sort((a,b)=>a-b).map(n => ({ id: `seq${n}`, sequence: "" }));
 }
 ```
 
+```js
+// Best-current rows snapshot
+function currentRows() {
+  const latest = Array.isArray(latestRowsMut?.value) ? latestRowsMut.value : [];
+  if (latest.length) return latest;
+  const pred = Array.isArray(predRowsMut?.value) ? predRowsMut.value : [];
+  return pred;
+}
+```
 
+```js
+function ensureSeqListFromRows(rows) {
+  const hasSeqs = Array.isArray(seqListMut?.value) && seqListMut.value.length > 0;
+  if (hasSeqs) return;
+  const seqs = deriveSeqListFromRows(rows);
+  if (seqs.length) {
+    seqListMut.value = seqs;
+    chosenSeqIdMut.value = seqs[0].id;
+    refreshSeqChoices();
+  }
+}
 
-
-
-
+```
 
 
 
@@ -945,42 +1008,40 @@ function makeSeqSelect({ onChange } = {}) {
     padding:8px 10px; border:1px solid #bbb; border-radius:6px; background:#fff;
     font:500 14px/1.2 'Roboto',sans-serif; color:#006DAE; cursor:pointer;
   `;
-
   root.append(label, sel);
 
   Object.defineProperty(root, "value", {
-    get(){ return sel.value ? Number(sel.value) : undefined; },
+    get(){ return sel.value || undefined; },
     set(v){ sel.value = String(v); }
   });
 
-  // NEW: set count → 1..count options
-  root.setCount = (count, prefer = 1) => {
-    const n = Math.max(1, Number(count) | 0);
+  root.setOptions = (items = [], prefer) => {
     const before = Array.from(sel.querySelectorAll("option")).map(o => o.value);
-
     sel.replaceChildren();
-    for (let i = 1; i <= n; i++) {
+    for (const it of items) {
       const opt = document.createElement("option");
-      opt.value = String(i);
-      opt.textContent = `seq #${i}`;
+      opt.value = it.id;
+      opt.textContent = it.label;
       sel.appendChild(opt);
     }
-
-    const chosen = Math.min(n, Math.max(1, Number(prefer) || 1));
-    sel.value = String(chosen);
+    if (prefer && items.some(i => i.id === prefer)) sel.value = prefer;
+    else if (items.length) sel.value = items[0].id;
 
     const after = Array.from(sel.querySelectorAll("option")).map(o => o.value);
-    console.groupCollapsed("🟦 seq select setCount");
+    console.groupCollapsed("🟦 seq select setOptions");
     console.log("before → after", before, "→", after, "prefer:", prefer, "now:", sel.value);
     console.groupEnd();
 
-    // propagate programmatic change
-    handle();
+    // notify programmatic changes too
+    if (typeof onChange === "function") onChange(sel.value);
+    root.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
   };
 
   const handle = () => {
-    chosenSeqNumMut.value = Math.max(1, Number(sel.value) || 1);
+    chosenSeqIdMut.value = String(sel.value || "");
+    // Length choices depend on sequence → refresh them
     refreshHeatLenChoices();
+    // Re-render with currently selected length
     const rowsNow = (latestRowsMut.value && latestRowsMut.value.length)
       ? latestRowsMut.value
       : (Array.isArray(predRowsMut.value) ? predRowsMut.value : []);
@@ -995,12 +1056,48 @@ function makeSeqSelect({ onChange } = {}) {
 
 const seqCtrl = makeSeqSelect();
 seqSelSlot.replaceChildren(seqCtrl);
-seqCtrl.setCount(1, 1); // default before any upload
-
 
 ```
 
 ```js
+function refreshSeqChoices() {
+  if (!seqCtrl) return; // nothing to do until the control exists
+  // Prefer seqs from FASTA if present, otherwise derive from rows
+  let list = Array.isArray(seqListMut?.value) ? seqListMut.value : [];
+
+  if (!list.length) {
+    const rows = currentRows();
+    const derived = deriveSeqListFromRows(rows);
+    if (derived.length) {
+      list = derived;
+      // keep state aligned so helpers like getSelectedSeqNum work consistently
+      seqListMut.value = list;
+    }
+  }
+
+  // Still nothing? Show at least seq1 so the control isn’t empty
+  if (!list.length) {
+    list = [{ id: "seq1", sequence: "" }];
+    seqListMut.value = list;
+  }
+
+  const items = list.map((s, i) => ({
+    id   : s.id || `seq${i+1}`,
+    label: `${s.id || `seq${i+1}`}  (seq #${i+1})`
+  }));
+
+  const prefer = (chosenSeqIdMut && chosenSeqIdMut.value) || items[0]?.id;
+  seqCtrl.style.display = "";             // always show, even with 1 item
+  seqCtrl.setOptions(items, prefer);      // triggers an 'input' event in your component
+  chosenSeqIdMut.value = String(seqCtrl.value || prefer);
+}
+
+/* bootstrap once the control exists — one-way dependency, no cycle */
+{
+  try { refreshSeqChoices(); } catch (e) {
+    console.warn("bootstrap refreshSeqChoices failed:", e);
+  }
+}
 
 
 // Re-render when the length selector changes
