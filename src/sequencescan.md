@@ -833,8 +833,6 @@ function buildHeatmapData(rows, method, lengthFilter) {
 }
 
 const logTag = "🟦 heatmap";
-let __HM_RENDER_COUNT = 0;
-
 /* ── Heatmap render (guarded) ───────────────────────────────────── */
 let __HM_RENDER_COUNT = 0;
 
@@ -916,7 +914,6 @@ function renderHeatmap(rows, lengthFilter) {
     heatmapSlot.replaceChildren(span);
   }
 }
-
 
 ```
 
