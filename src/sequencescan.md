@@ -805,9 +805,7 @@ function deriveSeqListFromRows(rows) {
   // Make stable, sorted items with ids seq1, seq2, ...
   return [...seqNums].sort((a,b)=>a-b).map(n => ({ id: `seq${n}`, sequence: "" }));
 }
-```
 
-```js
 // Best-current rows snapshot
 function currentRows() {
   const latest = Array.isArray(latestRowsMut?.value) ? latestRowsMut.value : [];
@@ -815,9 +813,7 @@ function currentRows() {
   const pred = Array.isArray(predRowsMut?.value) ? predRowsMut.value : [];
   return pred;
 }
-```
 
-```js
 function ensureSeqListFromRows(rows) {
   const hasSeqs = Array.isArray(seqListMut?.value) && seqListMut.value.length > 0;
   if (hasSeqs) return;
