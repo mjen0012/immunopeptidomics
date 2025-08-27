@@ -188,31 +188,29 @@ function parseFastaForIEDB(text, { wrap = false } = {}) {
 ```
 
 ```js
-// Replace your whole one-time listener block with this:
+// Robust upload wiring (wrapper 'input' + file 'change' + restore)
 {
   const isFileLike = (f) => f && typeof f.text === "function";
 
-  // Core processor: takes a File (or null), parses, and updates mutables
   const processFile = async (file) => {
     if (!isFileLike(file)) {
-      // clear if nothing selected
-      seqListMut.value = [];
-      chosenSeqIdMut.value = null;
-      fastaTextMut.value = "";
+      setMut(seqListMut, []);
+      setMut(chosenSeqIdMut, null);
+      setMut(fastaTextMut, "");
       return;
     }
     let txt = "";
     try { txt = await file.text(); } catch {}
     const { seqs, fastaText, issues } = parseFastaForIEDB(txt, { wrap: false });
 
-    seqListMut.value     = seqs;
-    chosenSeqIdMut.value = seqs[0]?.id ?? null;
-    fastaTextMut.value   = fastaText;
+    setMut(seqListMut, seqs);
+    setMut(chosenSeqIdMut, seqs[0]?.id ?? null);
+    setMut(fastaTextMut, fastaText);
 
     if (issues.length) console.warn("FASTA issues (skipped sequences):", issues);
   };
 
-  // 1) Listen to the wrapper's 'input' event (uploadButton dispatches this)
+  // 1) Wrapper root emits 'input' (uploadButton.js does this)
   const onRootInput = async () => {
     const v = uploadSeqBtn?.value;
     const file = Array.isArray(v) ? v[0] : v;
@@ -220,14 +218,14 @@ function parseFastaForIEDB(text, { wrap = false } = {}) {
   };
   uploadSeqBtn.addEventListener("input", onRootInput);
 
-  // 2) Also listen to the hidden <input type=file>'s 'change' (native)
+  // 2) Hidden file input emits 'change' (native)
   const fileEl = uploadSeqBtn?.querySelector?.('input[type="file"]');
   const onFileChange = async () => {
     await processFile(fileEl?.files?.[0] ?? null);
   };
   fileEl?.addEventListener("change", onFileChange);
 
-  // Handle browser session restore (file already present)
+  // 3) Handle session-restore
   if (fileEl?.files?.length) onFileChange();
 
   invalidation.then(() => {
@@ -445,6 +443,114 @@ downloadBtn.addEventListener("click", downloadRowsAsCSV);
 ({ runBtn, statusBanner, downloadBtn });
 
 ```
+
+```js
+/* Safe setter for Mutables */
+function setMut(mut, val) {
+  if (mut && typeof mut === "object" && "value" in mut) {
+    mut.value = val;
+  } else {
+    console.warn("Mutable not ready when setting:", { mut, val });
+  }
+}
+```
+
+
+```js
+/* Helper: get latest FASTA from state or directly from the current file */
+async function getLatestFastaText() {
+  const cached = (fastaTextMut && fastaTextMut.value) ? String(fastaTextMut.value).trim() : "";
+  if (cached) return cached;
+
+  // Try to read from the current upload control
+  const v = uploadSeqBtn?.value;
+  const file = Array.isArray(v) ? v[0] : v;
+  if (file && typeof file.text === "function") {
+    let txt = "";
+    try { txt = await file.text(); } catch {}
+    const { fastaText } = parseFastaForIEDB(txt, { wrap: false });
+    if (fastaText && fastaText.trim()) {
+      setMut(fastaTextMut, fastaText);
+      return fastaText;
+    }
+  }
+  // Try the hidden input directly
+  const fileEl = uploadSeqBtn?.querySelector?.('input[type="file"]');
+  const f2 = fileEl?.files?.[0];
+  if (f2 && typeof f2.text === "function") {
+    let txt = "";
+    try { txt = await f2.text(); } catch {}
+    const { fastaText } = parseFastaForIEDB(txt, { wrap: false });
+    if (fastaText && fastaText.trim()) {
+      setMut(fastaTextMut, fastaText);
+      return fastaText;
+    }
+  }
+  return "";
+}
+
+/* Let buildBody accept the FASTA explicitly */
+function buildBody(fastaText) {
+  const { id: method, cls } = getPredictor();
+  const alleles = (chosenAllelesMut.value || []).join(",");
+  return {
+    run_stage_range: [1,1],
+    stages: [{
+      stage_number: 1,
+      stage_type  : "prediction",
+      tool_group  : cls === "II" ? "mhcii" : "mhci",
+      input_sequence_text: fastaText,
+      input_parameters: {
+        alleles,
+        peptide_length_range: [9,9],
+        predictors: [{ type: "binding", method }]
+      }
+    }]
+  };
+}
+
+/* Run button */
+runBtn.addEventListener("click", async () => {
+  try {
+    const fasta = await getLatestFastaText();
+    if (!fasta) {
+      setStatus("Please upload a FASTA file first.", {warn:true});
+      return;
+    }
+    const alleles = chosenAllelesMut.value || [];
+    if (!alleles.length) {
+      setStatus("Please select at least one allele.", {warn:true});
+      return;
+    }
+
+    runBtn.disabled = true;
+    downloadBtn.disabled = true;
+
+    setStatus("Submitting to IEDB…", {busy:true});
+    const body = buildBody(fasta);
+    const rid  = await submitPipeline(body);
+
+    setStatus(`Submitted (result_id: ${rid}).`, {busy:true});
+    const result = await pollResult(rid);
+
+    const tbl = (result?.data?.results || []).find(t => t.type === "peptide_table");
+    if (!tbl) throw new Error("No peptide_table returned in results");
+
+    const rows = rowsFromTable(tbl);
+    setMut(predRowsMut, rows);
+
+    setStatus(`Done — ${rows.length} rows.`, {ok:true});
+    downloadBtn.disabled = rows.length === 0;
+  } catch (err) {
+    console.error(err);
+    setStatus(`Error: ${err?.message || err}`, {warn:true});
+  } finally {
+    runBtn.disabled = false;
+  }
+});
+
+```
+
 
 <!-- Layout defined here (no JS layout cell) -->
 <!-- Layout (positions defined here; no JS layout cells) -->
