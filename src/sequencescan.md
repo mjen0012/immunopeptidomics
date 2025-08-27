@@ -652,27 +652,47 @@ const safeChosenId =
     ? chosenSeqIdMut.value
     : null;
 
-const seqPickerEl = Inputs.select(seqIds, {
-  label: "Sequence to view",
-  value: seqIds.length
-    ? (seqIds.includes(safeChosenId) ? safeChosenId : seqIds[0])
-    : undefined
-});
 
-const chosenSeqId = Generators.input(seqPickerEl);
+
+
+```
+
+```js
+/* Sequence picker — rebuilds whenever the current run changes */
 {
-  chosenSeqId; // reactive
-  if (
-    chosenSeqId !== undefined &&
-    chosenSeqId !== null &&
-    chosenSeqIdMut &&
-    typeof chosenSeqIdMut === "object" &&
-    "value" in chosenSeqIdMut
-  ) {
-    chosenSeqIdMut.value = chosenSeqId;
+  seqListMut; chosenSeqIdMut; // reactive
+
+  // Make sure the container exists (defined in the layout cell)
+  if (!seqPickerRow) return;
+
+  const ids = (seqListMut?.value || []).map(s => s.id);
+  seqPickerRow.replaceChildren(); // clear previous control
+
+  if (!ids.length) {
+    // nothing to pick (e.g., before the first run)
+    seqPickerRow.append(Object.assign(document.createElement("div"), {
+      style: "color:#666;font-style:italic;",
+      textContent: "No sequences in current run."
+    }));
+  } else {
+    const initial = (chosenSeqIdMut?.value && ids.includes(chosenSeqIdMut.value))
+      ? chosenSeqIdMut.value
+      : ids[0];
+
+    const el = Inputs.select(ids, { label: "Sequence to view", value: initial });
+    seqPickerRow.append(el);
+
+    // keep the mutable in sync with the UI
+    for await (const val of Generators.input(el)) {
+      if (chosenSeqIdMut && "value" in chosenSeqIdMut) chosenSeqIdMut.value = val;
+    }
+
+    // ensure the mutable has a valid value immediately
+    if (chosenSeqIdMut && "value" in chosenSeqIdMut) {
+      chosenSeqIdMut.value = initial;
+    }
   }
 }
-
 
 ```
 
@@ -944,10 +964,10 @@ paramsControls.append(predictorSelectEl, lengthTextEl, alleleCtrl); // ← repla
 // Run + status + downloads
 const runRow = html`<div style="display:flex; flex-wrap:wrap; gap:12px; align-items:center; margin-top:8px;"></div>`;
 runRow.append(runBtn, statusBanner, downloadPredsBtn);
+runRow.append(hud);
 
 // Sequence picker (appears after first run)
 const seqPickerRow = html`<div style="margin-top:6px;"></div>`;
-seqPickerRow.append(seqPickerEl);
 
 // Expose for HTML slots
 ({inputDataControls, paramsControls, runRow, seqPickerRow});
@@ -973,6 +993,19 @@ async function collectSequences(uploadFile) {
     out.push({ id, sequence: r.sequence });
   }
   return out;
+}
+
+```
+
+```js
+/* mini HUD so we can see current state */
+const hud = html`<div style="margin:.5rem 0; font-family:monospace; color:#444;"></div>`;
+{
+  predRowsMut; seqListMut; chosenSeqIdMut; // reactive
+  const nSeq  = (seqListMut?.value || []).length;
+  const selId = chosenSeqIdMut?.value ?? null;
+  const nRows = (predRowsMut?.value || []).length;
+  hud.textContent = `HUD → sequences=${nSeq}, chosenSeqId=${JSON.stringify(selId)}, predRows=${nRows}`;
 }
 
 ```
