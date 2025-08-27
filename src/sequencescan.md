@@ -26,15 +26,14 @@ const db = extendDB(
 ```
 
 ```js
-
-/* Mutable stores (place ABOVE any cells that reference them) */
-const predRowsMut      = Mutable([]);   // normalized rows across all seqs
-const seqListMut       = Mutable([]);   // [{id, sequence}]
-const uploadedPepsMut  = Mutable([]);   // [peptide]
-const chosenSeqIdMut   = Mutable(null); // which sequence to view
-const uploadSeqFileMut = Mutable(null);
-const uploadPepFileMut = Mutable(null);
-
+/* ── State ──────────────────────────────────────────────────── */
+const predRowsMut       = Mutable([]);     // normalized rows for the (single) sequence
+const rawTableMut       = Mutable(null);   // exact peptide_table from IEDB (for CSV)
+const seqListMut        = Mutable([]);     // [{id, sequence}] (we'll use the first only)
+const chosenSeqIdMut    = Mutable(null);   // id of the chosen sequence (auto-first)
+const uploadedPepsMut   = Mutable([]);     // not used for now, but kept
+const uploadSeqFileMut  = Mutable(null);   // File for .fasta (persisted)
+const uploadPepFileMut  = Mutable(null);   // File for peptides (unused here)
 ```
 
 ```js
