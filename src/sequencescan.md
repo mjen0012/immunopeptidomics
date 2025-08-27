@@ -19,14 +19,16 @@ import { rangeSlider } from "./components/rangeSlider.js";
 const seqListMut       = Mutable([]);    // [{id, sequence}]
 const uploadSeqFileMut = Mutable(null);  // File | null
 const chosenSeqIdMut   = Mutable(null);  // string | null
-const fastaTextMut = Mutable("");
-const chosenAllelesMut  = Mutable([]);                         // kept in sync with allele control
-const predRowsMut       = Mutable([]);                         // raw peptide_table rows as objects
+const fastaTextMut     = Mutable("");
+const chosenAllelesMut = Mutable([]);    // kept in sync with allele control
+const predRowsMut      = Mutable([]);    // raw peptide_table rows as objects
 
-/* NEW: stable runtime cache for rows (safe from reactive scoping) */
-let latestRows = [];
+/* NEW: stable runtime cache for rows using Observable Mutable */
+const latestRowsMut    = Mutable([]);
+
 /* tiny hook for console debugging */
-window.__heatLatestRows = () => latestRows;
+window.__heatLatestRows = () => latestRowsMut.value;
+
 ```
 
 ```js
@@ -135,8 +137,8 @@ function makeHeatLenSelect({ onChange } = {}) {
 
   const handle = () => {
     const len = Number(root.value);
-    const rowsLen = Array.isArray(latestRows) ? latestRows.length : NaN;
-    console.log(`${logTag} selector change →`, len, `(cached rows: ${rowsLen})`);
+    const rowsNow = latestRowsMut.value || [];
+    console.log(`${logTag} selector change →`, len, `(cached rows: ${rowsNow.length})`);
     if (typeof onChange === "function") onChange(len);
     root.dispatchEvent(new CustomEvent("input",  { bubbles: true, composed: true }));
   };
@@ -171,9 +173,10 @@ function intersectSorted(a, b) { const B = new Set(b); return a.filter(x => B.ha
 // create control with a direct re-render callback (uses cached rows)
 const heatLenCtrl = makeHeatLenSelect({
   onChange: (len) => {
-    if (Array.isArray(latestRows) && latestRows.length) {
-      console.log(`${logTag} re-render on select`, { len, rows: latestRows.length });
-      renderHeatmap(latestRows, Number(len));
+    const rowsNow = latestRowsMut.value || [];
+    if (rowsNow.length) {
+      console.log(`${logTag} re-render on select`, { len, rows: rowsNow.length });
+      renderHeatmap(rowsNow, Number(len));
     } else {
       console.warn(`${logTag} no rows available on select; predRowsMut.value=`, predRowsMut?.value);
     }
@@ -184,8 +187,9 @@ heatLenSlot.replaceChildren(heatLenCtrl);
 // keep selector in sync with BOTH the slider range AND available data
 function refreshHeatLenChoices() {
   const fromSlider = sliderLengths();
-  const fromData   = Array.isArray(latestRows) && latestRows.length
-    ? lengthsFromRows(latestRows)
+  const cached = latestRowsMut.value || [];
+  const fromData   = cached.length
+    ? lengthsFromRows(cached)
     : Array.isArray(predRowsMut.value) ? lengthsFromRows(predRowsMut.value) : [];
   const lens       = fromData.length ? intersectSorted(fromSlider, fromData) : fromSlider;
   const prefer     = heatLenCtrl.value ?? lens[0];
@@ -648,8 +652,8 @@ runBtn.addEventListener("click", async () => {
     const rows = rowsFromTable(tbl);
 
     setMut(predRowsMut, rows);
-    latestRows = rows;                                     // ← cache for selector
-    console.log("🔁 cached latestRows:", Array.isArray(latestRows), latestRows.length);
+    setMut(latestRowsMut, rows);                         // ← update the cache
+    console.log("🔁 cached latestRowsMut:", Array.isArray(latestRowsMut.value), latestRowsMut.value.length);
 
     updateDownload(rows);
     setStatus(`Done — ${rows.length} rows.`, { ok:true });
@@ -659,7 +663,7 @@ runBtn.addEventListener("click", async () => {
     refreshHeatLenChoices();
 
     // initial render with whatever the selector currently shows
-    renderHeatmap(latestRows, Number(heatLenCtrl.value));
+    renderHeatmap(latestRowsMut.value, Number(heatLenCtrl.value));
   } catch (err) {
     console.error(err);
     setStatus(`Error: ${err?.message || err}`, { warn:true });
