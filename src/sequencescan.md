@@ -310,6 +310,10 @@ function setStatus(txt, {busy=false, warn=false, ok=false} = {}) {
   statusBanner.style.color = warn ? "#B30000" : ok ? "#225C22" : "#333";
   statusBanner.appendChild(span);
 }
+```
+
+```js
+/* ── Run + Download (consolidated) ─────────────────────────────── */
 
 /* Utilities */
 function rowsFromTable(tbl) {
@@ -317,7 +321,8 @@ function rowsFromTable(tbl) {
   return (tbl.table_data || []).map(r => Object.fromEntries(r.map((v,i)=>[keys[i], v])));
 }
 
-function buildBody() {
+/* Build body with explicit FASTA */
+function buildBody(fastaText) {
   const { id: method, cls } = getPredictor();
   const alleles = (chosenAllelesMut.value || []).join(",");
   return {
@@ -326,63 +331,19 @@ function buildBody() {
       stage_number: 1,
       stage_type  : "prediction",
       tool_group  : cls === "II" ? "mhcii" : "mhci",
-      input_sequence_text: fastaTextMut.value,
+      input_sequence_text: fastaText,
       input_parameters: {
         alleles,
-        peptide_length_range: [9,9],             // ← fixed per instructions
+        peptide_length_range: [9,9],
         predictors: [{ type: "binding", method }]
       }
     }]
   };
 }
 
-/* POST to our proxy */
-async function submitPipeline(body) {
-  const r = await fetch("/api/iedb-pipeline", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(body)
-  });
-  const txt = await r.text();
-  let j; try { j = JSON.parse(txt); } catch { j = { _raw: txt }; }
-  if (!r.ok) throw new Error(j?.errors?.join?.("; ") || r.statusText || "Pipeline submission failed");
-  const rid = j?.result_id || j?.results_uri?.split?.("/")?.pop?.();
-  if (!rid) throw new Error("No result_id in response");
-  return rid;
-}
-
-/* Poll with backoff + live status */
-async function pollResult(resultId, { timeoutMs=10*60_000, minDelay=900, maxDelay=5000, backoff=1.35 } = {}) {
-  const t0 = Date.now();
-  let delay = minDelay, tries = 0, lastSec = -1;
-
-  while (Date.now() - t0 < timeoutMs) {
-    tries++;
-    const r = await fetch(`/api/iedb-result?id=${encodeURIComponent(resultId)}`);
-    const txt = await r.text();
-    let j; try { j = JSON.parse(txt); } catch { j = {}; }
-
-    const sec = Math.floor((Date.now() - t0)/1000);
-    if (sec !== lastSec) {
-      lastSec = sec;
-      setStatus(`Polling IEDB… ${sec}s (try ${tries})`, {busy:true});
-    }
-
-    if (j?.status === "done") return j;
-    if (j?.status === "error") {
-      const errs = j?.data?.errors; 
-      throw new Error(Array.isArray(errs) && errs.length ? errs.join("; ") : "IEDB returned error");
-    }
-
-    await new Promise(res => setTimeout(res, delay));
-    delay = Math.min(Math.floor(delay * backoff), maxDelay);
-  }
-  throw new Error("Timed out polling IEDB");
-}
-
-/* ── Download wiring (robust) ─────────────────────────────────── */
-let latestRows = [];     // cache the most recent table
-let csvUrl = null;       // blob URL for the CSV
+/* Download wiring */
+let latestRows = [];
+let csvUrl = null;
 
 function buildCSV(rows) {
   if (!rows || !rows.length) return "";
@@ -390,17 +351,16 @@ function buildCSV(rows) {
     Object.keys(r || {}).forEach(k => set.add(k));
     return set;
   }, new Set()));
-  const escape = v => {
+  const esc = v => {
     const s = v == null ? "" : String(v);
-    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g,'""')}"` : s;
   };
-  return [cols.join(","), ...rows.map(r => cols.map(c => escape(r[c])).join(","))].join("\n");
+  return [cols.join(","), ...rows.map(r => cols.map(c => esc(r[c])).join(","))].join("\n");
 }
 
 function updateDownload(rows) {
   latestRows = Array.isArray(rows) ? rows : [];
-  // (re)build blob url
-  if (csvUrl) URL.revokeObjectURL(csvUrl);
+  if (csvUrl) { try { URL.revokeObjectURL(csvUrl); } catch {} }
   const csv = buildCSV(latestRows);
   if (latestRows.length && csv) {
     csvUrl = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
@@ -411,7 +371,6 @@ function updateDownload(rows) {
   }
 }
 
-// one click handler that always uses the prepared blob URL
 downloadBtn.onclick = () => {
   if (!latestRows.length || !csvUrl) {
     alert("No result table to download.");
@@ -423,55 +382,62 @@ downloadBtn.onclick = () => {
   a.click();
 };
 
+// Clean up blob if cell invalidates
+invalidation.then(() => { if (csvUrl) URL.revokeObjectURL(csvUrl); });
 
-/* Hook up buttons */
+/* Run */
 runBtn.addEventListener("click", async () => {
   try {
-    // Guardrails
-    if (!fastaTextMut.value || !fastaTextMut.value.trim()) {
-      setStatus("Please upload a FASTA file first.", {warn:true});
+    // FASTA from cached state or live file
+    const cached = (fastaTextMut?.value || "").trim();
+    let fasta = cached;
+    if (!fasta) {
+      const v = uploadSeqBtn?.value;
+      const file = Array.isArray(v) ? v[0] : v;
+      if (file && typeof file.text === "function") {
+        let txt = "";
+        try { txt = await file.text(); } catch {}
+        fasta = parseFastaForIEDB(txt, { wrap: false }).fastaText || "";
+        if (fasta) fastaTextMut.value = fasta;
+      }
+    }
+    if (!fasta) {
+      setStatus("Please upload a FASTA file first.", { warn:true });
       return;
     }
     const alleles = chosenAllelesMut.value || [];
     if (!alleles.length) {
-      setStatus("Please select at least one allele.", {warn:true});
+      setStatus("Please select at least one allele.", { warn:true });
       return;
     }
 
     runBtn.disabled = true;
     downloadBtn.disabled = true;
+    updateDownload([]); // reset any previous CSV
 
-    setStatus("Submitting to IEDB…", {busy:true});
-    const body = buildBody();
+    setStatus("Submitting to IEDB…", { busy:true });
+    const body = buildBody(fasta);
     const rid  = await submitPipeline(body);
 
-    setStatus(`Submitted (result_id: ${rid}).`, {busy:true});
+    setStatus(`Submitted (result_id: ${rid}).`, { busy:true });
     const result = await pollResult(rid);
 
-    // Find the peptide_table
     const tbl = (result?.data?.results || []).find(t => t.type === "peptide_table");
     if (!tbl) throw new Error("No peptide_table returned in results");
 
     const rows = rowsFromTable(tbl);
-    predRowsMut.value = rows;
+    predRowsMut.value = rows;     // keep state
+    updateDownload(rows);         // enable and prepare CSV
 
-    setMut?.(predRowsMut, rows) ?? (predRowsMut.value = rows); // keep your mutable in sync
-    updateDownload(rows); // <-- prepare CSV + enable button
-    setStatus(`Done — ${rows.length} rows.`, { ok: true });
-
-    setStatus(`Done — ${rows.length} rows.`, {ok:true});
+    setStatus(`Done — ${rows.length} rows.`, { ok:true });
   } catch (err) {
     console.error(err);
-    setStatus(`Error: ${err?.message || err}`, {warn:true});
+    setStatus(`Error: ${err?.message || err}`, { warn:true });
   } finally {
     runBtn.disabled = false;
   }
 });
 
-downloadBtn.addEventListener("click", downloadRowsAsCSV);
-
-/* Expose for HTML */
-({ runBtn, statusBanner, downloadBtn });
 
 ```
 
