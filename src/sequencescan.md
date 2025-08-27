@@ -11,6 +11,7 @@ import { uploadButton }    from "./components/uploadButton.js";
 import { comboSelectLazy } from "./components/comboSelectLazy.js";
 import { dropSelect }      from "./components/dropSelect.js";
 import { heatmapChart } from "./components/heatmapChart.js";
+import { rangeSlider } from "./components/rangeSlider.js";
 ```
 
 ```js
@@ -52,6 +53,18 @@ const predictorItems = [
   { id: "netmhciipan_ba",   label: "Class II — netMHCIIpan 4.3 BA" }
 ];
 const predictorDrop = dropSelect(predictorItems, { label: "Predictor" });
+
+const lengthCtrl = rangeSlider({ label: "Peptide length" });
+
+// keep slider in sync when predictor changes Class I/II
+const applyClassToSlider = () => {
+  const { cls } = getPredictor();
+  lengthCtrl.setForClass(cls);  // I → 8–14 (9),  II → 11–30 (15)
+};
+applyClassToSlider();
+predictorDrop.addEventListener("input", applyClassToSlider);
+invalidation.then(() => predictorDrop.removeEventListener("input", applyClassToSlider));
+
 
 function getPredictor() {
   const id = predictorDrop?.value || predictorItems[0].id;
@@ -400,6 +413,12 @@ async function getLatestFastaText() {
 function buildBody(fastaText) {
   const { id: method, cls } = getPredictor();
   const alleles = (chosenAllelesMut.value || []).join(",");
+
+  // slider always yields [min,max]; single mode has min===max
+  const [lenMin, lenMax] = Array.isArray(lengthCtrl?.value) && lengthCtrl.value.length === 2
+    ? lengthCtrl.value
+    : (cls === "II" ? [15,15] : [9,9]);  // fallback
+
   return {
     run_stage_range: [1,1],
     stages: [{
@@ -409,8 +428,8 @@ function buildBody(fastaText) {
       input_sequence_text: fastaText,
       input_parameters: {
         alleles,
-        peptide_length_range: [9,9],
-        predictors: [{ type:"binding", method }]
+        peptide_length_range: [lenMin, lenMax],
+        predictors: [{ type: "binding", method }]
       }
     }]
   };
@@ -628,6 +647,7 @@ function renderHeatmap(rows) {
     ${uploadSeqBtn}
     ${predictorDrop}
     ${alleleSlot}
+    ${lengthCtrl}
   </div>
 </div>
 
