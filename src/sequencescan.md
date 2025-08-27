@@ -74,7 +74,7 @@ function getPredictor() {
 ```
 
 ```js
-/* ── Heatmap length selector (adaptive to slider) ────────────────── */
+/* ── Heatmap length selector (adaptive to slider + data) ─────────── */
 const heatLenSlot = html`<div></div>`;
 
 function makeHeatLenSelect({ onChange } = {}) {
@@ -99,7 +99,6 @@ function makeHeatLenSelect({ onChange } = {}) {
     set(v){ sel.value = String(v); }
   });
 
-  // update options; ensure a selection exists; invoke onChange + fire events
   root.setOptions = (lengths = [], { prefer } = {}) => {
     const old = String(sel.value);
     sel.replaceChildren();
@@ -112,7 +111,7 @@ function makeHeatLenSelect({ onChange } = {}) {
     if (prefer != null && lengths.includes(prefer)) sel.value = String(prefer);
     else if (lengths.length) sel.value = lengths.includes(+old) ? old : String(lengths[0]);
 
-    // notify both programmatically and via DOM events
+    // notify on any programmatic change as well
     if (typeof onChange === "function") onChange(root.value);
     root.dispatchEvent(new CustomEvent("input",  { bubbles: true, composed: true }));
     root.dispatchEvent(new Event("change", { bubbles: true, composed: true }));
@@ -128,17 +127,19 @@ function makeHeatLenSelect({ onChange } = {}) {
   return root;
 }
 
-// create control with a direct re-render callback
-const heatLenCtrl = makeHeatLenSelect({
-  onChange: () => {
-    if (Array.isArray(predRowsMut.value) && predRowsMut.value.length) {
-      renderHeatmap(predRowsMut.value, heatLenCtrl.value);
-    }
+// helper: lengths present in current result rows (seq #1 only)
+function lengthsFromRows(rows) {
+  const set = new Set();
+  for (const r of rows || []) {
+    const seqNum = Number(r["seq #"] ?? r["sequence_number"] ?? 1);
+    if (seqNum !== 1) continue;
+    const L = rowLen(r);
+    if (Number.isFinite(L)) set.add(L);
   }
-});
-heatLenSlot.replaceChildren(heatLenCtrl);
+  return [...set].sort((a,b)=>a-b);
+}
 
-// helper from slider → [a..b]
+// helper from slider → continuous [a..b]
 function sliderLengths() {
   const v = Array.isArray(lengthCtrl?.value) ? lengthCtrl.value : [9, 9];
   const a = Math.min(...v), b = Math.max(...v);
@@ -146,16 +147,31 @@ function sliderLengths() {
   for (let n = a; n <= b; n++) out.push(n);
   return out;
 }
+function intersectSorted(a, b) { const B = new Set(b); return a.filter(x => B.has(x)); }
 
-// keep selector in sync with the slider range
+// create control with a direct re-render callback
+const heatLenCtrl = makeHeatLenSelect({
+  onChange: (len) => {
+    if (Array.isArray(predRowsMut.value) && predRowsMut.value.length) {
+      renderHeatmap(predRowsMut.value, Number(len));
+    }
+  }
+});
+heatLenSlot.replaceChildren(heatLenCtrl);
+
+// keep selector in sync with BOTH the slider range AND available data
 function refreshHeatLenChoices() {
-  const lens = sliderLengths();
-  const prefer = heatLenCtrl.value ?? lens[0];
+  const fromSlider = sliderLengths();
+  const fromData   = Array.isArray(predRowsMut.value) ? lengthsFromRows(predRowsMut.value) : [];
+  const lens       = fromData.length ? intersectSorted(fromSlider, fromData) : fromSlider;
+  const prefer     = heatLenCtrl.value ?? lens[0];
   heatLenCtrl.setOptions(lens, { prefer });
 }
+
+// initial fill (before we have data, falls back to slider range)
 refreshHeatLenChoices();
 
-// when the slider range changes, refresh options (this also triggers onChange)
+// update choices if the slider range changes (this also fires onChange)
 const onSliderInput = () => refreshHeatLenChoices();
 lengthCtrl.addEventListener("input", onSliderInput);
 invalidation.then(() => lengthCtrl.removeEventListener("input", onSliderInput));
@@ -599,7 +615,8 @@ runBtn.addEventListener("click", async () => {
     const rows = rowsFromTable(tbl);
 
     setMut(predRowsMut, rows);
-    updateDownload(rows);                 // <-- prepare CSV + enable button
+    updateDownload(rows);               // <-- prepare CSV + enable button
+    refreshHeatLenChoices();
     setStatus(`Done — ${rows.length} rows.`, { ok:true });
     downloadBtn.disabled = rows.length === 0;
     // NEW: render the heatmap from the returned table
