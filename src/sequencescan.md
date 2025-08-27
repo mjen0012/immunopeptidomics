@@ -1057,7 +1057,7 @@ function makeSeqSelect({ onChange } = {}) {
 const seqCtrl = makeSeqSelect();
 seqSelSlot.replaceChildren(seqCtrl);
 
-ensureSeqListFromFasta();
+
 
 function refreshSeqChoices() {
   if (!seqCtrl) return; // nothing to do until the control exists
@@ -1090,6 +1090,14 @@ function refreshSeqChoices() {
   seqCtrl.setOptions(items, prefer);      // triggers an 'input' event in your component
   chosenSeqIdMut.value = String(seqCtrl.value || prefer);
 }
+
+/* bootstrap once the control exists — one-way dependency, no cycle */
+{
+  try { refreshSeqChoices(); } catch (e) {
+    console.warn("bootstrap refreshSeqChoices failed:", e);
+  }
+}
+
 
 // Re-render when the length selector changes
 const onLenChange = () => {
