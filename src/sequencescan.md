@@ -228,7 +228,6 @@ function parseFastaForIEDB(text, { wrap = false } = {}) {
     seqListMut.value      = seqs;
     chosenSeqIdMut.value  = seqs[0]?.id ?? null;
     fastaTextMut.value    = fastaText;
-    refreshSeqChoices();
 
     if (issues.length) console.warn("FASTA issues (skipped sequences):", issues);
   };
@@ -693,20 +692,18 @@ function refreshHeatLenChoices() {
   const rowsForLens = cached.length
     ? cached
     : (Array.isArray(predRowsMut.value) ? predRowsMut.value : []);
-  const seqNum = getSelectedSeqNum();
-  const fromData = lengthsFromRows(rowsForLens, seqNum);
+  const fromData = lengthsFromRows(rowsForLens);
   const lens   = fromData.length ? intersectSorted(fromSlider, fromData) : fromSlider;
   const prefer = heatLenCtrl.value ?? lens[0];
 
-  console.groupCollapsed("🟦 heatmap refreshHeatLenChoices");
-  console.log("seq #:", seqNum, "slider range:", fromSlider);
-  console.log("lengths in data(seq#):", fromData);
+  console.groupCollapsed(`${LOG_LEN} refreshHeatLenChoices`);
+  console.log("slider range:", fromSlider);
+  console.log("lengths in data(seq#1):", fromData);
   console.log("intersect:", lens, "prefer:", prefer);
   console.groupEnd();
 
   heatLenCtrl.setOptions(lens, { prefer });
 }
-
 
 refreshHeatLenChoices();
 
@@ -743,32 +740,15 @@ function rowLen(r) {
   return Number(r?.["peptide length"] ?? r?.length ?? r?.["peptide_length"] ?? r?.["Length"]);
 }
 
-function lengthsFromRows(rows, seqNum = 1) {
+function lengthsFromRows(rows) {
   const set = new Set();
   for (const r of rows || []) {
-    const n = Number(r["seq #"] ?? r["sequence_number"] ?? 1);
-    if (n !== Number(seqNum)) continue;
+    const seqNum = Number(r["seq #"] ?? r["sequence_number"] ?? 1);
+    if (seqNum !== 1) continue;
     const L = rowLen(r);
     if (Number.isFinite(L)) set.add(L);
   }
   return [...set].sort((a,b)=>a-b);
-}
-
-
-/* ── Sequence helpers ───────────────────────────────────────────── */
-
-function getSelectedSeqNum() {
-  const list = Array.isArray(seqListMut.value) ? seqListMut.value : [];
-  if (!list.length) return 1;
-  const chosenId = chosenSeqIdMut.value ?? list[0]?.id;
-  const idx = list.findIndex(s => s.id === chosenId);
-  return idx >= 0 ? (idx + 1) : 1; // IEDB "seq #” is 1-based
-}
-
-function getSelectedSeqLabel() {
-  const list = Array.isArray(seqListMut.value) ? seqListMut.value : [];
-  const n = getSelectedSeqNum();
-  return list[n-1]?.id ?? `seq${n}`;
 }
 
 ```
@@ -778,7 +758,6 @@ function getSelectedSeqLabel() {
 /* ── Heatmap prep + render (no SQL) ─────────────────────────────── */
 
 const heatmapSlot = html`<div style="margin-top:12px"></div>`;
-const seqSelSlot = html`<div></div>`;
 
 // Debug panel (scoped to this cell)
 function makeHeatDebugBox() {
@@ -800,18 +779,17 @@ function updateHeatDebug(payload) { try { heatDebug.__setText(payload); } catch 
 // mount the debug box under the chart
 heatmapSlot.after(heatDebug);
 
-function buildHeatmapData(rows, method, lengthFilter, seqNum) {
+function buildHeatmapData(rows, method, lengthFilter) {
   const wantedLen = Number(lengthFilter);
-  const wantedSeq = Number(seqNum);
 
   const r1 = rows.filter(r => {
-    const sn = Number(r["seq #"] ?? r["sequence_number"] ?? 1);
-    return sn === wantedSeq && rowLen(r) === wantedLen;
+    const seqNum = Number(r["seq #"] ?? r["sequence_number"] ?? 1);
+    return seqNum === 1 && rowLen(r) === wantedLen;
   });
 
   console.groupCollapsed("🧮 buildHeatmapData");
-  console.log("seq #:", wantedSeq, "wantedLen:", wantedLen);
-  console.log("rows(seq#,len=wanted):", r1.length);
+  console.log("wantedLen:", wantedLen);
+  console.log("rows(seq#1,len=wanted):", r1.length);
   console.groupEnd();
 
   if (!r1.length) return { cells: [], posExtent: [1, 1], alleles: [] };
@@ -819,7 +797,7 @@ function buildHeatmapData(rows, method, lengthFilter, seqNum) {
   const pctKey = pickPercentileKey(method, r1[0]);
   if (!pctKey) return { cells: [], posExtent: [1, 1], alleles: [] };
 
-  const byAllelePos = new Map();
+  const byAllelePos = new Map();   // key: `${allele}|${pos}`
   let posMax = 1;
   const alleleSet = new Set();
 
@@ -848,7 +826,6 @@ function buildHeatmapData(rows, method, lengthFilter, seqNum) {
   return { cells, posExtent: [1, posMax], alleles: [...alleleSet].sort() };
 }
 
-
 let HM_RENDER_COUNT = 0;
 
 function renderHeatmap(rows, lengthFilter) {
@@ -860,29 +837,27 @@ function renderHeatmap(rows, lengthFilter) {
     }
 
     const { id: method } = getPredictor();
-    const seqNum = getSelectedSeqNum();
 
     let wantedLen = Number(lengthFilter);
     if (!Number.isFinite(wantedLen)) {
-      const first = rowsArr.find(r => Number(r["seq #"] ?? r["sequence_number"] ?? 1) === seqNum);
+      const first = rowsArr.find(r => Number(r["seq #"] ?? r["sequence_number"] ?? 1) === 1);
       wantedLen = rowLen(first);
     }
 
     const tStart = performance.now();
-    const { cells, posExtent, alleles } = buildHeatmapData(rowsArr, method, wantedLen, seqNum);
+    const { cells, posExtent, alleles } = buildHeatmapData(rowsArr, method, wantedLen);
 
     HM_RENDER_COUNT++;
     heatmapSlot.dataset.renderCount  = String(HM_RENDER_COUNT);
     heatmapSlot.dataset.lastLen      = String(wantedLen);
     heatmapSlot.dataset.lastMethod   = String(method);
-    heatmapSlot.dataset.lastSeqNum   = String(seqNum);
     heatmapSlot.dataset.cellCount    = String(cells?.length ?? 0);
     heatmapSlot.dataset.alleleCount  = String(alleles?.length ?? 0);
     heatmapSlot.dataset.posMin       = String(posExtent?.[0] ?? "");
     heatmapSlot.dataset.posMax       = String(posExtent?.[1] ?? "");
 
     console.groupCollapsed(`🎨 render #${HM_RENDER_COUNT}`);
-    console.log("method:", method, "seq #:", seqNum, "length:", wantedLen);
+    console.log("method:", method, "length:", wantedLen);
     console.log("cells:", Array.isArray(cells) ? cells.length : "(not array)");
     console.log("alleles:", Array.isArray(alleles) ? alleles.length : "(not array)", "posExtent:", posExtent);
     console.groupEnd();
@@ -890,18 +865,17 @@ function renderHeatmap(rows, lengthFilter) {
     updateHeatDebug({
       render_count : HM_RENDER_COUNT,
       method       : method,
-      selected_seq : { num: seqNum, id: getSelectedSeqLabel() },
       selected_len : wantedLen,
       cell_count   : Array.isArray(cells) ? cells.length : 0,
       allele_count : Array.isArray(alleles) ? alleles.length : 0,
       pos_extent   : posExtent,
-      lengths_in_data: lengthsFromRows(rowsArr, seqNum)
+      lengths_in_data: lengthsFromRows(rowsArr)
     });
 
     heatmapSlot.replaceChildren();
     if (!Array.isArray(cells) || !cells.length) {
       const span = document.createElement("span");
-      span.textContent = "No heat-map data for selected sequence/length.";
+      span.textContent = "No heat-map data for selected length.";
       span.style.fontStyle = "italic";
       heatmapSlot.appendChild(span);
       return;
@@ -914,11 +888,10 @@ function renderHeatmap(rows, lengthFilter) {
       sizeFactor: 1.1
     });
 
-    el.dataset.len     = String(wantedLen);
-    el.dataset.method  = String(method);
-    el.dataset.seqNum  = String(seqNum);
-    el.dataset.cells   = String(cells.length);
-    el.dataset.alleles = String(alleles.length);
+    el.dataset.len    = String(wantedLen);
+    el.dataset.method = String(method);
+    el.dataset.cells  = String(cells.length);
+    el.dataset.alleles= String(alleles.length);
 
     heatmapSlot.appendChild(el);
 
@@ -931,81 +904,6 @@ function renderHeatmap(rows, lengthFilter) {
     span.style.color = "#B30000";
     heatmapSlot.replaceChildren(span);
   }
-}
-
-
-
-/* ── Sequence selector (by uploaded FASTA entries) ──────────────── */
-
-function makeSeqSelect({ onChange } = {}) {
-  const root = document.createElement("div");
-  root.style.fontFamily = "'Roboto', sans-serif";
-
-  const label = document.createElement("label");
-  label.textContent = "Sequence";
-  label.style.cssText = "display:block;margin:0 0 8px 0;font:500 13px/1.3 'Roboto',sans-serif;color:#111;";
-
-  const sel = document.createElement("select");
-  sel.style.cssText = `
-    display:block; width:100%; min-width:200px;
-    padding:8px 10px; border:1px solid #bbb; border-radius:6px; background:#fff;
-    font:500 14px/1.2 'Roboto',sans-serif; color:#006DAE; cursor:pointer;
-  `;
-  root.append(label, sel);
-
-  Object.defineProperty(root, "value", {
-    get(){ return sel.value || undefined; },
-    set(v){ sel.value = String(v); }
-  });
-
-  root.setOptions = (items = [], prefer) => {
-    const before = Array.from(sel.querySelectorAll("option")).map(o => o.value);
-    sel.replaceChildren();
-    for (const it of items) {
-      const opt = document.createElement("option");
-      opt.value = it.id;
-      opt.textContent = it.label;
-      sel.appendChild(opt);
-    }
-    if (prefer && items.some(i => i.id === prefer)) sel.value = prefer;
-    else if (items.length) sel.value = items[0].id;
-
-    const after = Array.from(sel.querySelectorAll("option")).map(o => o.value);
-    console.groupCollapsed("🟦 seq select setOptions");
-    console.log("before → after", before, "→", after, "prefer:", prefer, "now:", sel.value);
-    console.groupEnd();
-
-    // notify programmatic changes too
-    if (typeof onChange === "function") onChange(sel.value);
-    root.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
-  };
-
-  const handle = () => {
-    chosenSeqIdMut.value = String(sel.value || "");
-    // Length choices depend on sequence → refresh them
-    refreshHeatLenChoices();
-    // Re-render with currently selected length
-    const rowsNow = (latestRowsMut.value && latestRowsMut.value.length)
-      ? latestRowsMut.value
-      : (Array.isArray(predRowsMut.value) ? predRowsMut.value : []);
-    if (rowsNow.length) renderHeatmap(rowsNow, Number(heatLenCtrl.value));
-    if (typeof onChange === "function") onChange(sel.value);
-  };
-  sel.addEventListener("input", handle);
-  sel.addEventListener("change", handle);
-
-  return root;
-}
-
-const seqCtrl = makeSeqSelect();
-seqSelSlot.replaceChildren(seqCtrl);
-
-function refreshSeqChoices() {
-  const list = Array.isArray(seqListMut.value) ? seqListMut.value : [];
-  const items = list.map((s, i) => ({ id: s.id, label: `${s.id}  (seq #${i+1})` }));
-  const prefer = chosenSeqIdMut.value || items[0]?.id;
-  seqCtrl.style.display = items.length > 1 ? "" : "none"; // hide if single sequence
-  seqCtrl.setOptions(items, prefer);
 }
 
 ```
@@ -1034,7 +932,6 @@ function refreshSeqChoices() {
 <div class="section">
   <h2>Heatmap</h2>
   ${heatLenSlot}
-  ${seqSelSlot}
   ${heatmapSlot}
   ${heatDebug}
 </div>
