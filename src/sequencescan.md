@@ -10,6 +10,7 @@ toc: false
 import { uploadButton }    from "./components/uploadButton.js";
 import { comboSelectLazy } from "./components/comboSelectLazy.js";
 import { dropSelect }      from "./components/dropSelect.js";
+import { heatmapChart } from "./components/heatmapChart.js";
 ```
 
 ```js
@@ -492,6 +493,9 @@ runBtn.addEventListener("click", async () => {
     setMut(predRowsMut, rows);
     updateDownload(rows);                 // <-- prepare CSV + enable button
     setStatus(`Done — ${rows.length} rows.`, { ok:true });
+    downloadBtn.disabled = rows.length === 0;
+    // NEW: render the heatmap from the returned table
+    renderHeatmap(rows);
   } catch (err) {
     console.error(err);
     setStatus(`Error: ${err?.message || err}`, { warn:true });
@@ -513,6 +517,108 @@ function setMut(mut, val) {
 }
 ```
 
+```js
+/* ── Heatmap prep + render (no SQL) ─────────────────────────────── */
+
+const heatmapSlot = html`<div style="margin-top:12px"></div>`;
+
+const PCT_FIELDS = {
+  netmhcpan_el   : "netmhcpan_el percentile",
+  netmhcpan_ba   : "netmhcpan_ba percentile",
+  netmhciipan_el : "netmhciipan_el percentile",
+  netmhciipan_ba : "netmhciipan_ba percentile"
+};
+
+function pickPercentileKey(method, sampleRow) {
+  const want = PCT_FIELDS[method];
+  if (!sampleRow) return want;
+  const keys = Object.keys(sampleRow);
+  if (want && keys.includes(want)) return want;
+
+  // fallback: try fuzzy match on method + 'percentile'
+  const m = method.toLowerCase();
+  const cand = keys.find(k => k.toLowerCase().includes("percentile") && k.toLowerCase().includes(m));
+  if (cand) return cand;
+
+  // last resort: first key that ends with/contains percentile
+  return keys.find(k => /percentile/i.test(k)) || want;
+}
+
+function buildHeatmapData(rows, method) {
+  // Only sequence #1 (per your spec)
+  const r1 = rows.filter(r => (r["seq #"] ?? 1) === 1);
+
+  if (!r1.length) return { cells: [], posExtent: [1, 1] };
+
+  const pctKey = pickPercentileKey(method, r1[0]);
+  if (!pctKey) return { cells: [], posExtent: [1, 1] };
+
+  // Expand windows; keep min percentile per (allele, pos)
+  const byAllelePos = new Map();   // key: `${allele}|${pos}` → {allele,pos,pct,peptide,aa}
+  let posMax = 1;
+
+  for (const row of r1) {
+    const allele  = row["allele"];
+    const peptide = row["peptide"];
+    const start   = +row["start"];
+    const end     = +row["end"];
+    const pct     = Number(row[pctKey]);
+
+    if (!allele || !peptide || !Number.isFinite(start) || !Number.isFinite(end) || !Number.isFinite(pct)) continue;
+
+    if (end > posMax) posMax = end;
+
+    for (let pos = start; pos <= end; pos++) {
+      const k = `${allele}|${pos}`;
+      const aaIdx = pos - start;                 // JS 0-based
+      const aa    = peptide.charAt(aaIdx) || ""; // no gaps per your note
+
+      const prev = byAllelePos.get(k);
+      if (!prev || pct < prev.pct) {
+        byAllelePos.set(k, { allele, pos, pct, peptide, aa });
+      }
+    }
+  }
+
+  const cells = Array.from(byAllelePos.values())
+    .sort((a,b) => a.allele.localeCompare(b.allele) || a.pos - b.pos);
+
+  return { cells, posExtent: [1, posMax] };
+}
+
+function renderHeatmap(rows) {
+  try {
+    const { id: method } = getPredictor();
+    const { cells, posExtent } = buildHeatmapData(rows, method);
+
+    heatmapSlot.replaceChildren(); // clear
+    if (!cells.length) {
+      const span = document.createElement("span");
+      span.textContent = "No heat-map data.";
+      span.style.fontStyle = "italic";
+      heatmapSlot.appendChild(span);
+      return;
+    }
+
+    const el = heatmapChart({
+      data: cells,
+      posExtent,
+      cellHeight: 18,
+      sizeFactor: 1.1
+      // you can wire onReady/onZoom/onRowToggle later for peptideScan sync
+    });
+    heatmapSlot.appendChild(el);
+  } catch (err) {
+    console.error("Heatmap render error:", err);
+    const span = document.createElement("span");
+    span.textContent = `Heatmap error: ${err?.message || err}`;
+    span.style.color = "#B30000";
+    heatmapSlot.replaceChildren(span);
+  }
+}
+
+```
+
 
 <!-- Layout defined here (no JS layout cell) -->
 <!-- Layout (positions defined here; no JS layout cells) -->
@@ -532,4 +638,9 @@ function setMut(mut, val) {
     ${statusBanner}
     ${downloadBtn}
   </div>
+</div>
+
+<div class="section">
+  <h2>Heatmap</h2>
+  ${heatmapSlot}
 </div>
