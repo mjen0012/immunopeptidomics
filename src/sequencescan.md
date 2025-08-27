@@ -783,147 +783,150 @@ function buildOverlayRows({peptides, sequence}) {
 ```js
 /* Chart mounting (inside your HTML container) */
 {
-  predRowsMut; seqListMut; chosenSeqIdMut; predictor; uploadedPepsMut; // reactive
+  // make the cell reactive
+  predRowsMut; seqListMut; chosenSeqIdMut; predictor; uploadedPepsMut;
 
-  const heatWrap = document.getElementById("heat-wrap");
-  const pepWrap  = document.getElementById("pep-wrap");
-  const hintEl   = document.getElementById("scan-hint");
+  (async () => {
+    const heatWrap = document.getElementById("heat-wrap");
+    const pepWrap  = document.getElementById("pep-wrap");
+    const hintEl   = document.getElementById("scan-hint");
 
-  if (!heatWrap || !pepWrap || !hintEl) {
-    console.warn("Chart containers not found in DOM.");
-    return;
-  }
+    if (!heatWrap || !pepWrap || !hintEl) {
+      console.warn("Chart containers not found in DOM.");
+      return;
+    }
 
-  heatWrap.replaceChildren();
-  pepWrap.replaceChildren();
-  hintEl.style.display = ""; // shown until a row/allele is clicked
-
-  const currChosenId =
-    (chosenSeqIdMut && typeof chosenSeqIdMut === "object" && "value" in chosenSeqIdMut)
-      ? chosenSeqIdMut.value
-      : null;
-
-  const seqRec = getSeqRecord(currChosenId);
-  const pred = getPredictor();
-
-  if (!seqRec) {
-    heatWrap.appendChild(Object.assign(document.createElement("div"), {
-      style: "padding:8px;color:#666;font-style:italic;",
-      textContent: "No sequence selected (or selection not in current run)."
-    }));
-    return;
-  }
-
-  const seqId  = seqRec.id;
-  const seqAA  = seqRec.sequence || "";
-  const rows   = predRowsMut.value || [];
-
-  // Heatmap data across *all alleles selected in predictor run*
-  const heatData = buildHeatmapData({
-    rows, seqId, sequence: seqAA, method: pred.method, cls: pred.cls
-  });
-
-  if (!heatData.length) {
-    heatWrap.appendChild(Object.assign(document.createElement("div"), {
-      style: "padding:8px;color:#666;font-style:italic;",
-      textContent: "No positional hits to plot (no start/length in results and none could be inferred from the sequence)."
-    }));
-    return;
-  }
-
-  // Shared zoom state
-  let currentScale = null, currentTransform = null, syncing = false;
-  let pepAPI = { update:()=>{}, setZoom:()=>{} };
-
-  const seqLen = seqAA.length || d3.max(heatData, d => d.pos) || 1;
-  const heatEl = heatmapChart({
-    data: heatData,
-    posExtent: [1, seqLen],
-    margin: { top:16, right:20, bottom:60, left:90 },
-
-    onReady: (x) => { currentScale = x; },
-    onZoom : (x, t) => {
-      if (syncing) return;
-      syncing = true;
-      currentScale = x; currentTransform = t;
-      pepAPI.update?.(x);
-      pepAPI.setZoom?.(t);
-      syncing = false;
-    },
-
-    // Click a row (allele) to show all peptides for that allele
-    onRowToggle: (allele) => showPeptidesFor(allele)
-  });
-  heatWrap.appendChild(heatEl);
-
-  function showHint(show) { hintEl.style.display = show ? "" : "none"; }
-
-  async function showPeptidesFor(allele) {
+    heatWrap.replaceChildren();
     pepWrap.replaceChildren();
-    pepAPI = { update:()=>{}, setZoom:()=>{} };
+    hintEl.style.display = ""; // shown until a row/allele is clicked
 
-    if (!allele) { showHint(true); return; }
-    showHint(false);
+    const currChosenId =
+      (chosenSeqIdMut && typeof chosenSeqIdMut === "object" && "value" in chosenSeqIdMut)
+        ? chosenSeqIdMut.value
+        : null;
 
-    // Main peptide tracks from predictions (selected allele)
-    const pepRows = buildPeptideRows({rows, seqId, allele, sequence: seqAA});
+    const seqRec = getSeqRecord(currChosenId);
+    const pred = getPredictor();
 
-    // Overlay uploaded peptides (neutral color)
-    const overlayRows = buildOverlayRows({ peptides: uploadedPepsMut.value, sequence: seqAA });
+    if (!seqRec) {
+      heatWrap.appendChild(Object.assign(document.createElement("div"), {
+        style: "padding:8px;color:#666;font-style:italic;",
+        textContent: "No sequence selected (or selection not in current run)."
+      }));
+      return;
+    }
 
-    const svg = d3.create("svg").style("width","100%");
-    const g   = svg.append("g");
-    pepWrap.appendChild(svg.node());
+    const seqId  = seqRec.id;
+    const seqAA  = seqRec.sequence || "";
+    const rows   = predRowsMut.value || [];
 
-    const chart = peptideScanChart(g, {
-      data       : pepRows,
-      alleleData : rows.filter(r => r.allele === allele).map(r => ({
-        allele: r.allele,
-        peptide: r.peptide,
-        netmhcpan_el_percentile: pred.method.includes("el") ? r.pct : undefined,
-        netmhcpan_ba_percentile: pred.method.includes("ba") ? r.pct : undefined
-      })),
-      xScale     : currentScale,
-      sizeFactor : 1.2,
-      rowHeight  : 18,
-      gap        : 2,
-      margin     : { top:20, right:20, bottom:30, left:40 },
-      colourBy   : allele,
-      onZoom     : (x, t) => {
+    // Heatmap data across *all alleles selected in predictor run*
+    const heatData = buildHeatmapData({
+      rows, seqId, sequence: seqAA, method: pred.method, cls: pred.cls
+    });
+
+    if (!heatData.length) {
+      heatWrap.appendChild(Object.assign(document.createElement("div"), {
+        style: "padding:8px;color:#666;font-style:italic;",
+        textContent: "No positional hits to plot (no start/length in results and none could be inferred from the sequence)."
+      }));
+      return;
+    }
+
+    // Shared zoom state
+    let currentScale = null, currentTransform = null, syncing = false;
+    let pepAPI = { update:()=>{}, setZoom:()=>{} };
+
+    const seqLen = seqAA.length || d3.max(heatData, d => d.pos) || 1;
+    const heatEl = heatmapChart({
+      data: heatData,
+      posExtent: [1, seqLen],
+      margin: { top:16, right:20, bottom:60, left:90 },
+
+      onReady: (x) => { currentScale = x; },
+      onZoom : (x, t) => {
         if (syncing) return;
         syncing = true;
         currentScale = x; currentTransform = t;
-        heatEl.__setZoom?.(t);
+        pepAPI.update?.(x);
+        pepAPI.setZoom?.(t);
         syncing = false;
-      }
+      },
+
+      // Click a row (allele) to show all peptides for that allele
+      onRowToggle: (allele) => showPeptidesFor(allele)
     });
+    heatWrap.appendChild(heatEl);
 
-    // Optional overlay row
-    if (overlayRows.length) {
-      const g2 = g.append("g").attr("transform", `translate(0, ${chart.height})`);
-      const overlay = peptideScanChart(g2, {
-        data       : overlayRows,
-        alleleData : [],
+    function showHint(show) { hintEl.style.display = show ? "" : "none"; }
+
+    async function showPeptidesFor(allele) {
+      pepWrap.replaceChildren();
+      pepAPI = { update:()=>{}, setZoom:()=>{} };
+
+      if (!allele) { showHint(true); return; }
+      showHint(false);
+
+      // Main peptide tracks from predictions (selected allele)
+      const pepRows = buildPeptideRows({rows, seqId, allele, sequence: seqAA});
+
+      // Overlay uploaded peptides (neutral color)
+      const overlayRows = buildOverlayRows({ peptides: uploadedPepsMut.value, sequence: seqAA });
+
+      const svg = d3.create("svg").style("width","100%");
+      const g   = svg.append("g");
+      pepWrap.appendChild(svg.node());
+
+      const chart = peptideScanChart(g, {
+        data       : pepRows,
+        alleleData : rows.filter(r => r.allele === allele).map(r => ({
+          allele: r.allele,
+          peptide: r.peptide,
+          netmhcpan_el_percentile: pred.method.includes("el") ? r.pct : undefined,
+          netmhcpan_ba_percentile: pred.method.includes("ba") ? r.pct : undefined
+        })),
         xScale     : currentScale,
-        sizeFactor : 1.0,
-        rowHeight  : 14,
+        sizeFactor : 1.2,
+        rowHeight  : 18,
         gap        : 2,
-        margin     : { top:12, right:20, bottom:24, left:40 },
-        colourBy   : "attribute_1"
+        margin     : { top:20, right:20, bottom:30, left:40 },
+        colourBy   : allele,
+        onZoom     : (x, t) => {
+          if (syncing) return;
+          syncing = true;
+          currentScale = x; currentTransform = t;
+          heatEl.__setZoom?.(t);
+          syncing = false;
+        }
       });
-      svg.attr("height", chart.height + overlay.height);
-    } else {
-      svg.attr("height", chart.height);
+
+      // Optional overlay row
+      if (overlayRows.length) {
+        const g2 = g.append("g").attr("transform", `translate(0, ${chart.height})`);
+        const overlay = peptideScanChart(g2, {
+          data       : overlayRows,
+          alleleData : [],
+          xScale     : currentScale,
+          sizeFactor : 1.0,
+          rowHeight  : 14,
+          gap        : 2,
+          margin     : { top:12, right:20, bottom:24, left:40 },
+          colourBy   : "attribute_1"
+        });
+        svg.attr("height", chart.height + overlay.height);
+      } else {
+        svg.attr("height", chart.height);
+      }
+
+      const [r0, r1] = currentScale.range();
+      const w = (r1 - r0) + 90 + 20;
+      svg.attr("viewBox", `0 0 ${w} ${svg.attr("height")}`);
+
+      pepAPI = chart;
+      if (currentTransform) pepAPI.setZoom(currentTransform);
+      pepAPI.update(currentScale);
     }
-
-    const [r0, r1] = currentScale.range();
-    const w = (r1 - r0) + 90 + 20;
-    svg.attr("viewBox", `0 0 ${w} ${svg.attr("height")}`);
-
-    pepAPI = chart;
-    if (currentTransform) pepAPI.setZoom(currentTransform);
-    pepAPI.update(currentScale);
-  }
+  })();
 }
 
 ```
