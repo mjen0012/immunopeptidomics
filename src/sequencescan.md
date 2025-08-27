@@ -521,11 +521,33 @@ async function pollResult(resultId, { timeoutMs=10*60_000, minDelay=900, maxDela
 ```js
 /* ── Run + Download (consolidated, safe) — no cross-refs back to Heatmap ── */
 
-/* assumes setMut(mut,val) is defined earlier */
+/* ── Table → rows (hardened) ────────────────────────────────────── */
 function rowsFromTable(tbl) {
-  const keys = (tbl.table_columns || []).map(c => c.display_name || c.name);
-  return (tbl.table_data || []).map(r => Object.fromEntries(r.map((v,i)=>[keys[i], v])));
+  try {
+    if (!tbl || !Array.isArray(tbl.table_data) || !Array.isArray(tbl.table_columns)) {
+      console.warn("rowsFromTable: table missing columns/data, returning []", tbl);
+      return [];
+    }
+    const keys = tbl.table_columns.map(c => c?.display_name ?? c?.name ?? "");
+    // Accept both array-of-arrays and array-of-objects
+    const out = tbl.table_data.map(row => {
+      if (Array.isArray(row)) {
+        return Object.fromEntries(row.map((v, i) => [keys[i] || `col_${i}`, v]));
+      }
+      if (row && typeof row === "object") {
+        // Already an object: keep as-is
+        return row;
+      }
+      // Fallback: wrap scalar
+      return { value: row };
+    });
+    return out;
+  } catch (e) {
+    console.error("rowsFromTable error:", e);
+    return [];
+  }
 }
+
 
 /* FASTA getter – use cached text if present, otherwise read from current file */
 async function getLatestFastaText() {
@@ -619,7 +641,7 @@ function downloadRawJSON(obj, filename = "iedb_result_raw.json") {
   setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
-/* Single run handler */
+/* ── Single run handler (defensive) ─────────────────────────────── */
 runBtn.addEventListener("click", async () => {
   try {
     const fasta = await getLatestFastaText();
@@ -635,35 +657,56 @@ runBtn.addEventListener("click", async () => {
 
     runBtn.disabled = true;
     downloadBtn.disabled = true;
-    updateDownload([]); // reset previous CSV, if any
+    updateDownload([]); // reset previous CSV
 
     setStatus("Submitting to IEDB…", { busy:true });
     const body = buildBody(fasta);
     console.groupCollapsed("🚀 submitPipeline body"); console.log(body); console.groupEnd();
 
-    const rid  = await submitPipeline(body);
+    const rid = await submitPipeline(body);
     setStatus(`Submitted (result_id: ${rid}).`, { busy:true });
     const result = await pollResult(rid);
 
+    // Keep JSON download (for your records), but do it after we parse to avoid racey UI errors
+    // (we'll still call it—just after we confirm the table exists)
+    const resultsArr = Array.isArray(result?.data?.results) ? result.data.results : [];
+    console.groupCollapsed("📦 IEDB result shape");
+    console.log("has results array:", Array.isArray(result?.data?.results), "length:", resultsArr.length);
+    console.log("result keys:", Object.keys(result?.data || {}));
+    console.groupEnd();
+
+    const tbl = resultsArr.find(t => t?.type === "peptide_table");
+    if (!tbl) {
+      console.error("No peptide_table in results:", resultsArr);
+      throw new Error("No peptide_table returned in results");
+    }
+
+    const rowsParsed = rowsFromTable(tbl);
+    const rows = Array.isArray(rowsParsed) ? rowsParsed : [];
+    const rowsLen = rows.length|0;
+
+    // Now it’s safe to dump the raw JSON without interfering with flow
     try { downloadRawJSON(result); } catch {}
 
-    const tbl  = (result?.data?.results || []).find(t => t.type === "peptide_table");
-    if (!tbl) throw new Error("No peptide_table returned in results");
-    const rows = rowsFromTable(tbl);
+    console.groupCollapsed("🧩 parsed table snapshot");
+    console.log("rows length:", rowsLen);
+    if (rowsLen) console.log("sample row:", rows[0]);
+    console.log("lengths(seq#1):", lengthsFromRows(rows));
+    console.groupEnd();
 
     setMut(predRowsMut, rows);
-    setMut(latestRowsMut, rows);                         // ← update the cache
-    console.log("🔁 cached latestRowsMut:", Array.isArray(latestRowsMut.value), latestRowsMut.value.length);
+    setMut(latestRowsMut, rows);
 
     updateDownload(rows);
-    setStatus(`Done — ${rows.length} rows.`, { ok:true });
-    downloadBtn.disabled = rows.length === 0;
+    setStatus(`Done — ${rowsLen} rows.`, { ok:true });
+    downloadBtn.disabled = rowsLen === 0;
 
-    // refresh selector options to reflect actual data + slider
+    // Update selector (this calls setOptions → onChange, which will re-render)
     refreshHeatLenChoices();
 
-    // initial render with whatever the selector currently shows
-    renderHeatmap(latestRowsMut.value, Number(heatLenCtrl.value));
+    // Ensure we render even if setOptions didn’t fire (e.g., identical value)
+    const safeLen = Number(heatLenCtrl.value);
+    if (rowsLen) renderHeatmap(rows, safeLen);
   } catch (err) {
     console.error(err);
     setStatus(`Error: ${err?.message || err}`, { warn:true });
@@ -792,48 +835,56 @@ function buildHeatmapData(rows, method, lengthFilter) {
 const logTag = "🟦 heatmap";
 let __HM_RENDER_COUNT = 0;
 
+/* ── Heatmap render (guarded) ───────────────────────────────────── */
+let __HM_RENDER_COUNT = 0;
+
 function renderHeatmap(rows, lengthFilter) {
   try {
+    const rowsArr = Array.isArray(rows) ? rows : [];
+    if (!rowsArr.length) {
+      heatmapSlot.replaceChildren(Object.assign(document.createElement("em"), {textContent:"No heat-map data — empty rows."}));
+      return;
+    }
+
     const { id: method } = getPredictor();
 
-    // if no explicit length passed, pick one from the data (first length of seq #1)
+    // pick a length if none given
     let wantedLen = Number(lengthFilter);
     if (!Number.isFinite(wantedLen)) {
-      const first = rows.find(r => (r["seq #"] ?? 1) === 1);
+      const first = rowsArr.find(r => Number(r["seq #"] ?? r["sequence_number"] ?? 1) === 1);
       wantedLen = rowLen(first);
     }
 
     const tStart = performance.now();
-    const { cells, posExtent, alleles } = buildHeatmapData(rows, method, wantedLen);
+    const { cells, posExtent, alleles } = buildHeatmapData(rowsArr, method, wantedLen);
 
-    // visible hooks on the container itself
     __HM_RENDER_COUNT++;
     heatmapSlot.dataset.renderCount  = String(__HM_RENDER_COUNT);
     heatmapSlot.dataset.lastLen      = String(wantedLen);
     heatmapSlot.dataset.lastMethod   = String(method);
-    heatmapSlot.dataset.cellCount    = String(cells.length);
-    heatmapSlot.dataset.alleleCount  = String(alleles.length);
+    heatmapSlot.dataset.cellCount    = String(cells?.length ?? 0);
+    heatmapSlot.dataset.alleleCount  = String(alleles?.length ?? 0);
     heatmapSlot.dataset.posMin       = String(posExtent?.[0] ?? "");
     heatmapSlot.dataset.posMax       = String(posExtent?.[1] ?? "");
 
     console.groupCollapsed(`🎨 render #${__HM_RENDER_COUNT}`);
     console.log("method:", method, "length:", wantedLen);
-    console.log("cells:", cells.length, "alleles:", alleles.length, "posExtent:", posExtent);
+    console.log("cells:", Array.isArray(cells) ? cells.length : "(not array)");
+    console.log("alleles:", Array.isArray(alleles) ? alleles.length : "(not array)", "posExtent:", posExtent);
     console.groupEnd();
 
-    // mirror into the visible <details> block
     updateHeatDebug({
       render_count : __HM_RENDER_COUNT,
       method       : method,
       selected_len : wantedLen,
-      cell_count   : cells.length,
-      allele_count : alleles.length,
+      cell_count   : Array.isArray(cells) ? cells.length : 0,
+      allele_count : Array.isArray(alleles) ? alleles.length : 0,
       pos_extent   : posExtent,
-      lengths_in_data: lengthsFromRows(rows)
+      lengths_in_data: lengthsFromRows(rowsArr)
     });
 
     heatmapSlot.replaceChildren();
-    if (!cells.length) {
+    if (!Array.isArray(cells) || !cells.length) {
       const span = document.createElement("span");
       span.textContent = "No heat-map data for selected length.";
       span.style.fontStyle = "italic";
@@ -848,7 +899,6 @@ function renderHeatmap(rows, lengthFilter) {
       sizeFactor: 1.1
     });
 
-    // tag the chart node too (for DOM inspection)
     el.dataset.len    = String(wantedLen);
     el.dataset.method = String(method);
     el.dataset.cells  = String(cells.length);
@@ -857,7 +907,7 @@ function renderHeatmap(rows, lengthFilter) {
     heatmapSlot.appendChild(el);
 
     const ms = Math.round(performance.now() - tStart);
-    console.log(`${logTag} render done in ${ms} ms`);
+    console.log("🟦 heatmap render done in", ms, "ms");
   } catch (err) {
     console.error("Heatmap render error:", err);
     const span = document.createElement("span");
@@ -866,6 +916,7 @@ function renderHeatmap(rows, lengthFilter) {
     heatmapSlot.replaceChildren(span);
   }
 }
+
 
 ```
 
