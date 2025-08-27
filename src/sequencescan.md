@@ -710,7 +710,21 @@ lengthCtrl.addEventListener("input", onSliderInput);
 invalidation.then(() => lengthCtrl.removeEventListener("input", onSliderInput));
 
 
-
+// Re-render when the length selector changes
+const onLenChange = () => {
+  const rowsNow = (latestRowsMut.value && latestRowsMut.value.length)
+    ? latestRowsMut.value
+    : (Array.isArray(predRowsMut.value) ? predRowsMut.value : []);
+  if (!rowsNow.length) return;
+  const len = Number(heatLenCtrl.value ?? selectedLenMut.value);
+  if (Number.isFinite(len)) renderHeatmap(rowsNow, len);
+};
+heatLenCtrl.addEventListener("input", onLenChange);
+heatLenCtrl.addEventListener("change", onLenChange);
+invalidation.then(() => {
+  heatLenCtrl.removeEventListener("input", onLenChange);
+  heatLenCtrl.removeEventListener("change", onLenChange);
+});
 
 ```
 
@@ -1002,21 +1016,7 @@ function refreshSeqChoices() {
   seqCtrl.style.display = items.length > 1 ? "" : "none"; // hide if single sequence
   seqCtrl.setOptions(items, prefer);
 }
-// Re-render when the length selector changes
-const onLenChange = () => {
-  const rowsNow = (latestRowsMut.value && latestRowsMut.value.length)
-    ? latestRowsMut.value
-    : (Array.isArray(predRowsMut.value) ? predRowsMut.value : []);
-  if (!rowsNow.length) return;
-  const len = Number(heatLenCtrl.value ?? selectedLenMut.value);
-  if (Number.isFinite(len)) renderHeatmap(rowsNow, len);
-};
-heatLenCtrl.addEventListener("input", onLenChange);
-heatLenCtrl.addEventListener("change", onLenChange);
-invalidation.then(() => {
-  heatLenCtrl.removeEventListener("input", onLenChange);
-  heatLenCtrl.removeEventListener("change", onLenChange);
-});
+
 ```
 
 <!-- Layout defined here (no JS layout cell) -->
