@@ -224,10 +224,6 @@ function parseFastaForIEDB(text, { wrap = false } = {}) {
     try { txt = await file.text(); } catch {}
     const { seqs, fastaText, issues } = parseFastaForIEDB(txt, { wrap: false });
 
-    setMut(seqListMut, seqs);
-    setMut(chosenSeqIdMut, seqs[0]?.id ?? null);
-    setMut(fastaTextMut, fastaText);
-
     // with:
     seqListMut.value      = seqs;
     chosenSeqIdMut.value  = seqs[0]?.id ?? null;
@@ -563,9 +559,6 @@ runBtn.addEventListener("click", async () => {
     console.log("lengths(seq#1):", lengthsFromRows(rows));
     console.groupEnd();
 
-    setMut(predRowsMut, rows);
-    setMut(latestRowsMut, rows);
-
     // with direct, guaranteed assignments:
     predRowsMut.value   = rows;
     latestRowsMut.value = rows;
@@ -691,6 +684,7 @@ const heatLenCtrl = makeHeatLenSelect({
   }
 });
 
+heatLenSlot.replaceChildren(heatLenCtrl);
 
 function refreshHeatLenChoices() {
   const fromSlider = sliderLengths();
