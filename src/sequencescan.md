@@ -271,8 +271,10 @@ function parseFastaForIEDB(text, { wrap = false } = {}) {
 ```js
 // REPLACE the current selectedSeqIndex with this pure getter:
 function selectedSeqIndex() {
-  const v = Number(chosenSeqIndexMut?.value);
-  return Number.isFinite(v) ? v : 1;
+  const dom = Number(seqSelectCtrl?.value);
+  if (Number.isFinite(dom)) return dom;
+  const mut = Number(chosenSeqIndexMut?.value);
+  return Number.isFinite(mut) ? mut : 1;
 }
 
 function lengthsFromRowsForSeq(rows, seqIdx = selectedSeqIndex()) {
