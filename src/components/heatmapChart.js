@@ -16,7 +16,9 @@ export function heatmapChart({
   posExtent,
   cellHeight = 20,
   sizeFactor = 1.2,
-  margin     = { top:16, right:20, bottom:60, left:90 },
+  margin     = { top:16, right:20, bottom:60, left:90 }, // left kept for vertical spacing only
+  gutterLeft = 110,
+  gutterRight= 12,
   onReady    = () => {},
   onZoom     = () => {},
   onRowToggle= () => {}
@@ -61,7 +63,7 @@ export function heatmapChart({
 
   const cellG  = svg.append("g").attr("clip-path", `url(#${clipId})`);
   const xAxisG = svg.append("g");
-  const yAxisG = svg.append("g").attr("transform", `translate(${margin.left-4},0)`);
+  const yAxisG = svg.append("g").attr("transform", `translate(${gutterLeft - 4},0)`);
 
   const tip = d3.select(document.body).append("div")
     .style("position","absolute").style("pointer-events","none")
@@ -90,8 +92,8 @@ export function heatmapChart({
     .on("zoom", ev => {
       let t = ev.transform;
 
-      const r0 = margin.left;
-      const r1 = viewW - margin.right;
+      const r0 = gutterLeft;
+      const r1 = viewW - gutterRight;
       const minX = (1 - t.k) * r1;
       const maxX = (1 - t.k) * r0;
       if (t.x < minX || t.x > maxX) {
@@ -119,15 +121,12 @@ export function heatmapChart({
     viewW = wPx;
     svg.attr("viewBox", `0 0 ${wPx} ${height0}`);
 
-    xBase = d3.scaleLinear(
-      [posMin - .5, posMax + .5],
-      [margin.left, wPx - margin.right]
-    );
+    xBase = d3.scaleLinear([posMin - .5, posMax + .5], [gutterLeft, wPx - gutterRight]);
 
     clip
-      .attr("x", margin.left)
+      .attr("x", gutterLeft)
       .attr("y", margin.top)
-      .attr("width",  Math.max(1, wPx - margin.left - margin.right))
+      .attr("width",  Math.max(1, wPx - gutterLeft - gutterRight))
       .attr("height", y.range()[1] - margin.top);
 
     const rects = cellG.selectAll("rect").data(data, d => `${d.allele}|${d.pos}`);
@@ -158,8 +157,8 @@ export function heatmapChart({
     renderRowHighlight();
 
     zoom
-      .extent([[margin.left, 0], [wPx - margin.right, height0]])
-      .translateExtent([[margin.left, 0], [wPx - margin.right, height0]]);
+      .extent([[gutterLeft, 0], [wPx - gutterRight, height0]])
+      .translateExtent([[gutterLeft, 0], [wPx - gutterRight, height0]]);
     svg.call(zoom).on("dblclick.zoom", null);
 
     onReady(xBase);

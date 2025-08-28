@@ -10,7 +10,9 @@ export function peptideChartScan({
   rowHeight   = 18,
   gap         = 2,
   sizeFactor  = 1.1,
-  margin      = { top: 18, right: 20, bottom: 24, left: 40 },
+  margin      = { top: 18, right: 20, bottom: 24, left: 40 }, // left/right not used for x
+  gutterLeft  = 110,
+  gutterRight = 12,
   barColor    = "#006DAE"
 } = {}) {
   // Pack into non-overlapping levels (greedy)
@@ -39,7 +41,7 @@ export function peptideChartScan({
   // Scales + axis
   const x = d3.scaleLinear()
     .domain([+posExtent[0] || 1, +posExtent[1] || 1])
-    .range([margin.left, width - margin.right]);
+    .range([gutterLeft, width - gutterRight]);
 
   const axisY = height - margin.bottom;
   const axisG = g.append("g")
