@@ -338,15 +338,16 @@ invalidation.then(() => fastaBox.textarea.removeEventListener("input", onFastaIn
 
 ```js
 function selectedSeqIndex() {
-  const raw = (chosenSeqIndexMut && "value" in chosenSeqIndexMut) ? chosenSeqIndexMut.value : undefined;
-  const v = Number(raw);
+  const v = Number((chosenSeqIndexMut && chosenSeqIndexMut.value) ?? 1);
   return Number.isFinite(v) && v >= 1 ? v : 1;
 }
+
 function setSelectedSeqIndex(n) {
   const v = Math.max(1, Number(n) || 1);
-  if (chosenSeqIndexMut && "value" in chosenSeqIndexMut) chosenSeqIndexMut.value = v;
+  setMut(chosenSeqIndexMut, v);   // ← ensure .value exists
   return v;
 }
+
 
 ```
 
@@ -689,14 +690,25 @@ runBtn.addEventListener("click", async () => {
 ```
 
 ```js
-/* Safe setter for Mutables */
+/* Safe setter for Mutables (permissive) */
 function setMut(mut, val) {
-  if (mut && typeof mut === "object" && "value" in mut) {
+  if (!mut || (typeof mut !== "object" && typeof mut !== "function")) {
+    console.warn("Mutable not ready when setting (not object):", { mut, val });
+    return;
+  }
+  try {
+    // Create or overwrite .value unconditionally
     mut.value = val;
-  } else {
-    console.warn("Mutable not ready when setting:", { mut, val });
+  } catch (e) {
+    // Fallback in very strict proxies
+    try {
+      Object.defineProperty(mut, "value", { value: val, writable: true, configurable: true });
+    } catch (e2) {
+      console.error("Failed to set Mutable.value", e2, { mut, val });
+    }
   }
 }
+
 ```
 
 ```js
@@ -1151,7 +1163,7 @@ function makeSeqSelect({ onChange } = {}) {
       sel.disabled = false;
       const want = (Number.isFinite(prefer) && values.includes(prefer)) ? prefer : values[0];
       root.value = want;
-      if (chosenSeqIndexMut && "value" in chosenSeqIndexMut) chosenSeqIndexMut.value = want; // write first
+      setMut(chosenSeqIndexMut, want); // write first (robust)
       if (typeof onChange === "function") onChange(want); // then notify
     } else {
       sel.disabled = true;
