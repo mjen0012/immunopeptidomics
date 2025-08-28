@@ -1033,7 +1033,6 @@ function renderHeatmap(rows, lengthFilter, seqIdx = selectedSeqIndex()) {
 
     const ms = Math.round(performance.now() - tStart);
     console.log("🟦 heatmap render done in", ms, "ms");
-    try { renderPeptideTrack(Number.isFinite(seqIdx) ? seqIdx : selectedSeqIndex()); } catch {}
   } catch (err) {
     console.error("Heatmap render error:", err);
     const span = document.createElement("span");
