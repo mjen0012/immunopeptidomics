@@ -1156,3 +1156,29 @@ window.__heatRefs = {
 };
 
 ```
+
+```js
+// Safe (re)fill from FASTA list; guarded against nulls and unmounted control
+function refreshSeqOptions() {
+  const seqsVal =
+    (seqListMut && typeof seqListMut === "object" && "value" in seqListMut)
+      ? seqListMut.value
+      : [];
+
+  const seqs = Array.isArray(seqsVal) ? seqsVal : [];
+  const items = seqs.map((s, i) => ({ index: i + 1, id: s?.id ?? `seq${i + 1}` }));
+
+  const preferRaw =
+    (chosenSeqIndexMut && typeof chosenSeqIndexMut === "object" && "value" in chosenSeqIndexMut)
+      ? chosenSeqIndexMut.value
+      : null;
+
+  const prefer = Number(preferRaw);
+  if (seqSelectCtrl && typeof seqSelectCtrl.setOptions === "function") {
+    seqSelectCtrl.setOptions(items, {
+      prefer: Number.isFinite(prefer) ? prefer : (items[0]?.index ?? 1)
+    });
+  }
+}
+
+```
