@@ -29,6 +29,111 @@ const latestRowsMut    = Mutable([]);
 /* tiny hook for console debugging */
 window.__heatLatestRows = () => latestRowsMut.value;
 
+
+/* ── Sequence selector (new) — place this block right after the State cell ── */
+const seqSelSlot = html`<div></div>`;
+const LOG_SEQ = "🟦 seq";
+
+function makeSeqSelect({ onChange } = {}) {
+  const root = document.createElement("div");
+  root.style.fontFamily = "'Roboto', sans-serif";
+
+  const label = document.createElement("label");
+  label.textContent = "Sequence";
+  label.style.cssText = "display:block;margin:0 0 8px 0;font:500 13px/1.3 'Roboto',sans-serif;color:#111;";
+
+  const sel = document.createElement("select");
+  sel.disabled = true;
+  sel.style.cssText = `
+    display:block; width:100%; min-width:200px;
+    padding:8px 10px; border:1px solid #bbb; border-radius:6px; background:#fff;
+    font:500 14px/1.2 'Roboto',sans-serif; color:#006DAE; cursor:pointer;
+  `;
+
+  root.append(label, sel);
+
+  Object.defineProperty(root, "value", {
+    get(){ return sel.value ? Number(sel.value) : undefined; },
+    set(v){ sel.value = String(v); }
+  });
+
+  root.setOptions = (items = [], { prefer } = {}) => {
+    const before = Array.from(sel.options).map(o => o.textContent);
+    sel.replaceChildren();
+
+    for (const { index, id } of items) {
+      const opt = document.createElement("option");
+      opt.value = String(index);            // 1-based "seq #"
+      opt.textContent = `${index} - ${id}`; // e.g. "1 - PB1F2"
+      sel.appendChild(opt);
+    }
+
+    const values = items.map(i => i.index);
+    if (values.length) {
+      sel.disabled = false;
+      const want = (Number.isFinite(prefer) && values.includes(prefer)) ? prefer : values[0];
+      root.value = want;
+      if (chosenSeqIndexMut && typeof chosenSeqIndexMut === "object" && "value" in chosenSeqIndexMut) {
+        chosenSeqIndexMut.value = want;
+      }
+      if (typeof onChange === "function") onChange(want);
+    } else {
+      sel.disabled = true;
+      root.value = undefined;
+      if (chosenSeqIndexMut && typeof chosenSeqIndexMut === "object" && "value" in chosenSeqIndexMut) {
+        chosenSeqIndexMut.value = null;
+      }
+    }
+
+    const after = Array.from(sel.options).map(o => o.textContent);
+    console.groupCollapsed(`${LOG_SEQ} setOptions`);
+    console.log("before → after", before, "→", after);
+    console.log("prefer:", prefer, "selected:", root.value);
+    console.groupEnd();
+  };
+
+  const handle = () => {
+    const idx = Number(root.value);
+    if (chosenSeqIndexMut && typeof chosenSeqIndexMut === "object" && "value" in chosenSeqIndexMut) {
+      chosenSeqIndexMut.value = Number.isFinite(idx) ? idx : null;
+    }
+    console.log(`${LOG_SEQ} change →`, idx);
+    if (typeof onChange === "function") onChange(idx);
+  };
+  sel.addEventListener("input", handle);
+  sel.addEventListener("change", handle);
+
+  return root;
+}
+
+const seqSelectCtrl = makeSeqSelect();
+seqSelSlot.replaceChildren(seqSelectCtrl);
+
+/* Safe (re)fill from FASTA list; guarded against nulls and unmounted control */
+function refreshSeqOptions() {
+  const seqsVal =
+    (seqListMut && typeof seqListMut === "object" && "value" in seqListMut)
+      ? seqListMut.value
+      : [];
+
+  const seqs = Array.isArray(seqsVal) ? seqsVal : [];
+  const items = seqs.map((s, i) => ({ index: i + 1, id: s?.id ?? `seq${i + 1}` }));
+
+  const preferRaw =
+    (chosenSeqIndexMut && typeof chosenSeqIndexMut === "object" && "value" in chosenSeqIndexMut)
+      ? chosenSeqIndexMut.value
+      : null;
+
+  const prefer = Number(preferRaw);
+  if (seqSelectCtrl && typeof seqSelectCtrl.setOptions === "function") {
+    seqSelectCtrl.setOptions(items, { prefer: Number.isFinite(prefer) ? prefer : (items[0]?.index ?? 1) });
+  }
+}
+
+/* Seed once on load (empty/disabled is fine) */
+refreshSeqOptions();
+
+
 ```
 
 ```js
@@ -1000,108 +1105,3 @@ function debugHeatContext(tag, len) {
 
 ```
 
-```js
-/* ── Sequence selector (new) — place this block right after the State cell ── */
-const seqSelSlot = html`<div></div>`;
-const LOG_SEQ = "🟦 seq";
-
-function makeSeqSelect({ onChange } = {}) {
-  const root = document.createElement("div");
-  root.style.fontFamily = "'Roboto', sans-serif";
-
-  const label = document.createElement("label");
-  label.textContent = "Sequence";
-  label.style.cssText = "display:block;margin:0 0 8px 0;font:500 13px/1.3 'Roboto',sans-serif;color:#111;";
-
-  const sel = document.createElement("select");
-  sel.disabled = true;
-  sel.style.cssText = `
-    display:block; width:100%; min-width:200px;
-    padding:8px 10px; border:1px solid #bbb; border-radius:6px; background:#fff;
-    font:500 14px/1.2 'Roboto',sans-serif; color:#006DAE; cursor:pointer;
-  `;
-
-  root.append(label, sel);
-
-  Object.defineProperty(root, "value", {
-    get(){ return sel.value ? Number(sel.value) : undefined; },
-    set(v){ sel.value = String(v); }
-  });
-
-  root.setOptions = (items = [], { prefer } = {}) => {
-    const before = Array.from(sel.options).map(o => o.textContent);
-    sel.replaceChildren();
-
-    for (const { index, id } of items) {
-      const opt = document.createElement("option");
-      opt.value = String(index);            // 1-based "seq #"
-      opt.textContent = `${index} - ${id}`; // e.g. "1 - PB1F2"
-      sel.appendChild(opt);
-    }
-
-    const values = items.map(i => i.index);
-    if (values.length) {
-      sel.disabled = false;
-      const want = (Number.isFinite(prefer) && values.includes(prefer)) ? prefer : values[0];
-      root.value = want;
-      if (chosenSeqIndexMut && typeof chosenSeqIndexMut === "object" && "value" in chosenSeqIndexMut) {
-        chosenSeqIndexMut.value = want;
-      }
-      if (typeof onChange === "function") onChange(want);
-    } else {
-      sel.disabled = true;
-      root.value = undefined;
-      if (chosenSeqIndexMut && typeof chosenSeqIndexMut === "object" && "value" in chosenSeqIndexMut) {
-        chosenSeqIndexMut.value = null;
-      }
-    }
-
-    const after = Array.from(sel.options).map(o => o.textContent);
-    console.groupCollapsed(`${LOG_SEQ} setOptions`);
-    console.log("before → after", before, "→", after);
-    console.log("prefer:", prefer, "selected:", root.value);
-    console.groupEnd();
-  };
-
-  const handle = () => {
-    const idx = Number(root.value);
-    if (chosenSeqIndexMut && typeof chosenSeqIndexMut === "object" && "value" in chosenSeqIndexMut) {
-      chosenSeqIndexMut.value = Number.isFinite(idx) ? idx : null;
-    }
-    console.log(`${LOG_SEQ} change →`, idx);
-    if (typeof onChange === "function") onChange(idx);
-  };
-  sel.addEventListener("input", handle);
-  sel.addEventListener("change", handle);
-
-  return root;
-}
-
-const seqSelectCtrl = makeSeqSelect();
-seqSelSlot.replaceChildren(seqSelectCtrl);
-
-/* Safe (re)fill from FASTA list; guarded against nulls and unmounted control */
-function refreshSeqOptions() {
-  const seqsVal =
-    (seqListMut && typeof seqListMut === "object" && "value" in seqListMut)
-      ? seqListMut.value
-      : [];
-
-  const seqs = Array.isArray(seqsVal) ? seqsVal : [];
-  const items = seqs.map((s, i) => ({ index: i + 1, id: s?.id ?? `seq${i + 1}` }));
-
-  const preferRaw =
-    (chosenSeqIndexMut && typeof chosenSeqIndexMut === "object" && "value" in chosenSeqIndexMut)
-      ? chosenSeqIndexMut.value
-      : null;
-
-  const prefer = Number(preferRaw);
-  if (seqSelectCtrl && typeof seqSelectCtrl.setOptions === "function") {
-    seqSelectCtrl.setOptions(items, { prefer: Number.isFinite(prefer) ? prefer : (items[0]?.index ?? 1) });
-  }
-}
-
-/* Seed once on load (empty/disabled is fine) */
-refreshSeqOptions();
-
-```
