@@ -259,17 +259,6 @@ let fastaDebounceTimer = null;
 
 async function parseAndApplyFASTA(rawText) {
   const { seqs, fastaText, issues } = parseFastaForIEDB(rawText, { wrap: false });
-
-  // Update app state (textarea shows RAW; we store SANITIZED fastaText)
-  setMut(seqListMut, seqs);
-  setMut(chosenSeqIdMut, seqs[0]?.id ?? null);
-  setMut(fastaTextMut, fastaText);
-
-  // Refresh the Sequence selector (this triggers its onChange → heatmap refresh)
-  const items = (seqs || []).map((s, i) => ({ index: i + 1, id: s?.id ?? `seq${i+1}` }));
-  if (seqSelectCtrl?.setOptions) seqSelectCtrl.setOptions(items, { prefer: 1 });
-
-  if (issues?.length) console.warn("FASTA issues (skipped sequences):", issues);
 }
 
 const onFastaInput = () => {
@@ -290,7 +279,6 @@ invalidation.then(() => fastaBox.textarea.removeEventListener("input", onFastaIn
   const isFileLike = (f) => f && typeof f.text === "function";
 
   const processFile = async (file) => {
-    const isFileLike = (f) => f && typeof f.text === "function";
     if (!isFileLike(file)) {
       // Clear state
       fastaBox.setText("");
@@ -304,31 +292,10 @@ invalidation.then(() => fastaBox.textarea.removeEventListener("input", onFastaIn
 
     let txt = "";
     try { txt = await file.text(); } catch {}
-
     // 1) show RAW in the textarea (no event)
     fastaBox.setText(txt);
-
     // 2) parse and apply once (don’t wait for debounce)
     await parseAndApplyFASTA(txt);
-  };
-
-    // Write to Mutables (guarded)
-    setMut(seqListMut, seqs);
-    setMut(chosenSeqIdMut, seqs[0]?.id ?? null);
-    setMut(fastaTextMut, fastaText);
-    setSelectedSeqIndex(seqs.length ? 1 : 1); // always 1-based; never null
-
-    // ✅ Immediately populate + enable the sequence selector from the parsed FASTA
-    try {
-      const items = (seqs || []).map((s, i) => ({ index: i + 1, id: s?.id ?? `seq${i+1}` }));
-      if (seqSelectCtrl?.setOptions) seqSelectCtrl.setOptions(items, { prefer: 1 });
-      setSelectedSeqIndex(1);
-    } catch (e) {
-      console.warn("seqSelectCtrl.setOptions skipped during early mount:", e);
-    }
-
-
-    if (issues.length) console.warn("FASTA issues (skipped sequences):", issues);
   };
 
   // 1) Wrapper root emits 'input' (uploadButton.js does this)
@@ -354,6 +321,7 @@ invalidation.then(() => fastaBox.textarea.removeEventListener("input", onFastaIn
     fileEl?.removeEventListener("change", onFileChange);
   });
 }
+
 
 ```
 
