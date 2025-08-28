@@ -1126,7 +1126,7 @@ const seqSelectCtrl = makeSeqSelect({
 
 seqSelSlot.replaceChildren(seqSelectCtrl);
 setSelectedSeqIndex(selectedSeqIndex());
-refreshSeqOptions(); // seed once
+refreshSeqOptions(seqSelectCtrl);
 
 
 ```
@@ -1158,14 +1158,14 @@ window.__heatRefs = {
 ```
 
 ```js
-// Safe (re)fill from FASTA list; guarded against nulls and unmounted control
-function refreshSeqOptions() {
+// Safe (re)fill from FASTA list; no global reads of seqSelectCtrl
+function refreshSeqOptions(ctrl) {
   const seqsVal =
     (seqListMut && typeof seqListMut === "object" && "value" in seqListMut)
       ? seqListMut.value
       : [];
 
-  const seqs = Array.isArray(seqsVal) ? seqsVal : [];
+  const seqs  = Array.isArray(seqsVal) ? seqsVal : [];
   const items = seqs.map((s, i) => ({ index: i + 1, id: s?.id ?? `seq${i + 1}` }));
 
   const preferRaw =
@@ -1174,8 +1174,8 @@ function refreshSeqOptions() {
       : null;
 
   const prefer = Number(preferRaw);
-  if (seqSelectCtrl && typeof seqSelectCtrl.setOptions === "function") {
-    seqSelectCtrl.setOptions(items, {
+  if (ctrl && typeof ctrl.setOptions === "function") {
+    ctrl.setOptions(items, {
       prefer: Number.isFinite(prefer) ? prefer : (items[0]?.index ?? 1)
     });
   }
