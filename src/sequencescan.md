@@ -269,11 +269,15 @@ function parseFastaForIEDB(text, { wrap = false } = {}) {
 ```
 
 ```js
+// Replace your current selectedSeqIndex() with this:
 function selectedSeqIndex() {
-  const v = Number(chosenSeqIndexMut?.value);
-  return Number.isFinite(v) ? v : 1;
-}
+  // Prefer the current DOM select value (immediate), fall back to the Mutable.
+  const fromCtrl = Number(seqSelectCtrl?.value);
+  if (Number.isFinite(fromCtrl)) return fromCtrl;
 
+  const fromMut = Number(chosenSeqIndexMut?.value);
+  return Number.isFinite(fromMut) ? fromMut : 1;
+}
 function lengthsFromRowsForSeq(rows, seqIdx = selectedSeqIndex()) {
   const set = new Set();
   for (const r of rows || []) {
@@ -716,19 +720,16 @@ heatLenSlot.replaceChildren(heatLenCtrl);
 
 function refreshHeatLenChoices() {
   const fromSlider = sliderLengths();
-
-  const cached = latestRowsMut.value || [];
-  const rowsForLens = cached.length
-    ? cached
+  const rowsForLens = (latestRowsMut.value && latestRowsMut.value.length)
+    ? latestRowsMut.value
     : (Array.isArray(predRowsMut.value) ? predRowsMut.value : []);
 
-  const seqIdx = selectedSeqIndex();  // 👈 use chosen sequence
+  const seqIdx   = selectedSeqIndex();  // ← picks up the current dropdown value
   const fromData = lengthsFromRowsForSeq(rowsForLens, seqIdx);
+  const lens     = fromData.length ? intersectSorted(fromSlider, fromData) : fromSlider;
+  const prefer   = heatLenCtrl.value ?? lens[0];
 
-  const lens   = fromData.length ? intersectSorted(fromSlider, fromData) : fromSlider;
-  const prefer = heatLenCtrl.value ?? lens[0];
-
-  console.groupCollapsed(`${LOG_LEN} refreshHeatLenChoices`);
+  console.groupCollapsed("🟦 heatmap refreshHeatLenChoices");
   console.log("seq #:", seqIdx);
   console.log("slider range:", fromSlider);
   console.log("lengths in data(seq#):", fromData);
@@ -814,16 +815,16 @@ heatmapSlot.after(heatDebug);
 
 function buildHeatmapData(rows, method, lengthFilter) {
   const wantedLen = Number(lengthFilter);
-  const wantSeq = selectedSeqIndex();  // ← read current dropdown selection
+  const wantSeq   = selectedSeqIndex();   // ← now comes from the live select
 
   const r1 = rows.filter(r => {
     const seqNum = Number(r["seq #"] ?? r["sequence_number"] ?? 1);
-    return seqNum === wantSeq && rowLen(r) === wantedLen;  // ← FIX
+    return seqNum === wantSeq && rowLen(r) === wantedLen;
   });
 
   console.groupCollapsed("🧮 buildHeatmapData");
   console.log("wantedLen:", wantedLen, "seq #:", wantSeq);
-  console.log(`rows(seq#${wantSeq}, len=${wantedLen}):`, r1.length); // clearer log
+  console.log(`rows(seq#${wantSeq}, len=${wantedLen}):`, r1.length);
   console.groupEnd();
 
   if (!r1.length) return { cells: [], posExtent: [1, 1], alleles: [] };
@@ -1112,17 +1113,16 @@ function makeSeqSelect({ onChange } = {}) {
 // Create & mount the control
 const seqSelectCtrl = makeSeqSelect({
   onChange: () => {
-    // When sequence changes, recompute lengths for that sequence and re-render
-    refreshHeatLenChoices();
-    const rows = (latestRowsMut.value && latestRowsMut.value.length)
-      ? latestRowsMut.value
-      : (Array.isArray(predRowsMut.value) ? predRowsMut.value : []);
+    refreshHeatLenChoices();                    // updates length dropdown for that seq
+    const rows = latestRowsMut.value?.length ? latestRowsMut.value
+               : Array.isArray(predRowsMut.value) ? predRowsMut.value : [];
     if (rows.length) {
       const len = Number(heatLenCtrl.value);
       renderHeatmap(rows, Number.isFinite(len) ? len : undefined);
     }
   }
 });
+
 seqSelSlot.replaceChildren(seqSelectCtrl);
 
 /* Safe (re)fill from FASTA list; guarded against nulls and unmounted control */
