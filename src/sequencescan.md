@@ -814,16 +814,16 @@ heatmapSlot.after(heatDebug);
 
 function buildHeatmapData(rows, method, lengthFilter) {
   const wantedLen = Number(lengthFilter);
-  const wantSeq = selectedSeqIndex();
+  const wantSeq = selectedSeqIndex();  // ← read current dropdown selection
 
   const r1 = rows.filter(r => {
     const seqNum = Number(r["seq #"] ?? r["sequence_number"] ?? 1);
-    return seqNum === 1 && rowLen(r) === wantedLen;
+    return seqNum === wantSeq && rowLen(r) === wantedLen;  // ← FIX
   });
 
   console.groupCollapsed("🧮 buildHeatmapData");
-  console.log("wantedLen:", wantedLen);
-  console.log("rows(seq#1,len=wanted):", r1.length);
+  console.log("wantedLen:", wantedLen, "seq #:", wantSeq);
+  console.log(`rows(seq#${wantSeq}, len=${wantedLen}):`, r1.length); // clearer log
   console.groupEnd();
 
   if (!r1.length) return { cells: [], posExtent: [1, 1], alleles: [] };
@@ -874,7 +874,8 @@ function renderHeatmap(rows, lengthFilter) {
 
     let wantedLen = Number(lengthFilter);
     if (!Number.isFinite(wantedLen)) {
-      const first = rowsArr.find(r => Number(r["seq #"] ?? r["sequence_number"] ?? 1) === 1);
+      const wantSeq = selectedSeqIndex();
+      const first = rowsArr.find(r => Number(r["seq #"] ?? r["sequence_number"] ?? 1) === wantSeq);
       wantedLen = rowLen(first);
     }
 
@@ -903,7 +904,7 @@ function renderHeatmap(rows, lengthFilter) {
       cell_count   : Array.isArray(cells) ? cells.length : 0,
       allele_count : Array.isArray(alleles) ? alleles.length : 0,
       pos_extent   : posExtent,
-      lengths_in_data: lengthsFromRows(rowsArr)
+      lengths_in_data: lengthsFromRowsForSeq(rowsArr, selectedSeqIndex())
     });
 
     heatmapSlot.replaceChildren();
