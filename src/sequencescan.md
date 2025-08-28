@@ -1194,3 +1194,20 @@ window.__heat = {
 };
 
 ```
+
+```js
+console.group("🔎 PROBE");
+console.log("chosenSeqIndexMut.value:", chosenSeqIndexMut?.value);
+console.log("selectedSeqIndex():", typeof selectedSeqIndex === "function" ? selectedSeqIndex() : "(missing)");
+console.log("seqSelectCtrl.value:", seqSelectCtrl?.value);
+console.log("heatLenCtrl.value:", heatLenCtrl?.value);
+
+// Inspect the actual <option> values behind the "Sequence" select
+{
+  const sel = seqSelectCtrl?.querySelector?.("select");
+  const opts = sel ? Array.from(sel.options).map(o => ({ value:o.value, text:o.text })) : "(no select)";
+  console.log("Sequence <option>s:", opts);
+}
+console.groupEnd();
+
+```
