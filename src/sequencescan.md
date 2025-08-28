@@ -270,20 +270,17 @@ function parseFastaForIEDB(text, { wrap = false } = {}) {
 ```
 
 ```js
-// REPLACE your selectedSeqIndex() with this version
 function selectedSeqIndex() {
   const raw = (chosenSeqIndexMut && "value" in chosenSeqIndexMut) ? chosenSeqIndexMut.value : undefined;
   const v = Number(raw);
-  // only accept 1-based finite values; otherwise fall back to 1
   return Number.isFinite(v) && v >= 1 ? v : 1;
 }
-
-// ADD this helper and use it everywhere you write the seq index
 function setSelectedSeqIndex(n) {
   const v = Math.max(1, Number(n) || 1);
   if (chosenSeqIndexMut && "value" in chosenSeqIndexMut) chosenSeqIndexMut.value = v;
   return v;
 }
+
 ```
 
 ```js
@@ -681,10 +678,6 @@ function makeHeatLenSelect({ onChange } = {}) {
     console.log("options before → after", before, "→", after);
     console.log("prefer:", prefer, "old:", +old, "new:", root.value);
     console.groupEnd();
-
-    if (typeof onChange === "function") onChange(Number(root.value));
-    root.dispatchEvent(new CustomEvent("input",  { bubbles: true, composed: true }));
-    root.dispatchEvent(new Event("change", { bubbles: true, composed: true }));
   };
 
   const handle = () => {
@@ -692,10 +685,7 @@ function makeHeatLenSelect({ onChange } = {}) {
     const rowsNow = latestRowsMut.value || [];
     console.log(`${LOG_LEN} selector change →`, len, `(cached rows: ${rowsNow.length})`);
     if (typeof onChange === "function") onChange(len);
-    root.dispatchEvent(new CustomEvent("input",  { bubbles: true, composed: true }));
-  };
-  sel.addEventListener("input", handle);
-  sel.addEventListener("change", handle);
+  sel.addEventListener("input", handle);   // only one event
 
   return root;
 }
@@ -1100,9 +1090,9 @@ function makeSeqSelect({ onChange } = {}) {
         // 2) then notify
         if (typeof onChange === "function") onChange(want);
       } else {
+
       sel.disabled = true;
       root.value = undefined;
-      // Keep a valid 1-based value; do NOT null it out
       setSelectedSeqIndex(1);
     }
 
@@ -1115,13 +1105,11 @@ function makeSeqSelect({ onChange } = {}) {
 
   const handle = () => {
     const idx = Number(root.value);
-    setSelectedSeqIndex(Number.isFinite(idx) ? idx : 1);           // 1) write
-        console.log("🟦 seq change →", idx);
-        if (typeof onChange === "function") onChange(idx);              // 2) notify
+    setSelectedSeqIndex(Number.isFinite(idx) ? idx : 1);           // write once
+    console.log("🟦 seq change →", idx);
+    if (typeof onChange === "function") onChange(idx);  
       };
-  sel.addEventListener("input", handle);
-  sel.addEventListener("change", handle);
-
+    sel.addEventListener("input", handle);  // only one event
   return root;
 }
 
