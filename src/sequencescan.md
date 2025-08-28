@@ -684,7 +684,12 @@ runBtn.addEventListener("click", async () => {
 
     // Ensure we render even if setOptions didn’t fire (e.g., identical value)
     const safeLen = Number(heatLenCtrl.value);
-    if (rowsLen) renderHeatmap(rows, safeLen);
+    if (rowsLen) {
+      renderHeatmap(rows, safeLen);
+      const seqNow = selectedSeqIndex();
+      try { renderPeptideTrack(seqNow); updatePeptideDownloadForSeq(seqNow); } catch {}
+    }
+
   } catch (err) {
     console.error(err);
     setStatus(`Error: ${err?.message || err}`, { warn:true });
@@ -797,8 +802,12 @@ const heatLenCtrl = makeHeatLenSelect({
     console.log("🟦 heatmap re-render on select", { len, rows: rowsNow.length, seq: seqNow },
                 "mutable=", chosenSeqIndexMut?.value);
     renderHeatmap(rowsNow, Number(len), seqNow);
+
+    // keep peptide track/download in sync
+    try { renderPeptideTrack(seqNow); updatePeptideDownloadForSeq(seqNow); } catch {}
   }
 });
+
 
 heatLenSlot.replaceChildren(heatLenCtrl);
 
@@ -1212,8 +1221,12 @@ const seqSelectCtrl = makeSeqSelect({
       console.log("🟦 seq change → re-render", { seq, len });
       renderHeatmap(rows, Number.isFinite(len) ? len : undefined, seq);
     }
+
+    // also refresh peptide track/download
+    try { renderPeptideTrack(seq); updatePeptideDownloadForSeq(seq); } catch {}
   }
 });
+
 
 seqSelSlot.replaceChildren(seqSelectCtrl);
 setSelectedSeqIndex(selectedSeqIndex());
