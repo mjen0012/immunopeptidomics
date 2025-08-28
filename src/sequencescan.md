@@ -724,14 +724,15 @@ function intersectSorted(a, b) { const B = new Set(b); return a.filter(x => B.ha
 // ⬇️ keep everything else as-is in makeHeatLenSelect; only swap this onChange:
 const heatLenCtrl = makeHeatLenSelect({
   onChange: (len) => {
-    const cached = latestRowsMut.value || [];
-    const rowsNow = cached.length
-      ? cached
+    const cached  = latestRowsMut.value || [];
+    const rowsNow = cached.length ? cached
       : (Array.isArray(predRowsMut.value) ? predRowsMut.value : []);
     if (rowsNow.length) {
-      const seqNow = selectedSeqIndex(); // ← explicit
-      console.log("🟦 heatmap re-render on select", { len, rows: rowsNow.length, seq: seqNow });
-      renderHeatmap(rowsNow, Number(len), seqNow); // ← pass seq
+      const seqDom = Number(seqSelectCtrl?.value);
+      const seqNow = Number.isFinite(seqDom) ? seqDom : selectedSeqIndex(); // DOM first, getter fallback
+      console.log("🟦 heatmap re-render on select",
+                  { len, rows: rowsNow.length, seq: seqNow }, "seq(ctl)=", seqDom);
+      renderHeatmap(rowsNow, Number(len), seqNow);
     } else {
       console.warn("🟦 heatmap no rows available on select");
     }
@@ -739,25 +740,25 @@ const heatLenCtrl = makeHeatLenSelect({
 });
 
 
-
 heatLenSlot.replaceChildren(heatLenCtrl);
 
-function refreshHeatLenChoices() {
-  console.log("🟦 refreshHeatLenChoices() seq(getter)=", selectedSeqIndex(),
-            "seq(ctl)=", seqSelectCtrl?.value,
-            "raw mutable=", chosenSeqIndexMut?.value);
+function refreshHeatLenChoices(seqOverride) {
   const fromSlider = sliderLengths();
   const rowsForLens = (latestRowsMut.value && latestRowsMut.value.length)
     ? latestRowsMut.value
     : (Array.isArray(predRowsMut.value) ? predRowsMut.value : []);
 
-  const seqIdx   = selectedSeqIndex();                   // ← current seq
+  const seqIdx =
+    Number.isFinite(seqOverride) ? seqOverride :
+    Number.isFinite(Number(seqSelectCtrl?.value)) ? Number(seqSelectCtrl.value) :
+    selectedSeqIndex();
+
   const fromData = lengthsFromRowsForSeq(rowsForLens, seqIdx);
   const lens     = fromData.length ? intersectSorted(fromSlider, fromData) : fromSlider;
   const prefer   = heatLenCtrl.value ?? lens[0];
 
   console.groupCollapsed("🟦 heatmap refreshHeatLenChoices");
-  console.log("seq #:", seqIdx);
+  console.log("seq (override/dom/getter):", seqOverride, seqSelectCtrl?.value, selectedSeqIndex());
   console.log("slider range:", fromSlider);
   console.log("lengths in data(seq#):", fromData);
   console.log("intersect:", lens, "prefer:", prefer);
@@ -1146,15 +1147,18 @@ function makeSeqSelect({ onChange } = {}) {
 
 // Create & mount the control
 const seqSelectCtrl = makeSeqSelect({
-  onChange: () => {
-    refreshHeatLenChoices();  // updates length dropdown for that seq
+  onChange: (idx) => {
+    const seq = Number.isFinite(idx) ? idx : selectedSeqIndex();
+
+    // update available lengths for THIS sequence
+    refreshHeatLenChoices(seq);
+
     const rows = latestRowsMut.value?.length ? latestRowsMut.value
                : Array.isArray(predRowsMut.value) ? predRowsMut.value : [];
     if (rows.length) {
       const len = Number(heatLenCtrl.value);
-      const seqIdxNow = selectedSeqIndex();                 // ← read from Mutable
-      console.log("🟦 seq change → re-render", { seq: seqIdxNow, len });
-      renderHeatmap(rows, Number.isFinite(len) ? len : undefined, seqIdxNow);
+      console.log("🟦 seq change → re-render", { seq, len });
+      renderHeatmap(rows, Number.isFinite(len) ? len : undefined, seq);
     }
   }
 });
@@ -1190,27 +1194,25 @@ refreshSeqOptions();
 
 ```js
 window.__heat = {
-  seq: () => selectedSeqIndex(),
-  chosen: () => chosenSeqIndexMut.value,
-  len: () => heatLenCtrl.value,
-  lastRender: () => ({...heatmapSlot.dataset})
+  seq:    () => (typeof selectedSeqIndex === "function" ? selectedSeqIndex() : "(missing getter)"),
+  chosen: () => (chosenSeqIndexMut && typeof chosenSeqIndexMut === "object" && "value" in chosenSeqIndexMut
+                  ? chosenSeqIndexMut.value
+                  : "(no mutable)"),
+  len:        () => (heatLenCtrl?.value),
+  lastRender: () => ({ ...heatmapSlot.dataset })
 };
+
 
 ```
 
 ```js
-console.group("🔎 PROBE — inside page");
-try {
-  const selEl = seqSelectCtrl?.querySelector?.("select");
-  const options = selEl ? Array.from(selEl.options).map(o => ({ value:o.value, text:o.text })) : "(no select)";
-  console.log("seqSelectCtrl.value       →", seqSelectCtrl?.value);
-  console.log("chosenSeqIndexMut.value   →", chosenSeqIndexMut?.value);
-  console.log("selectedSeqIndex()        →", typeof selectedSeqIndex === "function" ? selectedSeqIndex() : "(missing)");
-  console.log("heatLenCtrl.value         →", heatLenCtrl?.value);
-  console.log("Sequence <option>s        →", options);
-} catch (e) {
-  console.error("probe error:", e);
-}
-console.groupEnd();
+window.__heatRefs = {
+  get seqCtl() { return seqSelectCtrl?.querySelector?.("select"); },
+  get seqVal() { return Number(seqSelectCtrl?.value); },
+  get lenVal() { return Number(heatLenCtrl?.value); },
+  get chosen() { return (chosenSeqIndexMut && "value" in chosenSeqIndexMut) ? chosenSeqIndexMut.value : null; },
+  refreshHeatLenChoices,
+  renderHeatmap
+};
 
 ```
