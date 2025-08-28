@@ -312,8 +312,6 @@ invalidation.then(() => fastaBox.textarea.removeEventListener("input", onFastaIn
     await parseAndApplyFASTA(txt);
   };
 
-    const { seqs, fastaText, issues } = parseFastaForIEDB(txt, { wrap: false });
-
     // Write to Mutables (guarded)
     setMut(seqListMut, seqs);
     setMut(chosenSeqIdMut, seqs[0]?.id ?? null);
