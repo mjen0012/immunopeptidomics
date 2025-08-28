@@ -209,19 +209,109 @@ function parseFastaForIEDB(text, { wrap = false } = {}) {
 ```
 
 ```js
+/* ── FASTA textarea (single source of truth) ────────────────────── */
+
+function fastaTextarea({ label = "FASTA", rows = 12, placeholder = "Paste or type FASTA here…" } = {}) {
+  const root = document.createElement("div");
+  root.style.fontFamily = "'Roboto', sans-serif";
+
+  const lab = document.createElement("label");
+  lab.textContent = label;
+  lab.style.cssText = "display:block;margin:12px 0 6px;font:500 13px/1.3 'Roboto',sans-serif;color:#111;";
+
+  const ta = document.createElement("textarea");
+  ta.rows = rows;
+  ta.placeholder = placeholder;
+  ta.spellcheck = false;
+  ta.autocapitalize = "off";
+  ta.autocorrect = "off";
+  ta.wrap = "off";
+  ta.style.cssText = `
+    display:block; width:100%; box-sizing:border-box; resize:vertical;
+    padding:10px 12px; border:1px solid #bbb; border-radius:6px; background:#fff;
+    font:500 13px/1.45 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+    min-height:0;
+  `;
+
+  root.append(lab, ta);
+
+  let programmatic = false;
+  Object.defineProperty(root, "value", {
+    get(){ return ta.value; },
+    set(v){ ta.value = String(v ?? ""); }
+  });
+  root.setText = (txt) => { programmatic = true; ta.value = String(txt ?? ""); programmatic = false; };
+  root.__isProg = () => programmatic;
+  root.textarea = ta;
+
+  return root;
+}
+
+const fastaBox = fastaTextarea({
+  label: "FASTA",
+  rows: 12,
+  placeholder: "Paste or type FASTA here… (we’ll sanitize for IEDB under the hood)"
+});
+
+/* Debounced parsing from textarea */
+const DEBOUNCE_MS = 400;
+let fastaDebounceTimer = null;
+
+async function parseAndApplyFASTA(rawText) {
+  const { seqs, fastaText, issues } = parseFastaForIEDB(rawText, { wrap: false });
+
+  // Update app state (textarea shows RAW; we store SANITIZED fastaText)
+  setMut(seqListMut, seqs);
+  setMut(chosenSeqIdMut, seqs[0]?.id ?? null);
+  setMut(fastaTextMut, fastaText);
+
+  // Refresh the Sequence selector (this triggers its onChange → heatmap refresh)
+  const items = (seqs || []).map((s, i) => ({ index: i + 1, id: s?.id ?? `seq${i+1}` }));
+  if (seqSelectCtrl?.setOptions) seqSelectCtrl.setOptions(items, { prefer: 1 });
+
+  if (issues?.length) console.warn("FASTA issues (skipped sequences):", issues);
+}
+
+const onFastaInput = () => {
+  if (fastaBox.__isProg()) return; // ignore programmatic changes
+  clearTimeout(fastaDebounceTimer);
+  fastaDebounceTimer = setTimeout(() => {
+    parseAndApplyFASTA(fastaBox.value);
+  }, DEBOUNCE_MS);
+};
+fastaBox.textarea.addEventListener("input", onFastaInput);
+invalidation.then(() => fastaBox.textarea.removeEventListener("input", onFastaInput));
+
+```
+
+```js
 // Robust upload wiring (wrapper 'input' + file 'change' + restore)
 {
   const isFileLike = (f) => f && typeof f.text === "function";
 
   const processFile = async (file) => {
+    const isFileLike = (f) => f && typeof f.text === "function";
     if (!isFileLike(file)) {
+      // Clear state
+      fastaBox.setText("");
       setMut(seqListMut, []);
       setMut(chosenSeqIdMut, null);
       setMut(fastaTextMut, "");
+      // Disable/clear sequence selector
+      if (seqSelectCtrl?.setOptions) seqSelectCtrl.setOptions([], { prefer: 1 });
       return;
     }
+
     let txt = "";
     try { txt = await file.text(); } catch {}
+
+    // 1) show RAW in the textarea (no event)
+    fastaBox.setText(txt);
+
+    // 2) parse and apply once (don’t wait for debounce)
+    await parseAndApplyFASTA(txt);
+  };
+
     const { seqs, fastaText, issues } = parseFastaForIEDB(txt, { wrap: false });
 
     // Write to Mutables (guarded)
@@ -959,6 +1049,7 @@ function renderHeatmap(rows, lengthFilter, seqIdx = selectedSeqIndex()) {
     ${predictorDrop}
     ${alleleSlot}
     ${lengthCtrl}
+    ${fastaBox}
   </div>
 </div>
 
