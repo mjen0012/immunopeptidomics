@@ -267,7 +267,13 @@ async function parseAndApplyFASTA(rawText) {
 
   // Refill + enable the Sequence dropdown (fires its onChange handler)
   refreshSeqOptions(seqSelectCtrl);
-
+  {
+    const aligned = alignAllPeptides(seqListMut.value || [], peptideListMut.value || []);
+    alignedPepsMut.value = aligned;
+    latestAlignedPepsMut.value = aligned;
+    renderPeptideTrack(selectedSeqIndex());
+    updatePeptideDownloadForSeq(selectedSeqIndex());
+  }
   if (issues?.length) console.warn("FASTA issues (skipped sequences):", issues);
 }
 
@@ -1018,6 +1024,7 @@ function renderHeatmap(rows, lengthFilter, seqIdx = selectedSeqIndex()) {
 
     const ms = Math.round(performance.now() - tStart);
     console.log("🟦 heatmap render done in", ms, "ms");
+    try { renderPeptideTrack(Number.isFinite(seqIdx) ? seqIdx : selectedSeqIndex()); } catch {}
   } catch (err) {
     console.error("Heatmap render error:", err);
     const span = document.createElement("span");
@@ -1039,6 +1046,8 @@ function renderHeatmap(rows, lengthFilter, seqIdx = selectedSeqIndex()) {
     ${alleleSlot}
     ${lengthCtrl}
     ${fastaBox}
+    ${uploadPepsBtn}
+    ${peptideBox}
   </div>
 </div>
 
@@ -1048,6 +1057,7 @@ function renderHeatmap(rows, lengthFilter, seqIdx = selectedSeqIndex()) {
     ${runBtn}
     ${statusBanner}
     ${downloadBtn}
+    ${dlPepsBtn}
   </div>
 </div>
 
@@ -1055,6 +1065,7 @@ function renderHeatmap(rows, lengthFilter, seqIdx = selectedSeqIndex()) {
   <h2>Heatmap</h2>
   ${seqSelSlot}
   ${heatLenSlot}
+  ${peptideSlot}  
   ${heatmapSlot}
   ${heatDebug}
 </div>
@@ -1185,6 +1196,8 @@ function makeSeqSelect({ onChange } = {}) {
     if (typeof onChange === "function") onChange(idx);
   };
   sel.addEventListener("input", handle); // 🔸 only one event
+  renderPeptideTrack(seq);
+  updatePeptideDownloadForSeq(seq);
 
   return root;
 }
@@ -1260,5 +1273,306 @@ function refreshSeqOptions(ctrl) {
     });
   }
 }
+
+```
+
+```js
+import { peptideChartScan } from "./components/peptideChartScan.js";
+
+```
+
+```js
+const peptideTextMut        = Mutable("");     // raw textarea text (optional)
+const peptideListMut        = Mutable([]);     // ["PEPTIDE", ...] (sanitized AA20)
+const alignedPepsMut        = Mutable([]);     // all alignments across all seqs
+const latestAlignedPepsMut  = Mutable([]);     // stable cache for render
+
+```
+
+```js
+function getSeqByIndex(idx) {
+  const arr = Array.isArray(seqListMut.value) ? seqListMut.value : [];
+  return arr[idx - 1] || null;
+}
+function getSeqLength(idx) {
+  const s = getSeqByIndex(idx);
+  return s ? (s.sequence || "").length : 1;
+}
+function getAxisExtentForSeq(idx) {
+  const seqLen = getSeqLength(idx);
+  const hmMax  = Number(heatmapSlot?.dataset?.posMax || 0) || 0;
+  const maxPos = Math.max(seqLen, hmMax, 1);
+  return [1, maxPos];
+}
+
+```
+
+```js
+const AA20 = new Set("ACDEFGHIKLMNPQRSTVWY".split("")); // already defined above; reuse if in scope
+
+function sanitizePeptide(s) {
+  return String(s || "")
+    .trim()
+    .toUpperCase()
+    .replace(/[\s\r\n\t-]/g, "");
+}
+function isAA20Only(s) {
+  if (!s) return false;
+  for (const c of s) if (!AA20.has(c)) return false;
+  return true;
+}
+
+/* Accepts:
+   - plain list: one peptide per line
+   - CSV: with header "peptide" (ignored) or no header (first column)
+*/
+function parsePeptideInput(text) {
+  const lines = String(text || "").split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+  if (!lines.length) return [];
+
+  // CSV detection: commas or semicolons
+  const looksCSV = /[,;]/.test(lines[0]);
+  const out = [];
+
+  if (looksCSV) {
+    const sep = lines[0].includes(";") && !lines[0].includes(",") ? ";" : ",";
+    const first = lines[0].split(sep).map(s => s.trim());
+    const hasHeader = first.some(h => /^peptide$/i.test(h));
+    let pepIdx = 0;
+
+    if (hasHeader) {
+      pepIdx = first.findIndex(h => /^peptide$/i.test(h));
+      for (let i = 1; i < lines.length; i++) {
+        const cols = lines[i].split(sep);
+        const raw  = cols[pepIdx] ?? "";
+        const pep  = sanitizePeptide(raw);
+        if (pep && isAA20Only(pep)) out.push(pep);
+      }
+    } else {
+      // Assume first column holds peptides
+      for (const ln of lines) {
+        const raw = ln.split(sep)[0] ?? "";
+        const pep = sanitizePeptide(raw);
+        if (pep && isAA20Only(pep)) out.push(pep);
+      }
+    }
+    return out;
+  }
+
+  // Plain list (ignore a single 'peptide' header if present)
+  const startAt = /^peptide$/i.test(lines[0]) ? 1 : 0;
+  for (let i = startAt; i < lines.length; i++) {
+    const pep = sanitizePeptide(lines[i]);
+    if (pep && isAA20Only(pep)) out.push(pep);
+  }
+  return out;
+}
+
+```
+
+```js
+/* Return [{ seq_index, seq_id, peptide, start, length }] for all matches (1-based). */
+function alignAllPeptides(seqs = seqListMut.value || [], peps = peptideListMut.value || []) {
+  const out = [];
+  const arr = Array.isArray(seqs) ? seqs : [];
+  const peptides = Array.isArray(peps) ? peps : [];
+  for (let i = 0; i < arr.length; i++) {
+    const seq_index = i + 1;
+    const seq_id = arr[i]?.id ?? `seq${seq_index}`;
+    const seq = String(arr[i]?.sequence || "");
+    if (!seq) continue;
+    for (const p of peptides) {
+      if (!p) continue;
+      let from = 0;
+      while (true) {
+        const pos0 = seq.indexOf(p, from);
+        if (pos0 === -1) break;
+        out.push({ seq_index, seq_id, peptide: p, start: pos0 + 1, length: p.length });
+        from = pos0 + 1; // allow overlaps
+      }
+    }
+  }
+  return out;
+}
+
+```
+
+```js
+function simpleTextarea({ label, rows = 12, placeholder = "" } = {}) {
+  const root = document.createElement("div");
+  root.style.fontFamily = "'Roboto', sans-serif";
+
+  const lab = document.createElement("label");
+  lab.textContent = label;
+  lab.style.cssText = "display:block;margin:12px 0 6px;font:500 13px/1.3 'Roboto',sans-serif;color:#111;";
+
+  const ta = document.createElement("textarea");
+  ta.rows = rows;
+  ta.placeholder = placeholder;
+  ta.spellcheck = false;
+  ta.autocapitalize = "off";
+  ta.autocorrect = "off";
+  ta.wrap = "off";
+  ta.style.cssText = `
+    display:block; width:100%; box-sizing:border-box; resize:vertical;
+    padding:10px 12px; border:1px solid #bbb; border-radius:6px; background:#fff;
+    font:500 13px/1.45 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+    min-height:0;
+  `;
+
+  root.append(lab, ta);
+
+  let programmatic = false;
+  Object.defineProperty(root, "value", {
+    get(){ return ta.value; },
+    set(v){ ta.value = String(v ?? ""); }
+  });
+  root.setText = (txt) => { programmatic = true; ta.value = String(txt ?? ""); programmatic = false; };
+  root.__isProg = () => programmatic;
+  root.textarea = ta;
+
+  return root;
+}
+
+const uploadPepsBtn = uploadButton({ label:"Upload Peptides (.txt/.csv)", accept: ".txt,.csv" });
+const peptideBox = simpleTextarea({
+  label: "Peptides",
+  rows: 12,
+  placeholder: "Paste peptides (one per line) or CSV with a 'peptide' column…"
+});
+
+const DEBOUNCE_PEP_MS = 350;
+let pepDebounceTimer = null;
+
+async function parseAndApplyPeptides(rawText) {
+  const list = parsePeptideInput(rawText).slice(0, 100); // cap ~100 as requested
+  setMut(peptideTextMut, rawText);
+  setMut(peptideListMut, list);
+
+  // Re-align against all sequences
+  const aligned = alignAllPeptides(seqListMut.value || [], list);
+  alignedPepsMut.value = aligned;
+  latestAlignedPepsMut.value = aligned;
+
+  // Refresh track & download for current selection
+  renderPeptideTrack(selectedSeqIndex());
+  updatePeptideDownloadForSeq(selectedSeqIndex());
+}
+
+const onPeptideInput = () => {
+  if (peptideBox.__isProg()) return;
+  clearTimeout(pepDebounceTimer);
+  pepDebounceTimer = setTimeout(() => {
+    parseAndApplyPeptides(peptideBox.value);
+  }, DEBOUNCE_PEP_MS);
+};
+peptideBox.textarea.addEventListener("input", onPeptideInput);
+invalidation.then(() => peptideBox.textarea.removeEventListener("input", onPeptideInput));
+
+/* Upload wiring (mirror sequences) */
+{
+  const isFileLike = (f) => f && typeof f.text === "function";
+  const processFile = async (file) => {
+    if (!isFileLike(file)) {
+      peptideBox.setText("");
+      setMut(peptideListMut, []);
+      setMut(peptideTextMut, "");
+      alignedPepsMut.value = [];
+      latestAlignedPepsMut.value = [];
+      renderPeptideTrack(selectedSeqIndex());
+      updatePeptideDownloadForSeq(selectedSeqIndex());
+      return;
+    }
+    let txt = ""; try { txt = await file.text(); } catch {}
+    peptideBox.setText(txt);
+    await parseAndApplyPeptides(txt);
+  };
+
+  const onRootInput = async () => {
+    const v = uploadPepsBtn?.value;
+    const file = Array.isArray(v) ? v[0] : v;
+    await processFile(file ?? null);
+  };
+  uploadPepsBtn.addEventListener("input", onRootInput);
+
+  const fileEl = uploadPepsBtn?.querySelector?.('input[type="file"]');
+  const onFileChange = async () => { await processFile(fileEl?.files?.[0] ?? null); };
+  fileEl?.addEventListener("change", onFileChange);
+
+  if (fileEl?.files?.length) onFileChange();
+
+  invalidation.then(() => {
+    uploadPepsBtn.removeEventListener("input", onRootInput);
+    fileEl?.removeEventListener("change", onFileChange);
+  });
+}
+
+```
+
+```js
+const peptideSlot = html`<div style="margin:8px 0"></div>`;
+const dlPepsBtn   = makeButton("Download peptides (CSV)");
+dlPepsBtn.disabled = true;
+
+/* Filter aligned rows for a given seq index */
+function alignedForSeq(idx) {
+  const all = Array.isArray(latestAlignedPepsMut.value) && latestAlignedPepsMut.value.length
+              ? latestAlignedPepsMut.value
+              : Array.isArray(alignedPepsMut.value) ? alignedPepsMut.value : [];
+  return all.filter(r => r.seq_index === idx);
+}
+
+/* Render track for current sequence; keep axis extent in sync with heatmap. */
+function renderPeptideTrack(seqIdx = selectedSeqIndex()) {
+  const rows = alignedForSeq(seqIdx).map(r => ({
+    start  : r.start,
+    length : r.length,
+    peptide: r.peptide
+  }));
+  const posExtent = getAxisExtentForSeq(seqIdx);
+
+  peptideSlot.replaceChildren();
+  if (!rows.length) {
+    const em = document.createElement("em");
+    em.textContent = "No aligned peptides for the selected sequence.";
+    peptideSlot.appendChild(em);
+    return;
+  }
+  const el = peptideChartScan({
+    data: rows,
+    posExtent,
+    rowHeight: 18,
+    sizeFactor: 1.1
+  });
+  peptideSlot.appendChild(el);
+}
+
+/* CSV download */
+let pepCsvUrl = null;
+function buildPeptideCSV(rows) {
+  if (!rows || !rows.length) return "";
+  const cols = ["sequence_index","sequence_id","peptide","start","length"];
+  const esc = v => {
+    const s = v == null ? "" : String(v);
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g,'""')}"` : s;
+  };
+  return [cols.join(","), ...rows.map(r => cols.map(c => esc(r[c])).join(","))].join("\n");
+}
+function updatePeptideDownloadForSeq(seqIdx) {
+  if (pepCsvUrl) { try { URL.revokeObjectURL(pepCsvUrl); } catch {} pepCsvUrl = null; }
+  const rows = alignedForSeq(seqIdx);
+  if (!rows.length) { dlPepsBtn.disabled = true; return; }
+  const csv = buildPeptideCSV(rows);
+  pepCsvUrl = URL.createObjectURL(new Blob([csv], { type:"text/csv" }));
+  dlPepsBtn.disabled = false;
+}
+dlPepsBtn.onclick = () => {
+  if (!pepCsvUrl) { alert("No aligned peptides to download."); return; }
+  const a = document.createElement("a");
+  a.href = pepCsvUrl;
+  a.download = "aligned_peptides.csv";
+  a.click();
+};
+invalidation.then(() => { if (pepCsvUrl) URL.revokeObjectURL(pepCsvUrl); });
 
 ```
