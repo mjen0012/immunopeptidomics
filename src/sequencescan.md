@@ -259,6 +259,16 @@ let fastaDebounceTimer = null;
 
 async function parseAndApplyFASTA(rawText) {
   const { seqs, fastaText, issues } = parseFastaForIEDB(rawText, { wrap: false });
+
+  // Update app state (textarea shows RAW; we store SANITIZED fastaText)
+  setMut(seqListMut, seqs);
+  setMut(chosenSeqIdMut, seqs[0]?.id ?? null);
+  setMut(fastaTextMut, fastaText);
+
+  // Refill + enable the Sequence dropdown (fires its onChange handler)
+  refreshSeqOptions(seqSelectCtrl);
+
+  if (issues?.length) console.warn("FASTA issues (skipped sequences):", issues);
 }
 
 const onFastaInput = () => {
@@ -270,6 +280,7 @@ const onFastaInput = () => {
 };
 fastaBox.textarea.addEventListener("input", onFastaInput);
 invalidation.then(() => fastaBox.textarea.removeEventListener("input", onFastaInput));
+
 
 ```
 
