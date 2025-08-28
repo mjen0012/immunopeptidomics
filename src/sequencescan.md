@@ -269,15 +269,12 @@ function parseFastaForIEDB(text, { wrap = false } = {}) {
 ```
 
 ```js
-// Replace your current selectedSeqIndex() with this:
+// REPLACE the current selectedSeqIndex with this pure getter:
 function selectedSeqIndex() {
-  // Prefer the current DOM select value (immediate), fall back to the Mutable.
-  const fromCtrl = Number(seqSelectCtrl?.value);
-  if (Number.isFinite(fromCtrl)) return fromCtrl;
-
-  const fromMut = Number(chosenSeqIndexMut?.value);
-  return Number.isFinite(fromMut) ? fromMut : 1;
+  const v = Number(chosenSeqIndexMut?.value);
+  return Number.isFinite(v) ? v : 1;
 }
+
 function lengthsFromRowsForSeq(rows, seqIdx = selectedSeqIndex()) {
   const set = new Set();
   for (const r of rows || []) {
@@ -810,9 +807,6 @@ function makeHeatDebugBox() {
 const heatDebug = makeHeatDebugBox();
 function updateHeatDebug(payload) { try { heatDebug.__setText(payload); } catch {} }
 
-// mount the debug box under the chart
-heatmapSlot.after(heatDebug);
-
 function buildHeatmapData(rows, method, lengthFilter) {
   const wantedLen = Number(lengthFilter);
   const wantSeq   = selectedSeqIndex();   // ← now comes from the live select
@@ -1077,11 +1071,11 @@ function makeSeqSelect({ onChange } = {}) {
       sel.disabled = false;
       const want = (Number.isFinite(prefer) && values.includes(prefer)) ? prefer : values[0];
       root.value = want;
-      if (chosenSeqIndexMut && typeof chosenSeqIndexMut === "object" && "value" in chosenSeqIndexMut) {
-        chosenSeqIndexMut.value = want;
-      }
-      if (typeof onChange === "function") onChange(want);
-    } else {
+        // 1) write to the Mutable FIRST
+        if (chosenSeqIndexMut && "value" in chosenSeqIndexMut) chosenSeqIndexMut.value = want;
+        // 2) then notify
+        if (typeof onChange === "function") onChange(want);
+      } else {
       sel.disabled = true;
       root.value = undefined;
       if (chosenSeqIndexMut && typeof chosenSeqIndexMut === "object" && "value" in chosenSeqIndexMut) {
@@ -1098,11 +1092,11 @@ function makeSeqSelect({ onChange } = {}) {
 
   const handle = () => {
     const idx = Number(root.value);
-    if (chosenSeqIndexMut && typeof chosenSeqIndexMut === "object" && "value" in chosenSeqIndexMut) {
-      chosenSeqIndexMut.value = Number.isFinite(idx) ? idx : null;
+    if (chosenSeqIndexMut && "value" in chosenSeqIndexMut) {
+      chosenSeqIndexMut.value = Number.isFinite(idx) ? idx : null; // 1) write
     }
     console.log(`${LOG_SEQ} change →`, idx);
-    if (typeof onChange === "function") onChange(idx);
+    if (typeof onChange === "function") onChange(idx);              // 2) notify
   };
   sel.addEventListener("input", handle);
   sel.addEventListener("change", handle);
