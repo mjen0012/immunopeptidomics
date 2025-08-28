@@ -1196,8 +1196,6 @@ function makeSeqSelect({ onChange } = {}) {
     if (typeof onChange === "function") onChange(idx);
   };
   sel.addEventListener("input", handle); // 🔸 only one event
-  renderPeptideTrack(seq);
-  updatePeptideDownloadForSeq(seq);
 
   return root;
 }
@@ -1308,7 +1306,6 @@ function getAxisExtentForSeq(idx) {
 ```
 
 ```js
-const AA20 = new Set("ACDEFGHIKLMNPQRSTVWY".split("")); // already defined above; reuse if in scope
 
 function sanitizePeptide(s) {
   return String(s || "")
