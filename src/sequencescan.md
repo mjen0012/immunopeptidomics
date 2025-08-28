@@ -209,6 +209,29 @@ function parseFastaForIEDB(text, { wrap = false } = {}) {
 ```
 
 ```js
+{
+  const stop = Generators.observe(change => {
+    const tick = () => {
+      const seq = Number(chosenSeqIndexMut?.value);
+      const len = Number(heatLenCtrl?.value);
+      const rows = latestRowsMut.value?.length
+        ? latestRowsMut.value
+        : Array.isArray(predRowsMut.value) ? predRowsMut.value : [];
+      if (!rows.length || !Number.isFinite(seq)) return;
+      console.log("🟦 observe(seq) → re-render", { seq, len });
+      renderHeatmap(rows, Number.isFinite(len) ? len : undefined, seq);
+    };
+    // track changes to the Mutable’s value
+    change(chosenSeqIndexMut);
+    tick();
+    return () => {};
+  });
+  invalidation.then(() => stop?.return?.());
+}
+
+```
+
+```js
 // Robust upload wiring (wrapper 'input' + file 'change' + restore)
 {
   const isFileLike = (f) => f && typeof f.text === "function";
@@ -698,20 +721,23 @@ function sliderLengths() {
 }
 function intersectSorted(a, b) { const B = new Set(b); return a.filter(x => B.has(x)); }
 
+// ⬇️ keep everything else as-is in makeHeatLenSelect; only swap this onChange:
 const heatLenCtrl = makeHeatLenSelect({
   onChange: (len) => {
-    const cached = latestRowsMut.value || [];
+    const cached  = latestRowsMut.value || [];
     const rowsNow = cached.length
       ? cached
       : (Array.isArray(predRowsMut.value) ? predRowsMut.value : []);
+    const seqNow = selectedSeqIndex(); // ✅ always pass the live seq index
     if (rowsNow.length) {
-      console.log(`${LOG_LEN} re-render on select`, { len, rows: rowsNow.length });
-      renderHeatmap(rowsNow, Number(len));
+      console.log(`${LOG_LEN} re-render on select`, { len, rows: rowsNow.length, seq: seqNow });
+      renderHeatmap(rowsNow, Number(len), seqNow);   // ✅ pass seqNow explicitly
     } else {
       console.warn(`${LOG_LEN} no rows available on select`);
     }
   }
 });
+
 
 heatLenSlot.replaceChildren(heatLenCtrl);
 
@@ -818,6 +844,13 @@ function buildHeatmapData(rows, method, lengthFilter, seqIdx) {
   console.groupCollapsed("🧮 buildHeatmapData");
   console.log("wantedLen:", wantedLen, "seq #:", wantSeq);
   console.log(`rows(seq#${wantSeq}, len=${wantedLen}):`, r1.length);
+  if (r1.length) {
+    console.log("sample rows:", r1.slice(0, 3).map(r => ({
+      seq: r["seq #"] ?? r["sequence_number"],
+      peptide: r.peptide, start: +r.start, end: +r.end,
+      len: rowLen(r)
+    })));
+  }
   console.groupEnd();
 
   if (!r1.length) return { cells: [], posExtent: [1, 1], alleles: [] };
@@ -866,14 +899,16 @@ function renderHeatmap(rows, lengthFilter, seqIdx = selectedSeqIndex()) {
 
     const { id: method } = getPredictor();
 
+    // before choosing first row when length is missing, prefer the passed seqIdx
     let wantedLen = Number(lengthFilter);
     if (!Number.isFinite(wantedLen)) {
-      const wantSeq = selectedSeqIndex();
+      const wantSeq = Number.isFinite(seqIdx) ? seqIdx : selectedSeqIndex(); // ✅ prefer param
       const first = rowsArr.find(r => Number(r["seq #"] ?? r["sequence_number"] ?? 1) === wantSeq);
       wantedLen = rowLen(first);
     }
 
     const tStart = performance.now();
+    console.log("🟦 render → method:", method, "len:", wantedLen, "seq #:", seqIdx);
     const { cells, posExtent, alleles } = buildHeatmapData(rowsArr, method, wantedLen, seqIdx);
 
     HM_RENDER_COUNT++;
@@ -1106,12 +1141,16 @@ function makeSeqSelect({ onChange } = {}) {
 // Create & mount the control
 const seqSelectCtrl = makeSeqSelect({
   onChange: () => {
-    refreshHeatLenChoices();                    // updates length dropdown for that seq
-    const rows = latestRowsMut.value?.length ? latestRowsMut.value
-               : Array.isArray(predRowsMut.value) ? predRowsMut.value : [];
+    refreshHeatLenChoices(); // updates length choices for that seq
+
+    const rows = latestRowsMut.value?.length
+      ? latestRowsMut.value
+      : Array.isArray(predRowsMut.value) ? predRowsMut.value : [];
+
     if (rows.length) {
       const len = Number(heatLenCtrl.value);
       const seqIdxNow = selectedSeqIndex();
+      console.log("🟦 seq change → re-render", { seq: seqIdxNow, len });
       renderHeatmap(rows, Number.isFinite(len) ? len : undefined, seqIdxNow);
     }
   }
