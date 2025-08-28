@@ -271,10 +271,8 @@ function parseFastaForIEDB(text, { wrap = false } = {}) {
 ```js
 // REPLACE the current selectedSeqIndex with this pure getter:
 function selectedSeqIndex() {
-  const dom = Number(seqSelectCtrl?.value);
-  if (Number.isFinite(dom)) return dom;
-  const mut = Number(chosenSeqIndexMut?.value);
-  return Number.isFinite(mut) ? mut : 1;
+  const v = Number(chosenSeqIndexMut?.value);
+  return Number.isFinite(v) ? v : 1;
 }
 
 function lengthsFromRowsForSeq(rows, seqIdx = selectedSeqIndex()) {
@@ -809,10 +807,9 @@ function makeHeatDebugBox() {
 const heatDebug = makeHeatDebugBox();
 function updateHeatDebug(payload) { try { heatDebug.__setText(payload); } catch {} }
 
-function buildHeatmapData(rows, method, lengthFilter) {
+function buildHeatmapData(rows, method, lengthFilter, seqIdx) {
   const wantedLen = Number(lengthFilter);
-  const wantSeq   = selectedSeqIndex();   // ← now comes from the live select
-
+  const wantSeq   = Number(seqIdx);
   const r1 = rows.filter(r => {
     const seqNum = Number(r["seq #"] ?? r["sequence_number"] ?? 1);
     return seqNum === wantSeq && rowLen(r) === wantedLen;
@@ -859,7 +856,7 @@ function buildHeatmapData(rows, method, lengthFilter) {
 
 let HM_RENDER_COUNT = 0;
 
-function renderHeatmap(rows, lengthFilter) {
+function renderHeatmap(rows, lengthFilter, seqIdx = selectedSeqIndex()) {
   try {
     const rowsArr = Array.isArray(rows) ? rows : [];
     if (!rowsArr.length) {
@@ -877,7 +874,7 @@ function renderHeatmap(rows, lengthFilter) {
     }
 
     const tStart = performance.now();
-    const { cells, posExtent, alleles } = buildHeatmapData(rowsArr, method, wantedLen);
+    const { cells, posExtent, alleles } = buildHeatmapData(rowsArr, method, wantedLen, seqIdx);
 
     HM_RENDER_COUNT++;
     heatmapSlot.dataset.renderCount  = String(HM_RENDER_COUNT);
@@ -1114,7 +1111,8 @@ const seqSelectCtrl = makeSeqSelect({
                : Array.isArray(predRowsMut.value) ? predRowsMut.value : [];
     if (rows.length) {
       const len = Number(heatLenCtrl.value);
-      renderHeatmap(rows, Number.isFinite(len) ? len : undefined);
+      const seqIdxNow = selectedSeqIndex();
+      renderHeatmap(rows, Number.isFinite(len) ? len : undefined, seqIdxNow);
     }
   }
 });
