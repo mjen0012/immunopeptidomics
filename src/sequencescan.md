@@ -22,7 +22,7 @@ const chosenSeqIdMut   = Mutable(null);  // string | null
 const fastaTextMut     = Mutable("");
 const chosenAllelesMut = Mutable([]);    // kept in sync with allele control
 const predRowsMut      = Mutable([]);    // raw peptide_table rows as objects
-
+const chosenSeqIndexMut = Mutable(null);
 /* NEW: stable runtime cache for rows using Observable Mutable */
 const latestRowsMut    = Mutable([]);
 
@@ -228,6 +228,9 @@ function parseFastaForIEDB(text, { wrap = false } = {}) {
     seqListMut.value      = seqs;
     chosenSeqIdMut.value  = seqs[0]?.id ?? null;
     fastaTextMut.value    = fastaText;
+
+    chosenSeqIndexMut.value = seqs.length ? 1 : null;
+    refreshSeqOptions();
 
     if (issues.length) console.warn("FASTA issues (skipped sequences):", issues);
   };
@@ -931,6 +934,7 @@ function renderHeatmap(rows, lengthFilter) {
 
 <div class="section">
   <h2>Heatmap</h2>
+  ${seqSelSlot}
   ${heatLenSlot}
   ${heatmapSlot}
   ${heatDebug}
@@ -993,5 +997,93 @@ function debugHeatContext(tag, len) {
     console.warn("debugHeatContext error:", e);
   }
 }
+
+```
+
+```js
+/* ── Sequence selector (new) ─────────────────────────────────────── */
+const seqSelSlot = html`<div></div>`;
+const LOG_SEQ = "🟦 seq";
+
+function makeSeqSelect({ onChange } = {}) {
+  const root = document.createElement("div");
+  root.style.fontFamily = "'Roboto', sans-serif";
+
+  const label = document.createElement("label");
+  label.textContent = "Sequence";
+  label.style.cssText = "display:block;margin:0 0 8px 0;font:500 13px/1.3 'Roboto',sans-serif;color:#111;";
+
+  const sel = document.createElement("select");
+  sel.disabled = true;
+  sel.style.cssText = `
+    display:block; width:100%; min-width:200px;
+    padding:8px 10px; border:1px solid #bbb; border-radius:6px; background:#fff;
+    font:500 14px/1.2 'Roboto',sans-serif; color:#006DAE; cursor:pointer;
+  `;
+
+  root.append(label, sel);
+
+  Object.defineProperty(root, "value", {
+    get(){ return sel.value ? Number(sel.value) : undefined; },
+    set(v){ sel.value = String(v); }
+  });
+
+  root.setOptions = (items = [], { prefer } = {}) => {
+    const before = Array.from(sel.options).map(o => o.textContent);
+    sel.replaceChildren();
+
+    for (const { index, id } of items) {
+      const opt = document.createElement("option");
+      opt.value = String(index);              // 1-based "seq #"
+      opt.textContent = `${index} - ${id}`;   // e.g. "1 - PB1F2"
+      sel.appendChild(opt);
+    }
+
+    const values = items.map(i => i.index);
+    if (values.length) {
+      sel.disabled = false;
+      const want = (prefer && values.includes(prefer)) ? prefer : values[0];
+      root.value = want;
+      chosenSeqIndexMut.value = want;
+      if (typeof onChange === "function") onChange(want);
+    } else {
+      sel.disabled = true;
+      root.value = undefined;
+      chosenSeqIndexMut.value = null;
+    }
+
+    const after = Array.from(sel.options).map(o => o.textContent);
+    console.groupCollapsed(`${LOG_SEQ} setOptions`);
+    console.log("before → after", before, "→", after);
+    console.log("prefer:", prefer, "selected:", root.value);
+    console.groupEnd();
+  };
+
+  const handle = () => {
+    const idx = Number(root.value);
+    chosenSeqIndexMut.value = Number.isFinite(idx) ? idx : null;
+    console.log(`${LOG_SEQ} change →`, idx);
+    if (typeof onChange === "function") onChange(idx);
+  };
+  sel.addEventListener("input", handle);
+  sel.addEventListener("change", handle);
+
+  return root;
+}
+
+// Create & mount the control
+const seqSelectCtrl = makeSeqSelect();
+seqSelSlot.replaceChildren(seqSelectCtrl);
+
+// Helper to (re)fill options from uploaded FASTA (seqListMut)
+function refreshSeqOptions() {
+  const seqs = Array.isArray(seqListMut.value) ? seqListMut.value : [];
+  const items = seqs.map((s, i) => ({ index: i + 1, id: s?.id ?? `seq${i + 1}` }));
+  const prefer = Number(chosenSeqIndexMut.value) || 1;
+  seqSelectCtrl.setOptions(items, { prefer });
+}
+
+// Seed once on load (empty/disabled)
+refreshSeqOptions();
 
 ```
