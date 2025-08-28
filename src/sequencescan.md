@@ -678,7 +678,6 @@ function makeHeatLenSelect({ onChange } = {}) {
   const handle = () => {
     const len = Number(root.value);
     const rowsNow = latestRowsMut.value || [];
-    const seqIdxNow = selectedSeqIndex();  // 👀 debug + explicit pass
     console.log(`${LOG_LEN} selector change →`, len, `(cached rows: ${rowsNow.length})`);
     if (typeof onChange === "function") onChange(len);
     root.dispatchEvent(new CustomEvent("input",  { bubbles: true, composed: true }));
@@ -705,7 +704,6 @@ const heatLenCtrl = makeHeatLenSelect({
     const rowsNow = cached.length
       ? cached
       : (Array.isArray(predRowsMut.value) ? predRowsMut.value : []);
-    const seqIdxNow = selectedSeqIndex(); // 👈 explicit
     if (rowsNow.length) {
       console.log(`${LOG_LEN} re-render on select`, { len, rows: rowsNow.length });
       renderHeatmap(rowsNow, Number(len));
@@ -741,9 +739,8 @@ function refreshHeatLenChoices() {
 refreshHeatLenChoices();
 
 const onSliderInput = () => {
-  const seqIdxNow = selectedSeqIndex();
-  console.log(`${LOG_LEN} slider input →`, lengthCtrl.value, { seqIdxNow }); // 👀 NEW LOG
-  refreshHeatLenChoices(seqIdxNow);
+  console.log(`${LOG_LEN} slider input →`, lengthCtrl.value);
+  refreshHeatLenChoices();
 };
 lengthCtrl.addEventListener("input", onSliderInput);
 invalidation.then(() => lengthCtrl.removeEventListener("input", onSliderInput));
@@ -924,7 +921,6 @@ function renderHeatmap(rows, lengthFilter, seqIdx = selectedSeqIndex()) {
     el.dataset.method = String(method);
     el.dataset.cells  = String(cells.length);
     el.dataset.alleles= String(alleles.length);
-    el.dataset.seqIdx = String(wantSeq);
 
     heatmapSlot.appendChild(el);
 
