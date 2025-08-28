@@ -228,12 +228,13 @@ function parseFastaForIEDB(text, { wrap = false } = {}) {
     setMut(seqListMut, seqs);
     setMut(chosenSeqIdMut, seqs[0]?.id ?? null);
     setMut(fastaTextMut, fastaText);
-    setMut(chosenSeqIndexMut, seqs.length ? 1 : null);
+    setSelectedSeqIndex(seqs.length ? 1 : 1); // always 1-based; never null
 
     // ✅ Immediately populate + enable the sequence selector from the parsed FASTA
     try {
       const items = (seqs || []).map((s, i) => ({ index: i + 1, id: s?.id ?? `seq${i+1}` }));
       if (seqSelectCtrl?.setOptions) seqSelectCtrl.setOptions(items, { prefer: 1 });
+      setSelectedSeqIndex(1);
     } catch (e) {
       console.warn("seqSelectCtrl.setOptions skipped during early mount:", e);
     }
@@ -269,12 +270,23 @@ function parseFastaForIEDB(text, { wrap = false } = {}) {
 ```
 
 ```js
-// REPLACE the current selectedSeqIndex with this pure getter:
+// REPLACE your selectedSeqIndex() with this version
 function selectedSeqIndex() {
-  const v = Number(chosenSeqIndexMut?.value);
-  return Number.isFinite(v) ? v : 1;
+  const raw = (chosenSeqIndexMut && "value" in chosenSeqIndexMut) ? chosenSeqIndexMut.value : undefined;
+  const v = Number(raw);
+  // only accept 1-based finite values; otherwise fall back to 1
+  return Number.isFinite(v) && v >= 1 ? v : 1;
 }
 
+// ADD this helper and use it everywhere you write the seq index
+function setSelectedSeqIndex(n) {
+  const v = Math.max(1, Number(n) || 1);
+  if (chosenSeqIndexMut && "value" in chosenSeqIndexMut) chosenSeqIndexMut.value = v;
+  return v;
+}
+```
+
+```js
 function lengthsFromRowsForSeq(rows, seqIdx = selectedSeqIndex()) {
   const set = new Set();
   for (const r of rows || []) {
@@ -701,17 +713,14 @@ function intersectSorted(a, b) { const B = new Set(b); return a.filter(x => B.ha
 // ⬇️ keep everything else as-is in makeHeatLenSelect; only swap this onChange:
 const heatLenCtrl = makeHeatLenSelect({
   onChange: (len) => {
-    const cached  = latestRowsMut.value || [];
-    const rowsNow = cached.length ? cached
-      : (Array.isArray(predRowsMut.value) ? predRowsMut.value : []);
-    if (rowsNow.length) {
-      const seqNow = selectedSeqIndex(); // 🔑 only the getter
-      console.log("🟦 heatmap re-render on select",
-                  { len, rows: rowsNow.length, seq: seqNow });
-      renderHeatmap(rowsNow, Number(len), seqNow);
-    } else {
-      console.warn("🟦 heatmap no rows available on select");
-    }
+    const rowsNow = (latestRowsMut.value && latestRowsMut.value.length) ? latestRowsMut.value
+                  : (Array.isArray(predRowsMut.value) ? predRowsMut.value : []);
+    if (!rowsNow.length) return console.warn("🟦 heatmap no rows available on select");
+
+    const seqNow = selectedSeqIndex(); // single source of truth
+    console.log("🟦 heatmap re-render on select", { len, rows: rowsNow.length, seq: seqNow }, 
+                "mutable=", chosenSeqIndexMut?.value);
+    renderHeatmap(rowsNow, Number(len), seqNow);
   }
 });
 
@@ -724,7 +733,6 @@ function refreshHeatLenChoices(seqOverride) {
     ? latestRowsMut.value
     : (Array.isArray(predRowsMut.value) ? predRowsMut.value : []);
 
-  // 🔑 Only use the explicit override or the Mutable getter — no DOM read here
   const seqIdx = Number.isFinite(seqOverride) ? seqOverride : selectedSeqIndex();
 
   const fromData = lengthsFromRowsForSeq(rowsForLens, seqIdx);
@@ -732,7 +740,7 @@ function refreshHeatLenChoices(seqOverride) {
   const prefer   = heatLenCtrl.value ?? lens[0];
 
   console.groupCollapsed("🟦 heatmap refreshHeatLenChoices");
-  console.log("seq #:", seqIdx);
+  console.log("seq #:", seqIdx, "mutable=", chosenSeqIndexMut?.value);
   console.log("slider range:", fromSlider);
   console.log("lengths in data(seq#):", fromData);
   console.log("intersect:", lens, "prefer:", prefer);
@@ -1094,9 +1102,8 @@ function makeSeqSelect({ onChange } = {}) {
       } else {
       sel.disabled = true;
       root.value = undefined;
-      if (chosenSeqIndexMut && typeof chosenSeqIndexMut === "object" && "value" in chosenSeqIndexMut) {
-        chosenSeqIndexMut.value = null;
-      }
+      // Keep a valid 1-based value; do NOT null it out
+      setSelectedSeqIndex(1);
     }
 
     const after = Array.from(sel.options).map(o => o.textContent);
@@ -1108,12 +1115,10 @@ function makeSeqSelect({ onChange } = {}) {
 
   const handle = () => {
     const idx = Number(root.value);
-    if (chosenSeqIndexMut && "value" in chosenSeqIndexMut) {
-      chosenSeqIndexMut.value = Number.isFinite(idx) ? idx : null; // 1) write
-    }
-    console.log("🟦 seq change →", idx);
-    if (typeof onChange === "function") onChange(idx);              // 2) notify
-  };
+    setSelectedSeqIndex(Number.isFinite(idx) ? idx : 1);           // 1) write
+        console.log("🟦 seq change →", idx);
+        if (typeof onChange === "function") onChange(idx);              // 2) notify
+      };
   sel.addEventListener("input", handle);
   sel.addEventListener("change", handle);
 
@@ -1123,7 +1128,8 @@ function makeSeqSelect({ onChange } = {}) {
 // Create & mount the control
 const seqSelectCtrl = makeSeqSelect({
   onChange: (idx) => {
-    const seq = Number.isFinite(idx) ? idx : selectedSeqIndex();
+    const seq = setSelectedSeqIndex(Number.isFinite(idx) ? idx : selectedSeqIndex());
+
 
     // update available lengths for THIS sequence
     refreshHeatLenChoices(seq);
@@ -1140,6 +1146,7 @@ const seqSelectCtrl = makeSeqSelect({
 
 
 seqSelSlot.replaceChildren(seqSelectCtrl);
+setSelectedSeqIndex(selectedSeqIndex()); // ensure Mutable is >=1 at start
 
 /* Safe (re)fill from FASTA list; guarded against nulls and unmounted control */
 function refreshSeqOptions() {
