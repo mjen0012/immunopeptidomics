@@ -224,15 +224,18 @@ function parseFastaForIEDB(text, { wrap = false } = {}) {
     try { txt = await file.text(); } catch {}
     const { seqs, fastaText, issues } = parseFastaForIEDB(txt, { wrap: false });
 
-    // with:
-    // guarded writes; never throw if a Mutable isn't ready yet
+    // Write to Mutables (guarded)
     setMut(seqListMut, seqs);
     setMut(chosenSeqIdMut, seqs[0]?.id ?? null);
     setMut(fastaTextMut, fastaText);
     setMut(chosenSeqIndexMut, seqs.length ? 1 : null);
 
-    try { refreshSeqOptions(); } catch (e) {
-      console.warn("refreshSeqOptions() skipped during early mount:", e);
+    // ✅ Immediately populate + enable the sequence selector from the parsed FASTA
+    try {
+      const items = (seqs || []).map((s, i) => ({ index: i + 1, id: s?.id ?? `seq${i+1}` }));
+      if (seqSelectCtrl?.setOptions) seqSelectCtrl.setOptions(items, { prefer: 1 });
+    } catch (e) {
+      console.warn("seqSelectCtrl.setOptions skipped during early mount:", e);
     }
 
 
@@ -263,6 +266,24 @@ function parseFastaForIEDB(text, { wrap = false } = {}) {
   });
 }
 
+```
+
+```js
+function selectedSeqIndex() {
+  const v = Number(chosenSeqIndexMut?.value);
+  return Number.isFinite(v) ? v : 1;
+}
+
+function lengthsFromRowsForSeq(rows, seqIdx = selectedSeqIndex()) {
+  const set = new Set();
+  for (const r of rows || []) {
+    const seqNum = Number(r["seq #"] ?? r["sequence_number"] ?? 1);
+    if (seqNum !== seqIdx) continue;
+    const L = rowLen(r);
+    if (Number.isFinite(L)) set.add(L);
+  }
+  return [...set].sort((a,b)=>a-b);
+}
 ```
 
 ```js
@@ -695,17 +716,22 @@ heatLenSlot.replaceChildren(heatLenCtrl);
 
 function refreshHeatLenChoices() {
   const fromSlider = sliderLengths();
-  const cached     = latestRowsMut.value || [];
+
+  const cached = latestRowsMut.value || [];
   const rowsForLens = cached.length
     ? cached
     : (Array.isArray(predRowsMut.value) ? predRowsMut.value : []);
-  const fromData = lengthsFromRows(rowsForLens);
+
+  const seqIdx = selectedSeqIndex();  // 👈 use chosen sequence
+  const fromData = lengthsFromRowsForSeq(rowsForLens, seqIdx);
+
   const lens   = fromData.length ? intersectSorted(fromSlider, fromData) : fromSlider;
   const prefer = heatLenCtrl.value ?? lens[0];
 
   console.groupCollapsed(`${LOG_LEN} refreshHeatLenChoices`);
+  console.log("seq #:", seqIdx);
   console.log("slider range:", fromSlider);
-  console.log("lengths in data(seq#1):", fromData);
+  console.log("lengths in data(seq#):", fromData);
   console.log("intersect:", lens, "prefer:", prefer);
   console.groupEnd();
 
@@ -788,6 +814,7 @@ heatmapSlot.after(heatDebug);
 
 function buildHeatmapData(rows, method, lengthFilter) {
   const wantedLen = Number(lengthFilter);
+  const wantSeq = selectedSeqIndex();
 
   const r1 = rows.filter(r => {
     const seqNum = Number(r["seq #"] ?? r["sequence_number"] ?? 1);
@@ -1081,7 +1108,20 @@ function makeSeqSelect({ onChange } = {}) {
   return root;
 }
 
-const seqSelectCtrl = makeSeqSelect();
+// Create & mount the control
+const seqSelectCtrl = makeSeqSelect({
+  onChange: () => {
+    // When sequence changes, recompute lengths for that sequence and re-render
+    refreshHeatLenChoices();
+    const rows = (latestRowsMut.value && latestRowsMut.value.length)
+      ? latestRowsMut.value
+      : (Array.isArray(predRowsMut.value) ? predRowsMut.value : []);
+    if (rows.length) {
+      const len = Number(heatLenCtrl.value);
+      renderHeatmap(rows, Number.isFinite(len) ? len : undefined);
+    }
+  }
+});
 seqSelSlot.replaceChildren(seqSelectCtrl);
 
 /* Safe (re)fill from FASTA list; guarded against nulls and unmounted control */
