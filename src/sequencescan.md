@@ -209,29 +209,6 @@ function parseFastaForIEDB(text, { wrap = false } = {}) {
 ```
 
 ```js
-{
-  const stop = Generators.observe(change => {
-    const tick = () => {
-      const seq = Number(chosenSeqIndexMut?.value);
-      const len = Number(heatLenCtrl?.value);
-      const rows = latestRowsMut.value?.length
-        ? latestRowsMut.value
-        : Array.isArray(predRowsMut.value) ? predRowsMut.value : [];
-      if (!rows.length || !Number.isFinite(seq)) return;
-      console.log("🟦 observe(seq) → re-render", { seq, len });
-      renderHeatmap(rows, Number.isFinite(len) ? len : undefined, seq);
-    };
-    // track changes to the Mutable’s value
-    change(chosenSeqIndexMut);
-    tick();
-    return () => {};
-  });
-  invalidation.then(() => stop?.return?.());
-}
-
-```
-
-```js
 // Robust upload wiring (wrapper 'input' + file 'change' + restore)
 {
   const isFileLike = (f) => f && typeof f.text === "function";
@@ -728,10 +705,9 @@ const heatLenCtrl = makeHeatLenSelect({
     const rowsNow = cached.length ? cached
       : (Array.isArray(predRowsMut.value) ? predRowsMut.value : []);
     if (rowsNow.length) {
-      const seqDom = Number(seqSelectCtrl?.value);
-      const seqNow = Number.isFinite(seqDom) ? seqDom : selectedSeqIndex(); // DOM first, getter fallback
+      const seqNow = selectedSeqIndex(); // 🔑 only the getter
       console.log("🟦 heatmap re-render on select",
-                  { len, rows: rowsNow.length, seq: seqNow }, "seq(ctl)=", seqDom);
+                  { len, rows: rowsNow.length, seq: seqNow });
       renderHeatmap(rowsNow, Number(len), seqNow);
     } else {
       console.warn("🟦 heatmap no rows available on select");
@@ -748,17 +724,15 @@ function refreshHeatLenChoices(seqOverride) {
     ? latestRowsMut.value
     : (Array.isArray(predRowsMut.value) ? predRowsMut.value : []);
 
-  const seqIdx =
-    Number.isFinite(seqOverride) ? seqOverride :
-    Number.isFinite(Number(seqSelectCtrl?.value)) ? Number(seqSelectCtrl.value) :
-    selectedSeqIndex();
+  // 🔑 Only use the explicit override or the Mutable getter — no DOM read here
+  const seqIdx = Number.isFinite(seqOverride) ? seqOverride : selectedSeqIndex();
 
   const fromData = lengthsFromRowsForSeq(rowsForLens, seqIdx);
   const lens     = fromData.length ? intersectSorted(fromSlider, fromData) : fromSlider;
   const prefer   = heatLenCtrl.value ?? lens[0];
 
   console.groupCollapsed("🟦 heatmap refreshHeatLenChoices");
-  console.log("seq (override/dom/getter):", seqOverride, seqSelectCtrl?.value, selectedSeqIndex());
+  console.log("seq #:", seqIdx);
   console.log("slider range:", fromSlider);
   console.log("lengths in data(seq#):", fromData);
   console.log("intersect:", lens, "prefer:", prefer);
@@ -766,6 +740,7 @@ function refreshHeatLenChoices(seqOverride) {
 
   heatLenCtrl.setOptions(lens, { prefer });
 }
+
 
 
 refreshHeatLenChoices();
@@ -1201,6 +1176,7 @@ window.__heat = {
   len:        () => (heatLenCtrl?.value),
   lastRender: () => ({ ...heatmapSlot.dataset })
 };
+
 
 
 ```
