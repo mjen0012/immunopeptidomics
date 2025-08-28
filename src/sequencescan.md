@@ -1001,7 +1001,7 @@ function debugHeatContext(tag, len) {
 ```
 
 ```js
-/* ── Sequence selector (new) ─────────────────────────────────────── */
+/* ── Sequence selector (new) — place this block right after the State cell ── */
 const seqSelSlot = html`<div></div>`;
 const LOG_SEQ = "🟦 seq";
 
@@ -1034,22 +1034,26 @@ function makeSeqSelect({ onChange } = {}) {
 
     for (const { index, id } of items) {
       const opt = document.createElement("option");
-      opt.value = String(index);              // 1-based "seq #"
-      opt.textContent = `${index} - ${id}`;   // e.g. "1 - PB1F2"
+      opt.value = String(index);            // 1-based "seq #"
+      opt.textContent = `${index} - ${id}`; // e.g. "1 - PB1F2"
       sel.appendChild(opt);
     }
 
     const values = items.map(i => i.index);
     if (values.length) {
       sel.disabled = false;
-      const want = (prefer && values.includes(prefer)) ? prefer : values[0];
+      const want = (Number.isFinite(prefer) && values.includes(prefer)) ? prefer : values[0];
       root.value = want;
-      chosenSeqIndexMut.value = want;
+      if (chosenSeqIndexMut && typeof chosenSeqIndexMut === "object" && "value" in chosenSeqIndexMut) {
+        chosenSeqIndexMut.value = want;
+      }
       if (typeof onChange === "function") onChange(want);
     } else {
       sel.disabled = true;
       root.value = undefined;
-      chosenSeqIndexMut.value = null;
+      if (chosenSeqIndexMut && typeof chosenSeqIndexMut === "object" && "value" in chosenSeqIndexMut) {
+        chosenSeqIndexMut.value = null;
+      }
     }
 
     const after = Array.from(sel.options).map(o => o.textContent);
@@ -1061,7 +1065,9 @@ function makeSeqSelect({ onChange } = {}) {
 
   const handle = () => {
     const idx = Number(root.value);
-    chosenSeqIndexMut.value = Number.isFinite(idx) ? idx : null;
+    if (chosenSeqIndexMut && typeof chosenSeqIndexMut === "object" && "value" in chosenSeqIndexMut) {
+      chosenSeqIndexMut.value = Number.isFinite(idx) ? idx : null;
+    }
     console.log(`${LOG_SEQ} change →`, idx);
     if (typeof onChange === "function") onChange(idx);
   };
@@ -1071,19 +1077,31 @@ function makeSeqSelect({ onChange } = {}) {
   return root;
 }
 
-// Create & mount the control
 const seqSelectCtrl = makeSeqSelect();
 seqSelSlot.replaceChildren(seqSelectCtrl);
 
-// Helper to (re)fill options from uploaded FASTA (seqListMut)
+/* Safe (re)fill from FASTA list; guarded against nulls and unmounted control */
 function refreshSeqOptions() {
-  const seqs = Array.isArray(seqListMut.value) ? seqListMut.value : [];
+  const seqsVal =
+    (seqListMut && typeof seqListMut === "object" && "value" in seqListMut)
+      ? seqListMut.value
+      : [];
+
+  const seqs = Array.isArray(seqsVal) ? seqsVal : [];
   const items = seqs.map((s, i) => ({ index: i + 1, id: s?.id ?? `seq${i + 1}` }));
-  const prefer = Number(chosenSeqIndexMut.value) || 1;
-  seqSelectCtrl.setOptions(items, { prefer });
+
+  const preferRaw =
+    (chosenSeqIndexMut && typeof chosenSeqIndexMut === "object" && "value" in chosenSeqIndexMut)
+      ? chosenSeqIndexMut.value
+      : null;
+
+  const prefer = Number(preferRaw);
+  if (seqSelectCtrl && typeof seqSelectCtrl.setOptions === "function") {
+    seqSelectCtrl.setOptions(items, { prefer: Number.isFinite(prefer) ? prefer : (items[0]?.index ?? 1) });
+  }
 }
 
-// Seed once on load (empty/disabled)
+/* Seed once on load (empty/disabled is fine) */
 refreshSeqOptions();
 
 ```
