@@ -32,6 +32,15 @@ window.__heatLatestRows = () => latestRowsMut.value;
 ```
 
 ```js
+// Shared x-zoom synchronization between heatmap and peptide track
+let __zoomSync = {
+  transform: null,
+  heatmapEl: null,
+  peptideEl: null
+};
+```
+
+```js
 /* ── Load HLA list from Parquet (no SQL) ─────────────────────────── */
 // Expect columns "Class I" and/or "Class II" (case-insensitive).
 const hlaTable = await FileAttachment("data/HLAlistClassI.parquet").parquet();
@@ -1021,7 +1030,15 @@ function renderHeatmap(rows, lengthFilter, seqIdx = selectedSeqIndex()) {
       data: cells,
       posExtent,
       cellHeight: 18,
-      sizeFactor: 1.1
+      sizeFactor: 1.1,
+      onReady: (xBase) => {
+        // scale available if needed later
+      },
+      onZoom: (zx, t) => {
+        __zoomSync.transform = t;
+        const other = __zoomSync.peptideEl;
+        if (other && typeof other.__setZoom === "function") other.__setZoom(t);
+      }
     });
 
     el.dataset.len    = String(wantedLen);
@@ -1030,6 +1047,10 @@ function renderHeatmap(rows, lengthFilter, seqIdx = selectedSeqIndex()) {
     el.dataset.alleles= String(alleles.length);
 
     heatmapSlot.appendChild(el);
+    __zoomSync.heatmapEl = el;
+    if (__zoomSync.transform && typeof el.__setZoom === "function") {
+      el.__setZoom(__zoomSync.transform);
+    }
 
     const ms = Math.round(performance.now() - tStart);
     console.log("🟦 heatmap render done in", ms, "ms");
@@ -1551,9 +1572,21 @@ function renderPeptideTrack(seqIdx = selectedSeqIndex()) {
     data: rows,
     posExtent,
     rowHeight: 18,
-    sizeFactor: 1.1
+    sizeFactor: 1.1,
+    onReady: (xBase) => {
+      // no-op
+    },
+    onZoom: (zx, t) => {
+      __zoomSync.transform = t;
+      const other = __zoomSync.heatmapEl;
+      if (other && typeof other.__setZoom === "function") other.__setZoom(t);
+    }
   });
   peptideSlot.appendChild(el);
+  __zoomSync.peptideEl = el;
+  if (__zoomSync.transform && typeof el.__setZoom === "function") {
+    el.__setZoom(__zoomSync.transform);
+  }
 }
 
 /* CSV download */

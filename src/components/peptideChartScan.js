@@ -1,8 +1,12 @@
 /*****************************************************************
  *  Minimal peptide track viewer (no attributes/alleles)
- *  API mirrors heatmapChart style: returns an <svg> element.
+ *  Adds bounded x-zoom + sync hooks to match heatmapChart.
+ *  Visible hooks:
+ *    onReady(xScaleBase)
+ *    onZoom(xScaleCurrent, transform)
+ *    element.__setZoom(transform)
  *****************************************************************/
-import * as d3 from "npm:d3";
+import * as d3 from "npm:d3@7";
 
 export function peptideChartScan({
   data        = [],               // [{ start: 1-based, length, peptide }]
@@ -13,7 +17,9 @@ export function peptideChartScan({
   margin      = { top: 18, right: 20, bottom: 24, left: 40 }, // left/right not used for x
   gutterLeft  = 110,
   gutterRight = 12,
-  barColor    = "#006DAE"
+  barColor    = "#006DAE",
+  onReady     = () => {},
+  onZoom      = () => {}
 } = {}) {
   // Pack into non-overlapping levels (greedy)
   const rows = Array.isArray(data) ? [...data] : [];
@@ -39,8 +45,9 @@ export function peptideChartScan({
   const g = svg.append("g");
   
   // Scales + axis
-  const x = d3.scaleLinear()
-    .domain([+posExtent[0] || 1, +posExtent[1] || 1]);
+  const posMin = +posExtent[0] || 1;
+  const posMax = +posExtent[1] || 1;
+  let xBase = d3.scaleLinear([posMin - 0.5, posMax + 0.5], [0, 1]);
   let viewW = 1;
 
 
@@ -48,7 +55,7 @@ export function peptideChartScan({
   const axisG = g.append("g")
     .attr("class", "x-axis")
     .attr("transform", `translate(0,${axisY})`)
-    .call(d3.axisBottom(x).tickFormat(d3.format("d")));
+    .call(d3.axisBottom(xBase).tickFormat(d3.format("d")));
 
   // Bars
   const barsG = g.append("g");
@@ -61,29 +68,65 @@ export function peptideChartScan({
       .attr("stroke", "#444")
       .attr("stroke-width", 0.5 * sizeFactor);
 
+  // Zoom (bounded like heatmapChart)
+  const zoom = d3.zoom()
+    .scaleExtent([1, (posMax - posMin) / 10])
+    .on("zoom", ev => {
+      let t = ev.transform;
+
+      const r0 = gutterLeft;
+      const r1 = viewW - gutterRight;
+      const minX = (1 - t.k) * r1;
+      const maxX = (1 - t.k) * r0;
+      if (t.x < minX || t.x > maxX) {
+        t = d3.zoomIdentity.translate(Math.max(minX, Math.min(maxX, t.x)), t.y).scale(t.k);
+        svg.call(zoom.transform, t);
+        return;
+      }
+
+      const zx = t.rescaleX(xBase);
+      barsG.selectAll("rect")
+        .attr("x", d => zx(d.start - 0.5) + gap / 2)
+        .attr("width", d => Math.max(0, zx(d.start + d.length - 0.5) - zx(d.start - 0.5) - gap));
+      axisG.call(d3.axisBottom(zx)
+        .tickFormat(d3.format("d"))
+        .ticks(Math.min(15, viewW / 60)));
+
+      onZoom(zx, t);
+    });
+
   // Layout on container resize (match heatmap behaviour)
   function layout(wPx) {
     viewW = Math.max(1, wPx | 0);
     svg.attr("viewBox", `0 0 ${viewW} ${height}`);
-    x.range([gutterLeft, viewW - gutterRight]);
+    xBase.range([gutterLeft, viewW - gutterRight]);
 
     barsG.selectAll("rect")
-      .attr("x", d => x(d.start - 0.5) + gap / 2)
-      .attr("width", d => Math.max(0, x(d.start + d.length - 0.5) - x(d.start - 0.5) - gap));
+      .attr("x", d => xBase(d.start - 0.5) + gap / 2)
+      .attr("width", d => Math.max(0, xBase(d.start + d.length - 0.5) - xBase(d.start - 0.5) - gap));
 
-    axisG.call(d3.axisBottom(x)
+    axisG.call(d3.axisBottom(xBase)
       .tickFormat(d3.format("d"))
       .ticks(Math.min(15, viewW / 60)));
+
+    zoom
+      .extent([[gutterLeft, 0], [viewW - gutterRight, height]])
+      .translateExtent([[gutterLeft, 0], [viewW - gutterRight, height]]);
+    svg.call(zoom).on("dblclick.zoom", null);
+
+    onReady(xBase);
   }
 
   // Public updater (if caller wants to resync scale)
   function updatePosExtent(newExtent = posExtent) {
-    x.domain([+newExtent[0] || 1, +newExtent[1] || 1]);
+    const a = +newExtent[0] || 1;
+    const b = +newExtent[1] || 1;
+    xBase.domain([a - 0.5, b + 0.5]);
     // keep current range (viewW) and redraw
     barsG.selectAll("rect")
-      .attr("x", d => x(d.start - 0.5) + gap / 2)
-      .attr("width", d => Math.max(0, x(d.start + d.length - 0.5) - x(d.start - 0.5) - gap));
-    axisG.call(d3.axisBottom(x)
+      .attr("x", d => xBase(d.start - 0.5) + gap / 2)
+      .attr("width", d => Math.max(0, xBase(d.start + d.length - 0.5) - xBase(d.start - 0.5) - gap));
+    axisG.call(d3.axisBottom(xBase)
       .tickFormat(d3.format("d"))
       .ticks(Math.min(15, viewW / 60)));
   }
@@ -94,8 +137,9 @@ export function peptideChartScan({
   wrapper.appendChild(svg.node());
   new ResizeObserver(e => layout(e[0].contentRect.width)).observe(wrapper);
 
-  // Tiny API + metadata
+  // Tiny API + metadata + sync hook
   wrapper.__updatePosExtent = updatePosExtent;
+  wrapper.__setZoom = (transform) => { if (transform) svg.call(zoom.transform, transform); };
   wrapper.dataset.rows = String(rows.length);
   wrapper.dataset.levels = String(nLevels);
   wrapper.dataset.extentMin = String(posExtent[0]);
