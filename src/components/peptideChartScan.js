@@ -43,6 +43,11 @@ export function peptideChartScan({
     .attr("font-family", "sans-serif")
     .attr("font-size", 10 * sizeFactor);
   const g = svg.append("g");
+
+  // Clip-path to prevent bars from drawing outside plot area
+  const clipId = `clip-${Math.random().toString(36).slice(2)}`;
+  const defs   = svg.append("defs");
+  const clip   = defs.append("clipPath").attr("id", clipId).append("rect");
   
   // Scales + axis
   const posMin = +posExtent[0] || 1;
@@ -59,8 +64,8 @@ export function peptideChartScan({
     .attr("transform", `translate(0,${axisY})`)
     .call(d3.axisBottom(xBase).tickFormat(d3.format("d")));
 
-  // Bars
-  const barsG = g.append("g");
+  // Bars (clipped to plotting area)
+  const barsG = g.append("g").attr("clip-path", `url(#${clipId})`);
   barsG.selectAll("rect")
     .data(rows)
     .enter().append("rect")
@@ -105,6 +110,13 @@ export function peptideChartScan({
     viewW = Math.max(1, wPx | 0);
     svg.attr("viewBox", `0 0 ${viewW} ${height}`);
     xBase.range([gutterLeft, viewW - gutterRight]);
+
+    // update clip rect to current plot area
+    clip
+      .attr("x", gutterLeft)
+      .attr("y", margin.top)
+      .attr("width",  Math.max(1, viewW - gutterLeft - gutterRight))
+      .attr("height", Math.max(0, (height - margin.bottom) - margin.top));
 
     barsG.selectAll("rect")
       .attr("x", d => xBase(d.start - 0.5) + gap / 2)
