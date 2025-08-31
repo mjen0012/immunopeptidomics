@@ -1161,7 +1161,8 @@ function renderHeatmap(rows, lengthFilter, seqIdx = selectedSeqIndex()) {
         // store selection and render allele track for current length
         selectedAlleleMut.value = allele || null;
         const wantSeq = Number.isFinite(seqIdx) ? seqIdx : selectedSeqIndex();
-        const wantLen = Number(heatLenCtrl?.value ?? el?.dataset?.len);
+        // Avoid reactive cycle: derive length from the heatmap element itself
+        const wantLen = Number(el?.dataset?.len);
         try { renderPeptideAlleleTrack(wantSeq, wantLen, selectedAlleleMut.value); } catch {}
       }
     });
