@@ -113,6 +113,7 @@ function renderPeptideAlleleTrack(seqIdx, length, allele) {
       data: bars,
       alleleData: rows,
       pctKey,
+      selectedAllele: allele,
       xScale: xBase,
       rowHeight: 18,
       gap: 2,

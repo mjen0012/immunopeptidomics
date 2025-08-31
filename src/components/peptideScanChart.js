@@ -20,6 +20,8 @@ export function peptideScanChart(
     data        = [],              // [{start, length, peptide, peptide_aligned?}]
     alleleData  = [],              // [{allele, peptide, netmhcpan_el_percentile, netmhcpan_ba_percentile}]
     pctKey      = null,            // explicit percentile column to use (optional)
+    selectedAllele = null,         // colour by this allele when provided
+    defaultFill   = "#DAE006",     // static colour when no allele is selected
     xScale,                        // shared base/current scale from heatmap
     rowHeight   = 18,
     gap         = 2,
@@ -43,8 +45,9 @@ export function peptideScanChart(
   const nLevels = Math.max(1, levels.length);
   const height  = margin.top + nLevels * rowHeight + margin.bottom;
 
-  // build percentile lookups by peptide
-  const normPep = s => String(s||"").toUpperCase().replace(/-/g,"").trim();
+  // build percentile lookups by peptide for the selected allele (if any)
+  const normPep    = s => String(s||"").toUpperCase().replace(/-/g,"").trim();
+  const normAllele = s => String(s||"").toUpperCase().trim();
   const modeNow = String(mode||"EL").toUpperCase().includes("BA") ? "BA" : "EL";
   const pctMap = new Map();
   const valFromRow = (r) => {
@@ -66,7 +69,12 @@ export function peptideScanChart(
     }
     return null;
   };
+  const selA = selectedAllele ? normAllele(selectedAllele) : null;
   for (const r of alleleData) {
+    if (selA) {
+      const a = normAllele(r?.allele);
+      if (!a || a !== selA) continue; // restrict to selected allele only
+    }
     const k = normPep(r?.peptide);
     if (!k) continue;
     const v = valFromRow(r);
@@ -84,6 +92,7 @@ export function peptideScanChart(
   };
 
   const fillFor = d => {
+    if (!selA) return defaultFill; // no allele selected → static colour
     const k = normPep(d.peptide_aligned || d.peptide);
     const v = pctMap.get(k);
     return pctToFill(v);
@@ -150,7 +159,7 @@ export function peptideScanChart(
         const v  = pctMap.get(k);
         tooltip.html(
           `<div><strong>Peptide:</strong> ${d.peptide}</div>
-           <div><strong>Allele:</strong> ${(alleleData[0]?.allele) ?? ""}</div>
+           <div><strong>Allele:</strong> ${selectedAllele ?? (alleleData[0]?.allele ?? "")}</div>
            <div><strong>Percentile:</strong> ${fmt(v)}</div>`
         )
         .style("left", `${e.pageX + 10}px`)
