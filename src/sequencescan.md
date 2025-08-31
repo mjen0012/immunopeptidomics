@@ -12,6 +12,7 @@ import { comboSelectLazy } from "./components/comboSelectLazy.js";
 import { dropSelect }      from "./components/dropSelect.js";
 import { heatmapChart } from "./components/heatmapChart.js";
 import { rangeSlider } from "./components/rangeSlider.js";
+import { peptideChartScan } from "./components/peptideChartScan.js";
 ```
 
 ```js
@@ -1255,7 +1256,13 @@ window.__heat = {
                   ? chosenSeqIndexMut.value
                   : "(no mutable)"),
   len:        () => (heatLenCtrl?.value),
-  lastRender: () => ({ ...heatmapSlot.dataset })
+  lastRender: () => {
+    try {
+      return (typeof heatmapSlot !== "undefined" && heatmapSlot?.dataset)
+        ? { ...heatmapSlot.dataset }
+        : {};
+    } catch { return {}; }
+  }
 };
 
 
@@ -1269,7 +1276,10 @@ window.__heatRefs = {
   get lenVal() { return Number(heatLenCtrl?.value); },
   get chosen() { return (chosenSeqIndexMut && "value" in chosenSeqIndexMut) ? chosenSeqIndexMut.value : null; },
   refreshHeatLenChoices,
-  renderHeatmap
+  // Late-bind call so it works regardless of evaluation order
+  renderHeatmap: (...args) => (typeof renderHeatmap === "function"
+    ? renderHeatmap(...args)
+    : console.warn("renderHeatmap not ready yet"))
 };
 
 ```
@@ -1300,10 +1310,6 @@ function refreshSeqOptions(ctrl) {
 
 ```
 
-```js
-import { peptideChartScan } from "./components/peptideChartScan.js";
-
-```
 
 ```js
 const peptideTextMut        = Mutable("");     // raw textarea text (optional)
@@ -1311,6 +1317,13 @@ const peptideListMut        = Mutable([]);     // ["PEPTIDE", ...] (sanitized AA
 const alignedPepsMut        = Mutable([]);     // all alignments across all seqs
 const latestAlignedPepsMut  = Mutable([]);     // stable cache for render
 
+```
+
+```js
+// Zoom sync (leader: heatmap → follower: peptide)
+let __latestZoomTransform = null;
+let __heatmapEl = null;
+let __peptideEl = null;
 ```
 
 ```js
@@ -1324,7 +1337,9 @@ function getSeqLength(idx) {
 }
 function getAxisExtentForSeq(idx) {
   const seqLen = getSeqLength(idx);
-  const hmMax  = Number(heatmapSlot?.dataset?.posMax || 0) || 0;
+  const hmMax  = (typeof heatmapSlot !== "undefined" && heatmapSlot && heatmapSlot.dataset)
+    ? (Number(heatmapSlot.dataset.posMax) || 0)
+    : 0;
   const maxPos = Math.max(seqLen, hmMax, 1);
   return [1, maxPos];
 }
@@ -1616,10 +1631,3 @@ const LEFT_GUTTER  = 110;  // room for "HLA-A*01:01" etc
 const RIGHT_GUTTER = 12;   // tiny padding on the right
 ```
 
-```js
-// Zoom sync (leader: heatmap → follower: peptide)
-let __latestZoomTransform = null;
-let __heatmapEl = null;
-let __peptideEl = null;
-
-```
