@@ -402,6 +402,9 @@ async function parseAndApplyFASTA(rawText) {
     latestAlignedPepsMut.value = aligned;
     renderPeptideTrack(selectedSeqIndex());
     updatePeptideDownloadForSeq(selectedSeqIndex());
+    const seqNow = selectedSeqIndex();
+    renderPeptideTrack(seqNow, Number(heatLenCtrl?.value));
+    updatePeptideDownloadForSeq(seqNow);
   }
   if (issues?.length) console.warn("FASTA issues (skipped sequences):", issues);
 }
@@ -816,7 +819,7 @@ runBtn.addEventListener("click", async () => {
     if (rowsLen) {
       renderHeatmap(rows, safeLen);
       const seqNow = selectedSeqIndex();
-      try { renderPeptideTrack(seqNow); updatePeptideDownloadForSeq(seqNow); } catch {}
+      try { renderPeptideTrack(seqNow, Number(len)); updatePeptideDownloadForSeq(seqNow); } catch {}
       try {
         const selAllele = (selectedAlleleMut && typeof selectedAlleleMut === "object" && ("value" in selectedAlleleMut))
           ? selectedAlleleMut.value
@@ -939,7 +942,7 @@ const heatLenCtrl = makeHeatLenSelect({
     renderHeatmap(rowsNow, Number(len), seqNow);
 
     // keep peptide track/download in sync
-    try { renderPeptideTrack(seqNow); updatePeptideDownloadForSeq(seqNow); } catch {}
+    try { renderPeptideTrack(seqNow, safeLen); updatePeptideDownloadForSeq(seqNow); } catch {}
     try {
       const selAllele = (selectedAlleleMut && typeof selectedAlleleMut === "object" && ("value" in selectedAlleleMut))
         ? selectedAlleleMut.value
@@ -1393,7 +1396,7 @@ const seqSelectCtrl = makeSeqSelect({
     }
 
     // also refresh peptide track/download
-    try { renderPeptideTrack(seq); updatePeptideDownloadForSeq(seq); } catch {}
+    try { renderPeptideTrack(seq, Number(heatLenCtrl?.value)); updatePeptideDownloadForSeq(seq); } catch {}
     try {
       const selAllele = (selectedAlleleMut && typeof selectedAlleleMut === "object" && ("value" in selectedAlleleMut))
         ? selectedAlleleMut.value
@@ -1643,8 +1646,9 @@ async function parseAndApplyPeptides(rawText) {
   latestAlignedPepsMut.value = aligned;
 
   // Refresh track & download for current selection
-  renderPeptideTrack(selectedSeqIndex());
-  updatePeptideDownloadForSeq(selectedSeqIndex());
+  const seqNow = selectedSeqIndex();
+  renderPeptideTrack(seqNow, Number(heatLenCtrl?.value));
+  pdatePeptideDownloadForSeq(seqNow);
 }
 
 const onPeptideInput = () => {
@@ -1667,7 +1671,7 @@ invalidation.then(() => peptideBox.textarea.removeEventListener("input", onPepti
       setMut(peptideTextMut, "");
       alignedPepsMut.value = [];
       latestAlignedPepsMut.value = [];
-      renderPeptideTrack(selectedSeqIndex());
+      renderPeptideTrack(selectedSeqIndex(), Number(heatLenCtrl?.value));
       updatePeptideDownloadForSeq(selectedSeqIndex());
       return;
     }
@@ -1711,8 +1715,7 @@ function alignedForSeq(idx) {
 }
 
 /* Render track for current sequence; keep axis extent in sync with heatmap. */
-function renderPeptideTrack(seqIdx = selectedSeqIndex()) {
-  const lenNow = Number(heatLenCtrl?.value);
+function renderPeptideTrack(seqIdx, lenNow) {
   const aligned = alignedForSeq(seqIdx);
   const rows = aligned
     .filter(r => Number(r.length) === lenNow)
