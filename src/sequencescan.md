@@ -142,6 +142,8 @@ function renderPeptideAlleleTrack(seqIdx, length, allele) {
 
   new ResizeObserver(e => build(e[0].contentRect.width)).observe(wrapper);
 }
+```
+
 ```js
 // Shared x-zoom synchronization between heatmap and peptide track
 let __zoomSync = {
