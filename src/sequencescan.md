@@ -32,6 +32,8 @@ const selectedAlleleMut = Mutable(null);
 /* tiny hook for console debugging */
 window.__heatLatestRows = () => latestRowsMut.value;
 
+// Tracks latest [min,max] x-extent computed by the heatmap per sequence index
+const __posExtentBySeq = new Map();
 ```
 
 ```js
@@ -1107,6 +1109,8 @@ function renderHeatmap(rows, lengthFilter, seqIdx = selectedSeqIndex()) {
     console.log("🟦 render → method:", method, "len:", wantedLen, "seq #:", seqIdx);
     const { cells, posExtent, alleles } =
       buildHeatmapData(rowsArr, method, wantedLen, seqIdx);
+    // cache the latest heatmap extent for this sequence (used by peptide tracks)
+    __posExtentBySeq.set(Number(seqIdx), posExtent);
 
     HM_RENDER_COUNT++;
     heatmapSlot.dataset.renderCount  = String(HM_RENDER_COUNT);
@@ -1457,9 +1461,11 @@ function getSeqLength(idx) {
   const s = getSeqByIndex(idx);
   return s ? (s.sequence || "").length : 1;
 }
+
 function getAxisExtentForSeq(idx) {
   const seqLen = getSeqLength(idx);
-  const hmMax  = Number(heatmapSlot?.dataset?.posMax || 0) || 0;
+  const cached = __posExtentBySeq.get(Number(idx));
+  const hmMax  = Array.isArray(cached) ? (Number(cached[1]) || 0) : 0;
   const maxPos = Math.max(seqLen, hmMax, 1);
   return [1, maxPos];
 }
