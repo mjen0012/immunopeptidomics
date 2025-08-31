@@ -19,12 +19,13 @@ export function peptideScanChart(
   {
     data        = [],              // [{start, length, peptide, peptide_aligned?}]
     alleleData  = [],              // [{allele, peptide, netmhcpan_el_percentile, netmhcpan_ba_percentile}]
+    pctKey      = null,            // explicit percentile column to use (optional)
     xScale,                        // shared base/current scale from heatmap
     rowHeight   = 18,
     gap         = 2,
     sizeFactor  = 1.2,
     margin      = { top: 20, right: 20, bottom: 30, left: 40 },
-    mode        = "EL",            // "EL" | "BA" (optional)
+    mode        = "EL",            // legacy fallback: "EL" | "BA"
     onZoom      = () => {}
   } = {}
 ){
@@ -44,14 +45,33 @@ export function peptideScanChart(
 
   // build percentile lookups by peptide
   const normPep = s => String(s||"").toUpperCase().replace(/-/g,"").trim();
-  const elMap = new Map(), baMap = new Map();
+  const modeNow = String(mode||"EL").toUpperCase().includes("BA") ? "BA" : "EL";
+  const pctMap = new Map();
+  const valFromRow = (r) => {
+    // Priority: explicit pctKey -> common underscored keys -> common spaced keys
+    if (pctKey && r && Object.prototype.hasOwnProperty.call(r, pctKey)) {
+      const v = r[pctKey];
+      return v == null ? null : +v;
+    }
+    if (modeNow === "BA") {
+      if (r?.netmhcpan_ba_percentile != null) return +r.netmhcpan_ba_percentile;
+      if (r && r["netmhcpan_ba percentile"] != null) return +r["netmhcpan_ba percentile"];
+      if (r?.netmhciipan_ba_percentile != null) return +r.netmhciipan_ba_percentile;
+      if (r && r["netmhciipan_ba percentile"] != null) return +r["netmhciipan_ba percentile"];
+    } else {
+      if (r?.netmhcpan_el_percentile != null) return +r.netmhcpan_el_percentile;
+      if (r && r["netmhcpan_el percentile"] != null) return +r["netmhcpan_el percentile"];
+      if (r?.netmhciipan_el_percentile != null) return +r.netmhciipan_el_percentile;
+      if (r && r["netmhciipan_el percentile"] != null) return +r["netmhciipan_el percentile"];
+    }
+    return null;
+  };
   for (const r of alleleData) {
     const k = normPep(r?.peptide);
     if (!k) continue;
-    if (r?.netmhcpan_el_percentile != null) elMap.set(k, +r.netmhcpan_el_percentile);
-    if (r?.netmhcpan_ba_percentile != null) baMap.set(k, +r.netmhcpan_ba_percentile);
+    const v = valFromRow(r);
+    if (v != null && isFinite(v)) pctMap.set(k, +v);
   }
-  const modeNow = String(mode||"EL").toUpperCase().includes("BA") ? "BA" : "EL";
 
   // ---- SAME color mapping as heatmapChart.js --------------------
   const BLUE_MAX = 2, RED_MIN = 50;
@@ -65,7 +85,7 @@ export function peptideScanChart(
 
   const fillFor = d => {
     const k = normPep(d.peptide_aligned || d.peptide);
-    const v = (modeNow === "BA" ? baMap.get(k) : elMap.get(k));
+    const v = pctMap.get(k);
     return pctToFill(v);
   };
 
@@ -127,11 +147,11 @@ export function peptideScanChart(
     bars
       .on("mousemove", (e, d) => {
         const k  = normPep(d.peptide_aligned || d.peptide);
-        const el = elMap.get(k), ba = baMap.get(k);
+        const v  = pctMap.get(k);
         tooltip.html(
           `<div><strong>Peptide:</strong> ${d.peptide}</div>
            <div><strong>Allele:</strong> ${(alleleData[0]?.allele) ?? ""}</div>
-           <div>EL: ${fmt(el)}&nbsp;&nbsp;|&nbsp;&nbsp;BA: ${fmt(ba)}</div>`
+           <div><strong>Percentile:</strong> ${fmt(v)}</div>`
         )
         .style("left", `${e.pageX + 10}px`)
         .style("top",  `${e.pageY + 10}px`)

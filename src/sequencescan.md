@@ -106,9 +106,13 @@ function renderPeptideAlleleTrack(seqIdx, length, allele) {
     d3.select(svg.node()).selectAll("*").remove();
     const g = d3.select(svg.node()).append("g");
 
+    const method = getPredictor().id;
+    const pctKey = pickPercentileKey(method, rows[0]);
+
     inst = peptideScanChart(g, {
       data: bars,
       alleleData: rows,
+      pctKey,
       xScale: xBase,
       rowHeight: 18,
       gap: 2,
