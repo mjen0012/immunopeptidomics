@@ -79,6 +79,8 @@ export function heatmapChart({
   }
 
   let xBase, viewW;
+  let suppressSync = false;
+  let lastTransform = d3.zoomIdentity;
   let selectedAllele = null;
 
   function renderRowHighlight() {
@@ -92,14 +94,15 @@ export function heatmapChart({
     .on("zoom", ev => {
       let t = ev.transform;
 
+      // clamp to bounds (without early return)
       const r0 = gutterLeft;
       const r1 = viewW - gutterRight;
       const minX = (1 - t.k) * r1;
       const maxX = (1 - t.k) * r0;
       if (t.x < minX || t.x > maxX) {
         t = d3.zoomIdentity.translate(Math.max(minX, Math.min(maxX, t.x)), t.y).scale(t.k);
-        svg.call(zoom.transform, t);
-        return;
+        // normalise internal zoom state
+        if (t.x !== ev.transform.x || t.k !== ev.transform.k) svg.call(zoom.transform, t);
       }
 
       const zx = t.rescaleX(xBase);
@@ -108,7 +111,9 @@ export function heatmapChart({
         .attr("width", d => Math.max(1, zx(d.pos + 0.5) - zx(d.pos - 0.5)));
       xAxisG.call(d3.axisBottom(zx).tickFormat(d3.format("d")).ticks(Math.min(15, viewW / 60))).call(axisStyling);
 
-      onZoom(zx, t);
+      lastTransform = t;
+
+      if (!suppressSync) onZoom(zx, t);
     });
 
   function toggleAllele(a) {
@@ -175,7 +180,27 @@ export function heatmapChart({
   wrapper.dataset.posMin  = String(posMin);
   wrapper.dataset.posMax  = String(posMax);
 
-  wrapper.__setZoom = (transform) => { if (transform) svg.call(zoom.transform, transform); };
+  wrapper.__setZoom = (transform) => {
+    if (!transform) return;
+    // If same transform, skip
+    if (lastTransform && transform.k === lastTransform.k && transform.x === lastTransform.x && transform.y === lastTransform.y) return;
+    // Clamp to this chart's bounds before applying
+    const r0 = gutterLeft;
+    const r1 = viewW - gutterRight;
+    const minX = (1 - transform.k) * r1;
+    const maxX = (1 - transform.k) * r0;
+    let t = transform;
+    if (t.x < minX || t.x > maxX) {
+      t = d3.zoomIdentity.translate(Math.max(minX, Math.min(maxX, t.x)), t.y).scale(t.k);
+    }
+    suppressSync = true;
+    try {
+      svg.call(zoom.transform, t);
+      lastTransform = t;
+    } finally {
+      suppressSync = false;
+    }
+  };
 
   return wrapper;
 }
