@@ -813,7 +813,12 @@ runBtn.addEventListener("click", async () => {
       renderHeatmap(rows, safeLen);
       const seqNow = selectedSeqIndex();
       try { renderPeptideTrack(seqNow); updatePeptideDownloadForSeq(seqNow); } catch {}
-      try { renderPeptideAlleleTrack(seqNow, safeLen, selectedAlleleMut?.value); } catch {}
+      try {
+        const selAllele = (selectedAlleleMut && typeof selectedAlleleMut === "object" && ("value" in selectedAlleleMut))
+          ? selectedAlleleMut.value
+          : (heatmapSlot?.dataset?.selectedAllele || null);
+        renderPeptideAlleleTrack(seqNow, safeLen, selAllele || null);
+      } catch {}
     }
 
   } catch (err) {
@@ -931,7 +936,12 @@ const heatLenCtrl = makeHeatLenSelect({
 
     // keep peptide track/download in sync
     try { renderPeptideTrack(seqNow); updatePeptideDownloadForSeq(seqNow); } catch {}
-    try { renderPeptideAlleleTrack(seqNow, Number(len), selectedAlleleMut?.value); } catch {}
+    try {
+      const selAllele = (selectedAlleleMut && typeof selectedAlleleMut === "object" && ("value" in selectedAlleleMut))
+        ? selectedAlleleMut.value
+        : (heatmapSlot?.dataset?.selectedAllele || null);
+      renderPeptideAlleleTrack(seqNow, Number(len), selAllele || null);
+    } catch {}
   }
 });
 
@@ -1162,12 +1172,17 @@ function renderHeatmap(rows, lengthFilter, seqIdx = selectedSeqIndex()) {
         if (a && typeof a.__setZoom === "function") a.__setZoom(t);
       },
       onRowToggle: (allele) => {
-        // store selection and render allele track for current length
-        selectedAlleleMut.value = allele || null;
+        // store selection (defensively avoid null Mutable)
+        try {
+          if (selectedAlleleMut && typeof selectedAlleleMut === "object" && ("value" in selectedAlleleMut)) {
+            selectedAlleleMut.value = allele || null;
+          }
+        } catch {}
+        try { if (heatmapSlot && heatmapSlot.dataset) heatmapSlot.dataset.selectedAllele = String(allele || ""); } catch {}
         const wantSeq = Number.isFinite(seqIdx) ? seqIdx : selectedSeqIndex();
         // Avoid reactive cycle: derive length from the heatmap element itself
         const wantLen = Number(el?.dataset?.len);
-        try { renderPeptideAlleleTrack(wantSeq, wantLen, selectedAlleleMut.value); } catch {}
+        try { renderPeptideAlleleTrack(wantSeq, wantLen, allele || null); } catch {}
       }
     });
 
@@ -1375,7 +1390,12 @@ const seqSelectCtrl = makeSeqSelect({
 
     // also refresh peptide track/download
     try { renderPeptideTrack(seq); updatePeptideDownloadForSeq(seq); } catch {}
-    try { renderPeptideAlleleTrack(seq, Number(heatLenCtrl?.value), selectedAlleleMut?.value); } catch {}
+    try {
+      const selAllele = (selectedAlleleMut && typeof selectedAlleleMut === "object" && ("value" in selectedAlleleMut))
+        ? selectedAlleleMut.value
+        : (heatmapSlot?.dataset?.selectedAllele || null);
+      renderPeptideAlleleTrack(seq, Number(heatLenCtrl?.value), selAllele || null);
+    } catch {}
   }
 });
 
