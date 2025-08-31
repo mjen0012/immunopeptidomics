@@ -12,6 +12,7 @@ import { comboSelectLazy } from "./components/comboSelectLazy.js";
 import { dropSelect }      from "./components/dropSelect.js";
 import { heatmapChart } from "./components/heatmapChart.js";
 import { rangeSlider } from "./components/rangeSlider.js";
+import { peptideScanChart } from "./components/peptideScanChart.js";
 ```
 
 ```js
@@ -25,6 +26,8 @@ const predRowsMut      = Mutable([]);    // raw peptide_table rows as objects
 const chosenSeqIndexMut = Mutable(null);
 /* NEW: stable runtime cache for rows using Observable Mutable */
 const latestRowsMut    = Mutable([]);
+/* Selected allele from heatmap (row toggle) */
+const selectedAlleleMut = Mutable(null);
 
 /* tiny hook for console debugging */
 window.__heatLatestRows = () => latestRowsMut.value;
@@ -32,11 +35,120 @@ window.__heatLatestRows = () => latestRowsMut.value;
 ```
 
 ```js
+// Additional chart slot: allele-specific peptide scan (below heatmap)
+const peptideScanSlot = html`<div style="margin:8px 0"></div>`;
+```
+
+```js
+// Render all peptides for the selected allele at current length/sequence
+import * as d3 from "npm:d3@7";
+
+function rowsForAlleleAndLen(seqIdx, length, allele) {
+  const src = (latestRowsMut.value && latestRowsMut.value.length)
+    ? latestRowsMut.value
+    : (Array.isArray(predRowsMut.value) ? predRowsMut.value : []);
+  const out = [];
+  for (const r of src) {
+    const seqNum = Number(r["seq #"] ?? r["sequence_number"] ?? 1);
+    if (seqNum !== Number(seqIdx)) continue;
+    if (rowLen(r) !== Number(length)) continue;
+    if (String(r?.allele || "") !== String(allele || "")) continue;
+    out.push(r);
+  }
+  return out;
+}
+
+function renderPeptideAlleleTrack(seqIdx = selectedSeqIndex(), length = Number(heatLenCtrl?.value), allele = selectedAlleleMut?.value) {
+  peptideScanSlot.replaceChildren();
+
+  if (!allele) {
+    const em = document.createElement("em");
+    em.textContent = "Click an allele row in the heatmap to view its peptides.";
+    peptideScanSlot.appendChild(em);
+    __zoomSync.pepAllele = null;
+    return;
+  }
+
+  const rows = rowsForAlleleAndLen(seqIdx, length, allele);
+  if (!rows.length) {
+    const em = document.createElement("em");
+    em.textContent = `No peptides for allele ${allele} (len ${length}).`;
+    peptideScanSlot.appendChild(em);
+    __zoomSync.pepAllele = null;
+    return;
+  }
+
+  const posExtent = getAxisExtentForSeq(seqIdx);
+  const bars = rows.map(r => ({ start: +r.start, length: rowLen(r), peptide: String(r.peptide || "") }));
+
+  const wrapper = document.createElement("div");
+  wrapper.style.width = "100%";
+  peptideScanSlot.appendChild(wrapper);
+
+  const svg = d3.create("svg")
+    .style("width", "100%")
+    .style("touch-action", "none")
+    .attr("font-family", "sans-serif")
+    .attr("font-size", 11);
+  wrapper.appendChild(svg.node());
+
+  const margin = { top: 18, right: 12, bottom: 24, left: 110 };
+  let inst = null;
+  let suppress = false;
+
+  function build(wPx) {
+    const w = Math.max(1, wPx | 0);
+    const xBase = d3.scaleLinear([posExtent[0] - 0.5, posExtent[1] + 0.5], [margin.left, w - margin.right]);
+
+    // clear & (re)build
+    d3.select(svg.node()).selectAll("*").remove();
+    const g = d3.select(svg.node()).append("g");
+
+    inst = peptideScanChart(g, {
+      data: bars,
+      alleleData: rows,
+      xScale: xBase,
+      rowHeight: 18,
+      gap: 2,
+      sizeFactor: 1.1,
+      margin,
+      onZoom: (zx, t) => {
+        if (suppress) return;
+        __zoomSync.transform = t;
+        const hm = __zoomSync.heatmapEl;
+        const pept = __zoomSync.peptideEl;
+        if (hm && typeof hm.__setZoom === "function") hm.__setZoom(t);
+        if (pept && typeof pept.__setZoom === "function") pept.__setZoom(t);
+      }
+    });
+
+    const h = inst?.height || (18 + 18 + 24);
+    svg.attr("viewBox", `0 0 ${w} ${h}`);
+
+    // expose setter for sync
+    __zoomSync.pepAllele = {
+      __setZoom: (t) => {
+        if (!inst?.setZoom || !t) return;
+        suppress = true;
+        try { inst.setZoom(t); } finally { suppress = false; }
+      }
+    };
+
+    // if a transform already exists, apply it
+    if (__zoomSync.transform && inst?.setZoom) {
+      suppress = true; try { inst.setZoom(__zoomSync.transform); } finally { suppress = false; }
+    }
+  }
+
+  new ResizeObserver(e => build(e[0].contentRect.width)).observe(wrapper);
+}
+```
 // Shared x-zoom synchronization between heatmap and peptide track
 let __zoomSync = {
   transform: null,
   heatmapEl: null,
-  peptideEl: null
+  peptideEl: null,
+  pepAllele: null
 };
 ```
 
@@ -697,6 +809,7 @@ runBtn.addEventListener("click", async () => {
       renderHeatmap(rows, safeLen);
       const seqNow = selectedSeqIndex();
       try { renderPeptideTrack(seqNow); updatePeptideDownloadForSeq(seqNow); } catch {}
+      try { renderPeptideAlleleTrack(seqNow, safeLen, selectedAlleleMut?.value); } catch {}
     }
 
   } catch (err) {
@@ -814,6 +927,7 @@ const heatLenCtrl = makeHeatLenSelect({
 
     // keep peptide track/download in sync
     try { renderPeptideTrack(seqNow); updatePeptideDownloadForSeq(seqNow); } catch {}
+    try { renderPeptideAlleleTrack(seqNow, Number(len), selectedAlleleMut?.value); } catch {}
   }
 });
 
@@ -1036,8 +1150,17 @@ function renderHeatmap(rows, lengthFilter, seqIdx = selectedSeqIndex()) {
       },
       onZoom: (zx, t) => {
         __zoomSync.transform = t;
-        const other = __zoomSync.peptideEl;
-        if (other && typeof other.__setZoom === "function") other.__setZoom(t);
+        const p = __zoomSync.peptideEl;
+        const a = __zoomSync.pepAllele;
+        if (p && typeof p.__setZoom === "function") p.__setZoom(t);
+        if (a && typeof a.__setZoom === "function") a.__setZoom(t);
+      },
+      onRowToggle: (allele) => {
+        // store selection and render allele track for current length
+        selectedAlleleMut.value = allele || null;
+        const wantSeq = Number.isFinite(seqIdx) ? seqIdx : selectedSeqIndex();
+        const wantLen = Number(heatLenCtrl?.value ?? el?.dataset?.len);
+        try { renderPeptideAlleleTrack(wantSeq, wantLen, selectedAlleleMut.value); } catch {}
       }
     });
 
@@ -1094,8 +1217,9 @@ function renderHeatmap(rows, lengthFilter, seqIdx = selectedSeqIndex()) {
   <h2>Heatmap</h2>
   ${seqSelSlot}
   ${heatLenSlot}
-  ${peptideSlot}  
+  ${peptideSlot}
   ${heatmapSlot}
+  ${peptideScanSlot}
   ${heatDebug}
 </div>
 
@@ -1244,6 +1368,7 @@ const seqSelectCtrl = makeSeqSelect({
 
     // also refresh peptide track/download
     try { renderPeptideTrack(seq); updatePeptideDownloadForSeq(seq); } catch {}
+    try { renderPeptideAlleleTrack(seq, Number(heatLenCtrl?.value), selectedAlleleMut?.value); } catch {}
   }
 });
 
@@ -1578,8 +1703,10 @@ function renderPeptideTrack(seqIdx = selectedSeqIndex()) {
     },
     onZoom: (zx, t) => {
       __zoomSync.transform = t;
-      const other = __zoomSync.heatmapEl;
-      if (other && typeof other.__setZoom === "function") other.__setZoom(t);
+      const hm = __zoomSync.heatmapEl;
+      const a  = __zoomSync.pepAllele;
+      if (hm && typeof hm.__setZoom === "function") hm.__setZoom(t);
+      if (a && typeof a.__setZoom === "function") a.__setZoom(t);
     }
   });
   peptideSlot.appendChild(el);
