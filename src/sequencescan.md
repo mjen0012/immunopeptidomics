@@ -1712,25 +1712,49 @@ function alignedForSeq(idx) {
 
 /* Render track for current sequence; keep axis extent in sync with heatmap. */
 function renderPeptideTrack(seqIdx = selectedSeqIndex()) {
-  const rows = alignedForSeq(seqIdx).map(r => ({
-    start  : r.start,
-    length : r.length,
-    peptide: r.peptide
-  }));
+  const lenNow = Number(heatLenCtrl?.value);
+  const aligned = alignedForSeq(seqIdx);
+  const rows = aligned
+    .filter(r => Number(r.length) === lenNow)
+    .map(r => ({ start: r.start, length: r.length, peptide: r.peptide }));
   const posExtent = getAxisExtentForSeq(seqIdx);
 
   peptideSlot.replaceChildren();
   if (!rows.length) {
     const em = document.createElement("em");
-    em.textContent = "No aligned peptides for the selected sequence.";
+    em.textContent = "No aligned peptides for the selected sequence and length.";
     peptideSlot.appendChild(em);
     return;
   }
+  // Build percentile map for colouring (min across alleles for this seq & length)
+  let pctMap = new Map();
+  try {
+    const rowsPred = (latestRowsMut.value && latestRowsMut.value.length)
+      ? latestRowsMut.value
+      : (Array.isArray(predRowsMut.value) ? predRowsMut.value : []);
+    const method = getPredictor().id;
+    const r1 = rowsPred.filter(r => Number(r["seq #"] ?? r["sequence_number"] ?? 1) === Number(seqIdx)
+                                 && rowLen(r) === Number(lenNow));
+    const pctKey = r1.length ? pickPercentileKey(method, r1[0]) : null;
+    if (pctKey) {
+      const tmp = new Map();
+      for (const r of r1) {
+        const pep = String(r.peptide || "").toUpperCase().replace(/-/g,"").trim();
+        const v = Number(r[pctKey]);
+        if (!pep || !Number.isFinite(v)) continue;
+        const prev = tmp.get(pep);
+        tmp.set(pep, prev == null ? v : Math.min(prev, v));
+      }
+      pctMap = tmp;
+    }
+  } catch {}
+
   const el = peptideChartScan({
     data: rows,
     posExtent,
     rowHeight: 18,
     sizeFactor: 1.1,
+    percentileByPeptide: pctMap,
     onReady: (xBase) => {
       // no-op
     },

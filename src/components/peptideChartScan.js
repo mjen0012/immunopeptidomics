@@ -17,7 +17,8 @@ export function peptideChartScan({
   margin      = { top: 18, right: 20, bottom: 24, left: 40 }, // left/right not used for x
   gutterLeft  = 110,
   gutterRight = 12,
-  barColor    = "#006DAE",
+  barColor    = "#006DAE",        // fallback when no percentile
+  percentileByPeptide = null,     // Map or plain object: { PEPTIDE_UPPER: percentile }
   onReady     = () => {},
   onZoom      = () => {}
 } = {}) {
@@ -64,6 +65,24 @@ export function peptideChartScan({
     .attr("transform", `translate(0,${axisY})`)
     .call(d3.axisBottom(xBase).tickFormat(d3.format("d")));
 
+  // Percentile -> colour (match heatmap & peptideScanChart)
+  const BLUE_MAX = 2, RED_MIN = 50;
+  const pctToFill = (p) => {
+    if (p == null || !isFinite(p)) return "#f0f0f0"; // neutral for missing
+    const v = +p;
+    if (v <= BLUE_MAX) return d3.interpolateBlues(1 - v / BLUE_MAX);
+    if (v <= RED_MIN)  return d3.interpolateReds((v - BLUE_MAX) / (RED_MIN - BLUE_MAX));
+    return d3.interpolateReds(1);
+  };
+  const lookupPct = (pep) => {
+    const k = String(pep || "").toUpperCase().replace(/-/g, "").trim();
+    if (!k) return null;
+    if (!percentileByPeptide) return null;
+    if (percentileByPeptide instanceof Map) return percentileByPeptide.get(k);
+    return percentileByPeptide[k];
+  };
+  const fillFor = (d) => pctToFill(lookupPct(d.peptide));
+
   // Bars (clipped to plotting area)
   const barsG = g.append("g").attr("clip-path", `url(#${clipId})`);
   barsG.selectAll("rect")
@@ -71,7 +90,7 @@ export function peptideChartScan({
     .enter().append("rect")
       .attr("y", d => margin.top + (nLevels - 1 - d.level) * rowHeight + gap / 2)
       .attr("height", rowHeight - gap)
-      .attr("fill", barColor)
+      .attr("fill", fillFor)
       .attr("stroke", "#444")
       .attr("stroke-width", 0.5 * sizeFactor);
 
