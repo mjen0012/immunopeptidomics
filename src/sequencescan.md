@@ -1017,12 +1017,26 @@ function renderHeatmap(rows, lengthFilter, seqIdx = selectedSeqIndex()) {
       return;
     }
 
+    let heatEl; // closure target for onReady
     const el = heatmapChart({
       data: cells,
       posExtent,
       cellHeight: 18,
-      sizeFactor: 1.1
+      sizeFactor: 1.1,
+      onReady: () => {
+        // If user had already zoomed previously, reapply on fresh layout
+        if (__latestZoomTransform && heatEl?.__setZoom) {
+          try { heatEl.__setZoom(__latestZoomTransform); } catch {}
+        }
+      },
+      onZoom: (_xScale, transform) => {
+        // Remember transform and push to peptide follower if mounted
+        __latestZoomTransform = transform;
+        try { __peptideEl?.__setZoom(transform); } catch {}
+      }
     });
+    heatEl = el;
+    __heatmapEl = el;
 
     el.dataset.len    = String(wantedLen);
     el.dataset.method = String(method);
@@ -1551,8 +1565,18 @@ function renderPeptideTrack(seqIdx = selectedSeqIndex()) {
     data: rows,
     posExtent,
     rowHeight: 18,
-    sizeFactor: 1.1
+    sizeFactor: 1.1,
+    // MUST match heatmapChart's x-range margins
+    gutterLeft: 90,
+    gutterRight: 20,
+    onReady: () => {
+      // If heatmap was already zoomed, sync immediately on first layout
+      if (__latestZoomTransform) {
+        try { el.__setZoom(__latestZoomTransform); } catch {}
+      }
+    }
   });
+  __peptideEl = el;
   peptideSlot.appendChild(el);
 }
 
@@ -1583,5 +1607,19 @@ dlPepsBtn.onclick = () => {
   a.click();
 };
 invalidation.then(() => { if (pepCsvUrl) URL.revokeObjectURL(pepCsvUrl); });
+
+```
+
+```js
+// ── Shared gutters (keep the same for both charts)
+const LEFT_GUTTER  = 110;  // room for "HLA-A*01:01" etc
+const RIGHT_GUTTER = 12;   // tiny padding on the right
+```
+
+```js
+// Zoom sync (leader: heatmap → follower: peptide)
+let __latestZoomTransform = null;
+let __heatmapEl = null;
+let __peptideEl = null;
 
 ```
