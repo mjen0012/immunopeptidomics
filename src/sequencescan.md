@@ -1712,10 +1712,10 @@ function alignedForSeq(idx) {
 
 /* Render track for current sequence; keep axis extent in sync with heatmap. */
 function renderPeptideTrack(seqIdx = selectedSeqIndex()) {
-  const lenNow = Number(heatLenCtrl?.value);
+  const lenRaw = Number(heatmapSlot?.dataset?.lastLen);
   const aligned = alignedForSeq(seqIdx);
   const rows = aligned
-    .filter(r => Number(r.length) === lenNow)
+    .filter(r => !Number.isFinite(lenRaw) || Number(r.length) === lenRaw)
     .map(r => ({ start: r.start, length: r.length, peptide: r.peptide }));
   const posExtent = getAxisExtentForSeq(seqIdx);
 
@@ -1733,8 +1733,12 @@ function renderPeptideTrack(seqIdx = selectedSeqIndex()) {
       ? latestRowsMut.value
       : (Array.isArray(predRowsMut.value) ? predRowsMut.value : []);
     const method = getPredictor().id;
-    const r1 = rowsPred.filter(r => Number(r["seq #"] ?? r["sequence_number"] ?? 1) === Number(seqIdx)
-                                 && rowLen(r) === Number(lenNow));
+    const r1 = rowsPred.filter(r => {
+      const okSeq = Number(r["seq #"] ?? r["sequence_number"] ?? 1) === Number(seqIdx);
+      if (!okSeq) return false;
+      if (!Number.isFinite(lenRaw)) return true; // if no heatmap length yet, include all
+      return rowLen(r) === Number(lenRaw);
+    });
     const pctKey = r1.length ? pickPercentileKey(method, r1[0]) : null;
     if (pctKey) {
       const tmp = new Map();
