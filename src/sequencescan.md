@@ -58,7 +58,7 @@ function rowsForAlleleAndLen(seqIdx, length, allele) {
   return out;
 }
 
-function renderPeptideAlleleTrack(seqIdx = selectedSeqIndex(), length = Number(heatLenCtrl?.value), allele = selectedAlleleMut?.value) {
+function renderPeptideAlleleTrack(seqIdx, length, allele) {
   peptideScanSlot.replaceChildren();
 
   if (!allele) {
@@ -142,7 +142,7 @@ function renderPeptideAlleleTrack(seqIdx = selectedSeqIndex(), length = Number(h
 
   new ResizeObserver(e => build(e[0].contentRect.width)).observe(wrapper);
 }
-```
+```js
 // Shared x-zoom synchronization between heatmap and peptide track
 let __zoomSync = {
   transform: null,
