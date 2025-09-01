@@ -1140,6 +1140,8 @@ function renderHeatmap(rows, lengthFilter, seqIdx = selectedSeqIndex()) {
         // Avoid reactive cycle: derive length from the heatmap element itself
         const wantLen = Number(el?.dataset?.len);
         try { renderPeptideAlleleTrack(wantSeq, wantLen, allele || null); } catch {}
+        // Also update the peptideChartScan coloring to reflect selected allele
+        try { renderPeptideTrack(wantSeq); } catch {}
       }
     });
 
@@ -1649,6 +1651,10 @@ function alignedForSeq(idx) {
 /* Render track for current sequence; keep axis extent in sync with heatmap. */
 function renderPeptideTrack(seqIdx = selectedSeqIndex()) {
   const lenRaw = Number(heatmapSlot?.dataset?.lastLen);
+  // currently selected allele (if any) from heatmap row toggle
+  const selAllele = (selectedAlleleMut && typeof selectedAlleleMut === "object" && ("value" in selectedAlleleMut))
+    ? selectedAlleleMut.value
+    : (heatmapSlot?.dataset?.selectedAllele || null);
   const aligned = alignedForSeq(seqIdx);
   const rows = aligned
     .filter(r => !Number.isFinite(lenRaw) || Number(r.length) === lenRaw)
@@ -1662,7 +1668,9 @@ function renderPeptideTrack(seqIdx = selectedSeqIndex()) {
     peptideSlot.appendChild(em);
     return;
   }
-  // Build percentile map for colouring (min across alleles for this seq & length)
+  // Build percentile map for colouring
+  // - If an allele is selected, color by that allele's percentiles
+  // - Otherwise, use the minimum percentile across alleles
   let pctMap = new Map();
   try {
     const rowsPred = (latestRowsMut.value && latestRowsMut.value.length)
@@ -1673,7 +1681,10 @@ function renderPeptideTrack(seqIdx = selectedSeqIndex()) {
       const okSeq = Number(r["seq #"] ?? r["sequence_number"] ?? 1) === Number(seqIdx);
       if (!okSeq) return false;
       if (!Number.isFinite(lenRaw)) return true; // if no heatmap length yet, include all
-      return rowLen(r) === Number(lenRaw);
+      const okLen = rowLen(r) === Number(lenRaw);
+      if (!okLen) return false;
+      if (selAllele) return String(r?.allele || "") === String(selAllele);
+      return true;
     });
     const pctKey = r1.length ? pickPercentileKey(method, r1[0]) : null;
     if (pctKey) {
@@ -1682,8 +1693,14 @@ function renderPeptideTrack(seqIdx = selectedSeqIndex()) {
         const pep = String(r.peptide || "").toUpperCase().replace(/-/g,"").trim();
         const v = Number(r[pctKey]);
         if (!pep || !Number.isFinite(v)) continue;
-        const prev = tmp.get(pep);
-        tmp.set(pep, prev == null ? v : Math.min(prev, v));
+        if (selAllele) {
+          // direct mapping for selected allele
+          tmp.set(pep, v);
+        } else {
+          // no allele selected: take min across alleles
+          const prev = tmp.get(pep);
+          tmp.set(pep, prev == null ? v : Math.min(prev, v));
+        }
       }
       pctMap = tmp;
     }
