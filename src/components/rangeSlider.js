@@ -31,8 +31,10 @@ export function rangeSlider({
   const style = document.createElement("style");
   style.textContent = `
 .rs-root{ width:100%; }
-.rs-label{ display:block; margin:0 0 8px 0; font:500 13px/1.3 ${fontFamily}; color:#111; }
-.rs-wrap{ position:relative; padding:18px 0 12px 0; }
+/* Align with other inputs (select/text: 4px label gap, 36px control) */
+.rs-label{ display:block; margin:0 0 4px 0; font:500 13px/1.3 ${fontFamily}; color:#111; }
+/* Trim top padding to visually match 36px field height rhythm */
+.rs-wrap{ position:relative; padding:12px 0 12px 0; }
 .rs-track{
   position:relative; height:6px; background:#e5e5e5; border-radius:4px;
 }

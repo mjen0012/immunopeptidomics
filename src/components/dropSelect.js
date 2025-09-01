@@ -60,7 +60,7 @@ export function dropSelect(
   box-sizing:border-box;
   background:#fff;
 }
-.drop-label  { display:block; margin-bottom:4px; }
+.drop-label  { display:block; margin-bottom:4px; font:500 13px/1.3 ${fontFamily}; color:#111; }
 `;
   root.appendChild(style);
 

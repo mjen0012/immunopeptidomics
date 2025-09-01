@@ -75,7 +75,7 @@ export function comboSelectLazy({
   const style = document.createElement("style");
   style.textContent = `
 .combo-root   { font-family:${fontFamily}; width:100%; box-sizing:border-box; }
-.combo-label  { display:block; margin-bottom:4px; }
+.combo-label  { display:block; margin-bottom:4px; font:500 13px/1.3 ${fontFamily}; color:#111; }
 .combo-search {
   width:100%; height:36px; padding:0 .5em; font:inherit;
   border:1px solid #bbb; border-radius:6px; box-sizing:border-box;
