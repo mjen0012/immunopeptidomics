@@ -658,11 +658,24 @@ function rowsFromTable(tbl) {
 
 /* FASTA getter – use cached text if present, otherwise read from current file */
 async function getLatestFastaText() {
+  // 1) Cached sanitized FASTA from prior parse
   const cached = (fastaTextMut && typeof fastaTextMut === "object" && "value" in fastaTextMut)
     ? String(fastaTextMut.value || "").trim()
     : "";
   if (cached) return cached;
 
+  // 2) User may have pasted into the textarea but debounce hasn't fired yet
+  const raw = String(fastaBox?.value || "").trim();
+  if (raw) {
+    try {
+      // Parse now to produce sanitized FASTA and sync state
+      await parseAndApplyFASTA(raw);
+      const after = String((fastaTextMut?.value ?? "")).trim();
+      if (after) return after;
+    } catch {}
+  }
+
+  // 3) Fall back to reading from the uploaded file, if any
   const tryRead = async (file) => {
     if (!file || typeof file.text !== "function") return "";
     let t = ""; try { t = await file.text(); } catch {}
@@ -753,7 +766,7 @@ runBtn.addEventListener("click", async () => {
   try {
     const fasta = await getLatestFastaText();
     if (!fasta) {
-      setStatus("Please upload a FASTA file first.", { warn:true });
+      setStatus("Please provide a FASTA sequence (paste or upload).", { warn:true });
       return;
     }
     const alleles = chosenAllelesMut.value || [];
