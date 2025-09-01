@@ -16,6 +16,7 @@ export function peptideChartScan({
   sizeFactor  = 1.1,
   // Unified margins for consistent vertical padding across charts
   margin      = { top: 16, right: 12, bottom: 28, left: 40 }, // left/right not used for x
+  selectedAllele = null,
   gutterLeft  = 110,
   gutterRight = 12,
   barColor    = "#006DAE",        // fallback when no percentile
@@ -72,6 +73,14 @@ export function peptideChartScan({
     .attr("transform", `translate(0,${axisY})`)
     .call(d3.axisBottom(xBase).tickFormat(d3.format("d")).tickSizeOuter(0));
   axisG.call(axisStyling);
+  // Y-axis hairline and label (selected allele)
+  const yAxisLine = g.append("line").attr("stroke","#94a3b8").attr("stroke-width",1);
+  const yAxisText = g.append("text")
+    .attr("fill","#334155")
+    .attr("font-family","'Roboto', sans-serif")
+    .attr("font-size",11)
+    .attr("text-anchor","end")
+    .text(selectedAllele ? String(selectedAllele) : "");
 
   // Percentile -> colour (match heatmap & peptideScanChart)
   const BLUE_MAX = 2, RED_MIN = 50;
@@ -99,8 +108,7 @@ export function peptideChartScan({
       .attr("y", d => margin.top + (nLevels - 1 - d.level) * rowHeight + gap / 2)
       .attr("height", rowHeight - gap)
       .attr("fill", fillFor)
-      .attr("stroke", "#444")
-      .attr("stroke-width", 0.5 * sizeFactor);
+      .attr("stroke", "none");
 
   // Zoom (bounded like heatmapChart)
   const zoom = d3.zoom()
@@ -135,8 +143,6 @@ export function peptideChartScan({
     });
 
   // Layout on container resize (match heatmap behaviour)
-  // Inner frame to match other charts
-  const frameR = g.append("rect").attr("fill","none").attr("stroke","#e5e7eb").attr("stroke-width",1);
 
   function layout(wPx) {
     viewW = Math.max(1, wPx | 0);
@@ -167,12 +173,15 @@ export function peptideChartScan({
 
     onReady(xBase);
 
-    // update frame to current plotting area
-    frameR
-      .attr("x", gutterLeft)
-      .attr("y", margin.top)
-      .attr("width",  Math.max(1, viewW - gutterLeft - gutterRight))
-      .attr("height", Math.max(0, (height - margin.bottom) - margin.top));
+    // position y-axis hairline + label
+    yAxisLine
+      .attr("x1", gutterLeft)
+      .attr("x2", gutterLeft)
+      .attr("y1", margin.top)
+      .attr("y2", height - margin.bottom);
+    yAxisText
+      .attr("x", gutterLeft - 8)
+      .attr("y", margin.top + 12);
   }
 
   // Public updater (if caller wants to resync scale)
@@ -186,7 +195,18 @@ export function peptideChartScan({
       .attr("width", d => Math.max(0, xBase(d.start + d.length - 0.5) - xBase(d.start - 0.5) - gap));
     axisG.call(d3.axisBottom(xBase)
       .tickFormat(d3.format("d"))
-      .ticks(Math.min(15, viewW / 60)));
+      .ticks(Math.min(15, viewW / 60))
+      .tickSizeOuter(0));
+    axisG.call(axisStyling);
+    // reposition y-axis hairline (height unchanged here)
+    yAxisLine
+      .attr("x1", gutterLeft)
+      .attr("x2", gutterLeft)
+      .attr("y1", margin.top)
+      .attr("y2", height - margin.bottom);
+    yAxisText
+      .attr("x", gutterLeft - 8)
+      .attr("y", margin.top + 12);
   }
 
   // Wrapper for resize observation (same pattern as heatmapChart)

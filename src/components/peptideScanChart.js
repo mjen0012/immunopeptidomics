@@ -129,18 +129,30 @@ export function peptideScanChart(
   const axisG = slotG.append("g")
     .attr("class", "x-axis")
     .attr("transform", `translate(0,${axisY})`)
-    .call(d3.axisBottom(xScale).tickFormat(d3.format("d")).tickSizeOuter(0));
+    .call(d3.axisBottom(xScale)
+      .tickFormat(d3.format("d"))
+      .ticks(Math.min(15, (x1 - x0) / 60))
+      .tickSizeOuter(0));
   axisG.call(axisStyling);
 
-  // Inner frame to match other charts
-  const frameR = slotG.append("rect")
-    .attr("fill","none")
-    .attr("stroke","#e5e7eb")
-    .attr("stroke-width",1)
-    .attr("x", x0)
-    .attr("y", margin.top)
-    .attr("width", Math.max(0, x1 - x0))
-    .attr("height", Math.max(0, height - margin.top - margin.bottom));
+  // Y-axis hairline and selected allele label
+  const yAxisLine = slotG.append("line")
+    .attr("x1", x0)
+    .attr("x2", x0)
+    .attr("y1", margin.top)
+    .attr("y2", height - margin.bottom)
+    .attr("stroke","#94a3b8")
+    .attr("stroke-width",1);
+  if (selectedAllele) {
+    slotG.append("text")
+      .attr("x", x0 - 8)
+      .attr("y", margin.top + 12)
+      .attr("text-anchor","end")
+      .attr("fill","#334155")
+      .attr("font-family","'Roboto', sans-serif")
+      .attr("font-size",11)
+      .text(String(selectedAllele));
+  }
 
   // layout bars
   const posBars = scale => {
@@ -189,8 +201,17 @@ export function peptideScanChart(
   // public update hook (driven by heatmap zoom)
   function update(newScale) {
     posBars(newScale);
-    axisG.call(d3.axisBottom(newScale).tickFormat(d3.format("d")).tickSizeOuter(0));
+    const rng = newScale.range();
+    const w   = Math.max(1, (rng[1] - rng[0]) | 0);
+    axisG.call(d3.axisBottom(newScale)
+      .tickFormat(d3.format("d"))
+      .ticks(Math.min(15, w / 60))
+      .tickSizeOuter(0));
     axisG.call(axisStyling);
+    // keep y-axis hairline aligned with left range
+    yAxisLine
+      .attr("x1", rng[0])
+      .attr("x2", rng[0]);
   }
 
   // two-way zoom: attach to root <svg>

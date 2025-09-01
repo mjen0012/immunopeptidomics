@@ -1678,6 +1678,14 @@ function alignedForSeq(idx) {
 
 /* Render track for current sequence; keep axis extent in sync with heatmap. */
 function renderPeptideTrack(seqIdx, lenNow, selAllele = null) {
+  // Default to globally selected allele if not provided
+  if (selAllele == null) {
+    try {
+      selAllele = (selectedAlleleMut && typeof selectedAlleleMut === "object" && ("value" in selectedAlleleMut))
+        ? selectedAlleleMut.value
+        : (heatmapSlot?.dataset?.selectedAllele || null);
+    } catch {}
+  }
   const aligned = alignedForSeq(seqIdx);
   const rows = aligned
     .filter(r => !Number.isFinite(lenNow) || Number(r.length) === lenNow)
@@ -1734,6 +1742,7 @@ function renderPeptideTrack(seqIdx, lenNow, selAllele = null) {
     posExtent,
     rowHeight: 18,
     sizeFactor: 1.1,
+    selectedAllele: selAllele,
     percentileByPeptide: pctMap,
     onReady: (xBase) => {
       // no-op

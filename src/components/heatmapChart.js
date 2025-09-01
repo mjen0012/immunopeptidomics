@@ -65,7 +65,6 @@ export function heatmapChart({
   const cellG  = svg.append("g").attr("clip-path", `url(#${clipId})`);
   const xAxisG = svg.append("g");
   const yAxisG = svg.append("g").attr("transform", `translate(${gutterLeft - 4},0)`);
-  const frameR = svg.append("rect").attr("fill","none").attr("stroke","#e5e7eb").attr("stroke-width",1);
 
   const tip = d3.select(document.body).append("div")
     .style("position","absolute").style("pointer-events","none")
@@ -112,7 +111,7 @@ export function heatmapChart({
       cellG.selectAll("rect")
         .attr("x", d => zx(d.pos - 0.5))
         .attr("width", d => Math.max(1, zx(d.pos + 0.5) - zx(d.pos - 0.5)));
-      xAxisG.call(d3.axisBottom(zx).tickFormat(d3.format("d")).ticks(Math.min(15, viewW / 60))).call(axisStyling);
+      xAxisG.call(d3.axisBottom(zx).tickFormat(d3.format("d")).ticks(Math.min(15, viewW / 60)).tickSizeOuter(0)).call(axisStyling);
 
       lastTransform = t;
 
@@ -137,12 +136,7 @@ export function heatmapChart({
       .attr("width",  Math.max(1, wPx - gutterLeft - gutterRight))
       .attr("height", y.range()[1] - margin.top);
 
-    // frame around plotting area
-    frameR
-      .attr("x", gutterLeft)
-      .attr("y", margin.top)
-      .attr("width",  Math.max(1, wPx - gutterLeft - gutterRight))
-      .attr("height", y.range()[1] - margin.top);
+    // (no outer frame; keep clean look)
 
     const rects = cellG.selectAll("rect").data(data, d => `${d.allele}|${d.pos}`);
     rects.exit().remove();
