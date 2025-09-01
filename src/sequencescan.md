@@ -90,7 +90,7 @@ function renderPeptideAlleleTrack(seqIdx, length, allele) {
   const svg = d3.create("svg")
     .style("width", "100%")
     .style("touch-action", "none")
-    .attr("font-family", "sans-serif")
+    .attr("font-family", "'Roboto', sans-serif")
     .attr("font-size", 11);
   wrapper.appendChild(svg.node());
 
@@ -359,7 +359,7 @@ function fastaTextarea({ label = "FASTA", rows = 12, placeholder = "Paste or typ
   ta.style.cssText = `
     display:block; width:100%; box-sizing:border-box; resize:vertical;
     padding:10px 12px; border:1px solid #bbb; border-radius:6px; background:#fff;
-    font:500 13px/1.45 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+    font:400 13px/1.5 'Roboto', sans-serif;
     min-height:0;
   `;
 
@@ -1215,40 +1215,106 @@ function renderHeatmap(rows, lengthFilter, seqIdx = selectedSeqIndex()) {
 
 ```
 
-<!-- Layout defined here (no JS layout cell) -->
-<!-- Layout (positions defined here; no JS layout cells) -->
-<div class="section">
-  <h2>Inputs</h2>
-  <div style="display:grid;grid-template-columns:repeat(3,minmax(240px,1fr));gap:12px;align-items:end">
-    ${uploadSeqBtn}
-    ${predictorDrop}
-    ${alleleSlot}
-    ${lengthCtrl}
-    ${fastaBox}
-    ${uploadPepsBtn}
-    ${peptideBox}
-  </div>
-</div>
+<!-- Layout (card-based; Roboto font) -->
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap');
 
-<div class="section">
-  <h2>Run</h2>
-  <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center;">
-    ${runBtn}
-    ${statusBanner}
-    ${downloadBtn}
-    ${dlPepsBtn}
-  </div>
-</div>
+  .scan-page { 
+    font-family: 'Roboto', system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; 
+    max-width: 1200px; margin: 0 auto; padding: 8px 12px 24px; 
+  }
+  .scan-page .card { 
+    background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; 
+    padding: 16px; margin: 12px 0; box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+  }
+  .scan-page .card h2 { 
+    margin: 0 0 12px 0; font-weight: 600; font-size: 16px; color: #0f172a; 
+  }
+  .scan-page .two-col { 
+    display: grid; grid-template-columns: repeat(2, minmax(260px, 1fr)); gap: 12px; 
+  }
+  .scan-page .three-col { 
+    display: grid; grid-template-columns: repeat(3, minmax(220px, 1fr)); gap: 12px; 
+  }
+  .scan-page .controls-row { 
+    display: grid; grid-template-columns: repeat(3, minmax(220px, 1fr)); gap: 12px; align-items: end;
+  }
+  .scan-page .stack { display: grid; gap: 8px; }
+  .scan-page .action-row { 
+    display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-top: 8px; 
+  }
+  .scan-page .action-row .spacer { flex: 1 1 auto; }
+  .scan-page .charts { display: grid; gap: 12px; }
 
-<div class="section">
-  <h2>Heatmap</h2>
-  ${seqSelSlot}
-  ${heatLenSlot}
-  ${peptideSlot}
-  ${heatmapSlot}
-  ${peptideScanSlot}
-  ${heatDebug}
-</div>
+  /* Normalize base controls to use Roboto */
+  .scan-page button,
+  .scan-page input,
+  .scan-page select,
+  .scan-page textarea,
+  .scan-page label { font-family: inherit; }
+
+  /* Better focus rings */
+  .scan-page button:focus,
+  .scan-page input:focus,
+  .scan-page select:focus,
+  .scan-page textarea:focus { outline: 2px solid #2563eb; outline-offset: 1px; }
+
+  @media (max-width: 900px) {
+    .scan-page .controls-row,
+    .scan-page .three-col { grid-template-columns: 1fr 1fr; }
+  }
+  @media (max-width: 640px) {
+    .scan-page .two-col,
+    .scan-page .controls-row,
+    .scan-page .three-col { grid-template-columns: 1fr; }
+  }
+</style>
+
+<section class="scan-page">
+  <div class="card">
+    <h2>Inputs</h2>
+    <div class="two-col">
+      <div class="stack">
+        ${uploadSeqBtn}
+        ${fastaBox}
+      </div>
+      <div class="stack">
+        ${uploadPepsBtn}
+        ${peptideBox}
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Parameters</h2>
+    <div class="controls-row">
+      ${predictorDrop}
+      ${alleleSlot}
+      ${lengthCtrl}
+    </div>
+    <div class="action-row">
+      ${runBtn}
+      ${statusBanner}
+      <div class="spacer"></div>
+      ${downloadBtn}
+      ${dlPepsBtn}
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Display</h2>
+    <div class="controls-row" style="margin-bottom:8px;">
+      ${seqSelSlot}
+      ${heatLenSlot}
+    </div>
+    <div class="charts">
+      ${peptideSlot}
+      ${heatmapSlot}
+      ${peptideScanSlot}
+    </div>
+    ${heatDebug}
+  </div>
+</section>
 
 
 ```js
@@ -1605,7 +1671,7 @@ function simpleTextarea({ label, rows = 12, placeholder = "" } = {}) {
   ta.style.cssText = `
     display:block; width:100%; box-sizing:border-box; resize:vertical;
     padding:10px 12px; border:1px solid #bbb; border-radius:6px; background:#fff;
-    font:500 13px/1.45 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+    font:400 13px/1.5 'Roboto', sans-serif;
     min-height:0;
   `;
 
