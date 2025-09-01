@@ -35,7 +35,7 @@ const __posExtentBySeq = new Map();
 
 ```js
 // Additional chart slot: allele-specific peptide scan (below heatmap)
-const peptideScanSlot = html`<div style="margin:8px 0"></div>`;
+const peptideScanSlot = html`<div style="margin:0"></div>`;
 ```
 
 ```js
@@ -1039,7 +1039,7 @@ function lengthsFromRows(rows) {
 ```js
 /* ── Heatmap prep + render (no SQL) ─────────────────────────────── */
 
-const heatmapSlot = html`<div style="margin-top:12px"></div>`;
+const heatmapSlot = html`<div style="margin:0"></div>`;
 
 function buildHeatmapData(rows, method, lengthFilter, seqIdx) {
   const wantedLen = Number(lengthFilter);
@@ -1209,7 +1209,7 @@ function renderHeatmap(rows, lengthFilter, seqIdx = selectedSeqIndex()) {
     display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-top: 8px; 
   }
   .scan-page .action-row .spacer { flex: 1 1 auto; }
-  .scan-page .charts { display: grid; gap: 12px; }
+  .scan-page .charts { display: grid; gap: 8px; }
 
   /* Normalize base controls to use Roboto */
   .scan-page button,
@@ -1664,7 +1664,7 @@ invalidation.then(() => peptideBox.textarea.removeEventListener("input", onPepti
 ```
 
 ```js
-const peptideSlot = html`<div style="margin:8px 0"></div>`;
+const peptideSlot = html`<div style="margin:0"></div>`;
 const dlPepsBtn   = makeButton("Download peptides (CSV)");
 dlPepsBtn.disabled = true;
 
@@ -1782,3 +1782,4 @@ dlPepsBtn.onclick = () => {
 invalidation.then(() => { if (pepCsvUrl) URL.revokeObjectURL(pepCsvUrl); });
 
 ```
+

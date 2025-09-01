@@ -25,8 +25,9 @@ export function peptideScanChart(
     xScale,                        // shared base/current scale from heatmap
     rowHeight   = 18,
     gap         = 2,
-    sizeFactor  = 1.2,
-    margin      = { top: 20, right: 20, bottom: 30, left: 40 },
+    sizeFactor  = 1.1,
+    // Unified margins for consistent vertical padding across charts
+    margin      = { top: 16, right: 12, bottom: 28, left: 40 },
     mode        = "EL",            // legacy fallback: "EL" | "BA"
     onZoom      = () => {}
   } = {}
@@ -98,6 +99,12 @@ export function peptideScanChart(
     return pctToFill(v);
   };
 
+  // Consistent axis styling
+  function axisStyling(gSel){
+    gSel.selectAll("path,line").attr("stroke","#94a3b8").attr("stroke-width",1);
+    gSel.selectAll("text").attr("fill","#334155").attr("font-family","'Roboto', sans-serif").attr("font-size",11);
+  }
+
   // clip-path to x-axis band
   const clipId = `clip-pep-${++_uid}`;
   const [x0, x1] = xScale.range();
@@ -121,9 +128,19 @@ export function peptideScanChart(
   const axisY = height - margin.bottom;
   const axisG = slotG.append("g")
     .attr("class", "x-axis")
-    .attr("font-size", 10 * sizeFactor)
     .attr("transform", `translate(0,${axisY})`)
-    .call(d3.axisBottom(xScale).tickFormat(d3.format("d")));
+    .call(d3.axisBottom(xScale).tickFormat(d3.format("d")).tickSizeOuter(0));
+  axisG.call(axisStyling);
+
+  // Inner frame to match other charts
+  const frameR = slotG.append("rect")
+    .attr("fill","none")
+    .attr("stroke","#e5e7eb")
+    .attr("stroke-width",1)
+    .attr("x", x0)
+    .attr("y", margin.top)
+    .attr("width", Math.max(0, x1 - x0))
+    .attr("height", Math.max(0, height - margin.top - margin.bottom));
 
   // layout bars
   const posBars = scale => {
@@ -144,12 +161,12 @@ export function peptideScanChart(
       .style("position", "absolute")
       .style("pointer-events", "none")
       .style("background", "#fff")
-      .style("border", "1px solid #ccc")
+      .style("border", "1px solid #e5e7eb")
       .style("border-radius", "4px")
       .style("padding", "6px 8px")
-      .style("font", "12px sans-serif")
+      .style("font", "12px 'Roboto', sans-serif")
       .style("opacity", 0)
-      .style("box-shadow", "0 4px 18px rgba(0,0,0,.15)");
+      .style("box-shadow", "0 4px 18px rgba(0,0,0,.08)");
 
     const fmt = d => (d==null||!isFinite(d)) ? "—" : (+d).toFixed(1);
 
@@ -172,7 +189,8 @@ export function peptideScanChart(
   // public update hook (driven by heatmap zoom)
   function update(newScale) {
     posBars(newScale);
-    axisG.call(d3.axisBottom(newScale).tickFormat(d3.format("d")));
+    axisG.call(d3.axisBottom(newScale).tickFormat(d3.format("d")).tickSizeOuter(0));
+    axisG.call(axisStyling);
   }
 
   // two-way zoom: attach to root <svg>
@@ -200,3 +218,4 @@ export function peptideScanChart(
 
   return { update, setZoom, height };
 }
+

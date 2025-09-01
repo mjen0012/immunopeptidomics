@@ -14,9 +14,10 @@ import * as d3 from "npm:d3@7";
 export function heatmapChart({
   data,
   posExtent,
-  cellHeight = 20,
-  sizeFactor = 1.2,
-  margin     = { top:16, right:20, bottom:60, left:90 }, // left kept for vertical spacing only
+  cellHeight = 18,
+  sizeFactor = 1.1,
+  // Unified margins for consistent vertical padding across charts
+  margin     = { top:16, right:12, bottom:28, left:90 }, // left kept for vertical spacing only
   gutterLeft = 110,
   gutterRight= 12,
   onReady    = () => {},
@@ -52,8 +53,8 @@ export function heatmapChart({
   const height0 = y.range()[1] + margin.bottom;
   const svg = d3.create("svg")
     .attr("viewBox", `0 0 1 ${height0}`)
-    .attr("font-family", "sans-serif")
-    .attr("font-size", 10 * sizeFactor)
+    .attr("font-family", "'Roboto', sans-serif")
+    .attr("font-size", 11)
     .style("width", "100%")
     .style("touch-action", "none");
 
@@ -64,18 +65,20 @@ export function heatmapChart({
   const cellG  = svg.append("g").attr("clip-path", `url(#${clipId})`);
   const xAxisG = svg.append("g");
   const yAxisG = svg.append("g").attr("transform", `translate(${gutterLeft - 4},0)`);
+  const frameR = svg.append("rect").attr("fill","none").attr("stroke","#e5e7eb").attr("stroke-width",1);
 
   const tip = d3.select(document.body).append("div")
     .style("position","absolute").style("pointer-events","none")
-    .style("background","#fff").style("border","1px solid #ccc")
-    .style("border-radius","4px").style("padding","6px")
-    .style("font","12px sans-serif").style("opacity",0);
+    .style("background","#fff").style("border","1px solid #e5e7eb")
+    .style("border-radius","6px").style("padding","8px")
+    .style("font","12px 'Roboto', sans-serif").style("opacity",0)
+    .style("box-shadow","0 4px 18px rgba(0,0,0,.08)");
 
   function axisStyling(g){
-    g.selectAll("path,line").attr("stroke","#424242").attr("stroke-width",1.5);
-    g.selectAll("text").attr("fill","#424242")
-      .attr("font-family","'Roboto Mono', sans-serif")
-      .attr("font-size",9*sizeFactor);
+    g.selectAll("path,line").attr("stroke","#94a3b8").attr("stroke-width",1);
+    g.selectAll("text").attr("fill","#334155")
+      .attr("font-family","'Roboto', sans-serif")
+      .attr("font-size",11);
   }
 
   let xBase, viewW;
@@ -134,6 +137,13 @@ export function heatmapChart({
       .attr("width",  Math.max(1, wPx - gutterLeft - gutterRight))
       .attr("height", y.range()[1] - margin.top);
 
+    // frame around plotting area
+    frameR
+      .attr("x", gutterLeft)
+      .attr("y", margin.top)
+      .attr("width",  Math.max(1, wPx - gutterLeft - gutterRight))
+      .attr("height", y.range()[1] - margin.top);
+
     const rects = cellG.selectAll("rect").data(data, d => `${d.allele}|${d.pos}`);
     rects.exit().remove();
     rects.enter().append("rect").attr("stroke","none")
@@ -155,7 +165,7 @@ export function heatmapChart({
         .on("mouseout", ()=>tip.style("opacity",0));
 
     xAxisG.attr("transform",`translate(0,${y.range()[1]})`)
-      .call(d3.axisBottom(xBase).tickFormat(d3.format("d")).ticks(Math.min(15,wPx/60))).call(axisStyling);
+      .call(d3.axisBottom(xBase).tickFormat(d3.format("d")).ticks(Math.min(15,wPx/60)).tickSizeOuter(0)).call(axisStyling);
     yAxisG.call(d3.axisLeft(y).tickSize(0)).call(axisStyling);
 
     yAxisG.selectAll(".tick").on("click", (_, a) => toggleAllele(a));
@@ -171,6 +181,8 @@ export function heatmapChart({
 
   const wrapper = document.createElement("div");
   wrapper.style.width="100%";
+  // tighten outer spacing (charts sit closer together)
+  wrapper.style.margin = "0";
   wrapper.appendChild(svg.node());
   new ResizeObserver(e=>layout(e[0].contentRect.width)).observe(wrapper);
 

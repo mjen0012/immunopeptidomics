@@ -14,7 +14,8 @@ export function peptideChartScan({
   rowHeight   = 18,
   gap         = 2,
   sizeFactor  = 1.1,
-  margin      = { top: 18, right: 20, bottom: 24, left: 40 }, // left/right not used for x
+  // Unified margins for consistent vertical padding across charts
+  margin      = { top: 16, right: 12, bottom: 28, left: 40 }, // left/right not used for x
   gutterLeft  = 110,
   gutterRight = 12,
   barColor    = "#006DAE",        // fallback when no percentile
@@ -41,9 +42,15 @@ export function peptideChartScan({
     .style("width", "100%")
     .attr("viewBox", `0 0 1 ${height}`)
     .attr("preserveAspectRatio", "xMidYMid meet")
-    .attr("font-family", "sans-serif")
-    .attr("font-size", 10 * sizeFactor);
+    .attr("font-family", "'Roboto', sans-serif")
+    .attr("font-size", 11);
   const g = svg.append("g");
+
+  // Consistent axis styling
+  function axisStyling(gSel){
+    gSel.selectAll("path,line").attr("stroke","#94a3b8").attr("stroke-width",1);
+    gSel.selectAll("text").attr("fill","#334155").attr("font-family","'Roboto', sans-serif").attr("font-size",11);
+  }
 
   // Clip-path to prevent bars from drawing outside plot area
   const clipId = `clip-${Math.random().toString(36).slice(2)}`;
@@ -63,7 +70,8 @@ export function peptideChartScan({
   const axisG = g.append("g")
     .attr("class", "x-axis")
     .attr("transform", `translate(0,${axisY})`)
-    .call(d3.axisBottom(xBase).tickFormat(d3.format("d")));
+    .call(d3.axisBottom(xBase).tickFormat(d3.format("d")).tickSizeOuter(0));
+  axisG.call(axisStyling);
 
   // Percentile -> colour (match heatmap & peptideScanChart)
   const BLUE_MAX = 2, RED_MIN = 50;
@@ -117,7 +125,9 @@ export function peptideChartScan({
         .attr("width", d => Math.max(0, zx(d.start + d.length - 0.5) - zx(d.start - 0.5) - gap));
       axisG.call(d3.axisBottom(zx)
         .tickFormat(d3.format("d"))
-        .ticks(Math.min(15, viewW / 60)));
+        .ticks(Math.min(15, viewW / 60))
+        .tickSizeOuter(0));
+      axisG.call(axisStyling);
 
       lastTransform = t;
 
@@ -125,6 +135,9 @@ export function peptideChartScan({
     });
 
   // Layout on container resize (match heatmap behaviour)
+  // Inner frame to match other charts
+  const frameR = g.append("rect").attr("fill","none").attr("stroke","#e5e7eb").attr("stroke-width",1);
+
   function layout(wPx) {
     viewW = Math.max(1, wPx | 0);
     svg.attr("viewBox", `0 0 ${viewW} ${height}`);
@@ -143,7 +156,9 @@ export function peptideChartScan({
 
     axisG.call(d3.axisBottom(xBase)
       .tickFormat(d3.format("d"))
-      .ticks(Math.min(15, viewW / 60)));
+      .ticks(Math.min(15, viewW / 60))
+      .tickSizeOuter(0));
+    axisG.call(axisStyling);
 
     zoom
       .extent([[gutterLeft, 0], [viewW - gutterRight, height]])
@@ -151,6 +166,13 @@ export function peptideChartScan({
     svg.call(zoom).on("dblclick.zoom", null);
 
     onReady(xBase);
+
+    // update frame to current plotting area
+    frameR
+      .attr("x", gutterLeft)
+      .attr("y", margin.top)
+      .attr("width",  Math.max(1, viewW - gutterLeft - gutterRight))
+      .attr("height", Math.max(0, (height - margin.bottom) - margin.top));
   }
 
   // Public updater (if caller wants to resync scale)
