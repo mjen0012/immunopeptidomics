@@ -414,7 +414,6 @@ async function parseAndApplyFASTA(rawText) {
     const aligned = alignAllPeptides(seqListMut.value || [], peptideListMut.value || []);
     alignedPepsMut.value = aligned;
     latestAlignedPepsMut.value = aligned;
-    renderPeptideTrack(selectedSeqIndex());
    {
      const seqNow = selectedSeqIndex();
      const lenNow = Number(heatLenCtrl?.value);
@@ -847,10 +846,8 @@ runBtn.addEventListener("click", async () => {
         updatePeptideDownloadForSeq(seqNow);
       } catch {}
       try {
-        const selAllele = (selectedAlleleMut && typeof selectedAlleleMut === "object" && ("value" in selectedAlleleMut))
-          ? selectedAlleleMut.value
-          : (heatmapSlot?.dataset?.selectedAllele || null);
-        renderPeptideAlleleTrack(seqNow, safeLen, selAllele || null);
+        const selAllele = (selectedAlleleMut && "value" in selectedAlleleMut) ? selectedAlleleMut.value : null;
+        renderPeptideAlleleTrack(seqNow, safeLen, selAllele);
       } catch {}
     }
 
@@ -962,10 +959,8 @@ const heatLenCtrl = makeHeatLenSelect({
       updatePeptideDownloadForSeq(seqNow);
     } catch {}
     try {
-      const selAllele = (selectedAlleleMut && typeof selectedAlleleMut === "object" && ("value" in selectedAlleleMut))
-        ? selectedAlleleMut.value
-        : (heatmapSlot?.dataset?.selectedAllele || null);
-      renderPeptideAlleleTrack(seqNow, Number(len), selAllele || null);
+      const selAllele = (selectedAlleleMut && "value" in selectedAlleleMut) ? selectedAlleleMut.value : null;
+      renderPeptideAlleleTrack(seqNow, Number(len), selAllele);
     } catch {}
   }
 });
@@ -1362,10 +1357,8 @@ const seqSelectCtrl = makeSeqSelect({
       updatePeptideDownloadForSeq(seq);
     } catch {}
     try {
-      const selAllele = (selectedAlleleMut && typeof selectedAlleleMut === "object" && ("value" in selectedAlleleMut))
-        ? selectedAlleleMut.value
-        : (heatmapSlot?.dataset?.selectedAllele || null);
-      renderPeptideAlleleTrack(seq, Number(heatLenCtrl?.value), selAllele || null);
+      const selAllele = (selectedAlleleMut && "value" in selectedAlleleMut) ? selectedAlleleMut.value : null;
+      renderPeptideAlleleTrack(seq, Number(heatLenCtrl?.value), selAllele);
     } catch {}
   }
 });
@@ -1678,14 +1671,12 @@ function alignedForSeq(idx) {
 
 /* Render track for current sequence; keep axis extent in sync with heatmap. */
 function renderPeptideTrack(seqIdx, lenNow, selAllele = null) {
-  // Default to globally selected allele if not provided
-  if (selAllele == null) {
-    try {
-      selAllele = (selectedAlleleMut && typeof selectedAlleleMut === "object" && ("value" in selectedAlleleMut))
-        ? selectedAlleleMut.value
-        : (heatmapSlot?.dataset?.selectedAllele || null);
-    } catch {}
-  }
+ // Default to globally selected allele if not provided (no heatmapSlot reads)
+ if (selAllele == null) {
+   try {
+     selAllele = (selectedAlleleMut && "value" in selectedAlleleMut) ? selectedAlleleMut.value : null;
+   } catch { selAllele = null; }
+ }
   const aligned = alignedForSeq(seqIdx);
   const rows = aligned
     .filter(r => !Number.isFinite(lenNow) || Number(r.length) === lenNow)
