@@ -79,6 +79,7 @@ export function peptideChartScan({
     .attr("fill","#334155")
     .attr("font-family","'Roboto', sans-serif")
     .attr("font-size",11)
+    .attr("dominant-baseline","middle")
     .attr("text-anchor","end")
     .text(selectedAllele ? String(selectedAllele) : "");
 
@@ -102,13 +103,43 @@ export function peptideChartScan({
 
   // Bars (clipped to plotting area)
   const barsG = g.append("g").attr("clip-path", `url(#${clipId})`);
-  barsG.selectAll("rect")
+  const barsSel = barsG.selectAll("rect")
     .data(rows)
     .enter().append("rect")
       .attr("y", d => margin.top + (nLevels - 1 - d.level) * rowHeight + gap / 2)
       .attr("height", rowHeight - gap)
       .attr("fill", fillFor)
       .attr("stroke", "none");
+
+  // Tooltip (unified style)
+  if (rows.length) {
+    const tooltip = d3.select(document.body).append("div")
+      .style("position", "absolute")
+      .style("pointer-events", "none")
+      .style("background", "#fff")
+      .style("border", "1px solid #e5e7eb")
+      .style("border-radius", "6px")
+      .style("padding", "8px")
+      .style("font", "12px 'Roboto', sans-serif")
+      .style("opacity", 0)
+      .style("box-shadow", "0 4px 18px rgba(0,0,0,.08)");
+
+    const fmt = v => (v==null||!isFinite(v)) ? "–" : (+v).toFixed(1);
+
+    barsSel
+      .on("mousemove", (e, d) => {
+        const v = lookupPct(d.peptide);
+        tooltip.html(
+          `<div><strong>Peptide:</strong> ${d.peptide}</div>` +
+          (selectedAllele ? `<div><strong>Allele:</strong> ${selectedAllele}</div>` : "") +
+          `<div><strong>Percentile:</strong> ${fmt(v)}</div>`
+        )
+        .style("left", `${e.pageX + 10}px`)
+        .style("top",  `${e.pageY + 10}px`)
+        .style("opacity", 1);
+      })
+      .on("mouseout", () => tooltip.style("opacity", 0));
+  }
 
   // Zoom (bounded like heatmapChart)
   const zoom = d3.zoom()
@@ -181,7 +212,7 @@ export function peptideChartScan({
       .attr("y2", height - margin.bottom);
     yAxisText
       .attr("x", gutterLeft - 8)
-      .attr("y", margin.top + 12);
+      .attr("y", margin.top + (height - margin.bottom - margin.top) / 2);
   }
 
   // Public updater (if caller wants to resync scale)
@@ -206,7 +237,7 @@ export function peptideChartScan({
       .attr("y2", height - margin.bottom);
     yAxisText
       .attr("x", gutterLeft - 8)
-      .attr("y", margin.top + 12);
+      .attr("y", margin.top + (height - margin.bottom - margin.top) / 2);
   }
 
   // Wrapper for resize observation (same pattern as heatmapChart)

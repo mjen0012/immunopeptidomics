@@ -144,10 +144,12 @@ export function peptideScanChart(
     .attr("stroke","#94a3b8")
     .attr("stroke-width",1);
   if (selectedAllele) {
+    const centerY = margin.top + (height - margin.bottom - margin.top) / 2;
     slotG.append("text")
       .attr("x", x0 - 8)
-      .attr("y", margin.top + 12)
+      .attr("y", centerY)
       .attr("text-anchor","end")
+      .attr("dominant-baseline","middle")
       .attr("fill","#334155")
       .attr("font-family","'Roboto', sans-serif")
       .attr("font-size",11)
