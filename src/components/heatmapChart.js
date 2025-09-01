@@ -63,7 +63,8 @@ export function heatmapChart({
   const defs   = svg.append("defs");
   const clip   = defs.append("clipPath").attr("id", clipId).append("rect");
 
-  const cellG  = svg.append("g").attr("clip-path", `url(#${clipId})`);
+  const cellG  = svg.append("g").attr("clip-path", `url(#${clipId})`)
+    .attr("shape-rendering", "crispEdges");
   const xAxisG = svg.append("g");
   const yAxisG = svg.append("g").attr("transform", `translate(${gutterLeft - 4},0)`);
 
@@ -110,8 +111,15 @@ export function heatmapChart({
 
       const zx = t.rescaleX(xBase);
       cellG.selectAll("rect")
-        .attr("x", d => zx(d.pos - 0.5))
-        .attr("width", d => Math.max(1, zx(d.pos + 0.5) - zx(d.pos - 0.5)));
+        .attr("x", d => {
+          const l = Math.round(zx(d.pos - 0.5));
+          return l;
+        })
+        .attr("width", d => {
+          const l = Math.round(zx(d.pos - 0.5));
+          const r = Math.round(zx(d.pos + 0.5));
+          return Math.max(1, r - l);
+        });
       xAxisG.call(d3.axisBottom(zx).tickFormat(d3.format("d")).ticks(Math.min(15, viewW / 60)).tickSizeOuter(0)).call(axisStyling);
 
       lastTransform = t;
@@ -141,13 +149,20 @@ export function heatmapChart({
 
     const rects = cellG.selectAll("rect").data(data, d => `${d.allele}|${d.pos}`);
     rects.exit().remove();
-    rects.enter().append("rect").attr("stroke","none")
+    rects.enter().append("rect").attr("stroke","none").attr("shape-rendering","crispEdges")
       .merge(rects)
         .attr("y", d => y(d.allele))
         .attr("height", y.bandwidth())
         .attr("fill", d => d.aa === "-" ? "#bdbdbd" : colourScale(d.pct))
-        .attr("x", d => xBase(d.pos - .5))
-        .attr("width", d => Math.max(1, xBase(d.pos + .5) - xBase(d.pos - .5)))
+        .attr("x", d => {
+          const l = Math.round(xBase(d.pos - .5));
+          return l;
+        })
+        .attr("width", d => {
+          const l = Math.round(xBase(d.pos - .5));
+          const r = Math.round(xBase(d.pos + .5));
+          return Math.max(1, r - l);
+        })
         .on("click", (_, d) => toggleAllele(d.allele))
         .on("mouseover",(e,d)=>{ tip.html(`
              <strong>Allele:</strong> ${d.allele}<br/>
