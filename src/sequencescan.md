@@ -351,7 +351,25 @@ function fastaTextarea({ label = "FASTA", rows = 12, placeholder = "Paste or typ
 
   const ta = document.createElement("textarea");
   ta.rows = rows;
-  ta.placeholder = placeholder;
+  // Provide rich FASTA example as placeholder when used for Sequences
+  const __fastaSample = `>NS2
+MDPNTVSSFQDILLRMSKMQLESSSEDLNGMITQFESLKLYRDSLGEAVMRMGDLHSLQN
+RNEKWREQLGQKFEEIRWLIEEVRHKLKITENSFEQITFMQALHLLLEVEQEIRTFSFQL
+I
+>M2
+MSLLTEVETPIRNEWGCRCNGSSDPLTIAANIIGILHLTLWILDRLFFKCIYRRFKYGLK
+GGPSTEGVPKSMREEYRKEQQSAVDADDGHFVSIELE
+>PB1F2
+MGQEQDTPWILSTGHISTQKREDGQQTPKLEHRNSTRLMGHCQKTMNQVVMPKQIVYWRR
+WLSLRNPILVFLKTRVLKRWRLFSKHE
+>PAX
+MEDFVRQCFNPMIVELAEKTMKEYGEDLKIETNKFAAICTHLEVCFMYSDFHFINEQGES
+IIVELGDPNALLKHRFEIIEGRDRTMAWTVVNSICNTTGAEKPKFLPDLYDYKENRFIEI
+GVTRREVHIYYLEKANKIKSEKTHIHIFSFTGEEMATKADYTLDEESRARIKTRLFTIRQ
+EMASRGLWDSFVSPREEKRQLKKGLKSQEQCASLPTKVSRRTSPALKILEPMWMDSNRTA
+TLRASCLKCPKK`;
+  const __useFastaSample = String(label || "").toLowerCase().includes("sequence");
+  ta.placeholder = __useFastaSample ? __fastaSample : placeholder;
   ta.spellcheck = false;
   ta.autocapitalize = "off";
   ta.autocorrect = "off";
@@ -401,8 +419,6 @@ async function parseAndApplyFASTA(rawText) {
     const aligned = alignAllPeptides(seqListMut.value || [], peptideListMut.value || []);
     alignedPepsMut.value = aligned;
     latestAlignedPepsMut.value = aligned;
-    renderPeptideTrack(selectedSeqIndex());
-    updatePeptideDownloadForSeq(selectedSeqIndex());
   }
   if (issues?.length) console.warn("FASTA issues (skipped sequences):", issues);
 }
@@ -1663,7 +1679,25 @@ function simpleTextarea({ label, rows = 12, placeholder = "" } = {}) {
 
   const ta = document.createElement("textarea");
   ta.rows = rows;
-  ta.placeholder = placeholder;
+  // Provide peptide list example as placeholder when used for Peptides
+  const __pepSample = `ALHLLLEVE
+EQITFMQAL
+EQLGQKFEE
+FQDILLRMS
+HSLQNRNEK
+IEEVRHKLK
+KLKITENSF
+KLYRDSLGE
+KMQLESSSE
+KWREQLGQK
+LESSSEDLN
+LEVEQEIRT
+LKLYRDSLG
+NRNEKWREQ
+NSFEQITFM
+NTVSSFQDI`;
+  const __usePepSample = String(label || "").toLowerCase().includes("peptide");
+  ta.placeholder = __usePepSample ? __pepSample : placeholder;
   ta.spellcheck = false;
   ta.autocapitalize = "off";
   ta.autocorrect = "off";
@@ -1710,8 +1744,7 @@ async function parseAndApplyPeptides(rawText) {
   latestAlignedPepsMut.value = aligned;
 
   // Refresh track & download for current selection
-  renderPeptideTrack(selectedSeqIndex());
-  updatePeptideDownloadForSeq(selectedSeqIndex());
+  // Deferred render handled by downstream cells to avoid circular deps
 }
 
 const onPeptideInput = () => {
