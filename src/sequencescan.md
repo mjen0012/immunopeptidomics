@@ -1237,7 +1237,7 @@ function renderHeatmap(rows, lengthFilter, seqIdx = selectedSeqIndex()) {
     display: grid; grid-template-columns: repeat(3, minmax(220px, 1fr)); gap: 12px; 
   }
   .scan-page .controls-row { 
-    display: grid; grid-template-columns: repeat(3, minmax(220px, 1fr)); gap: 12px; align-items: end;
+    display: grid; grid-template-columns: repeat(3, minmax(220px, 1fr)); gap: 12px; align-items: start;
   }
   .scan-page .stack { display: grid; gap: 8px; }
   .scan-page .action-row { 

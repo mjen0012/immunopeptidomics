@@ -5,7 +5,7 @@
 export function comboSelectLazy({
   label        = "",
   placeholder  = "Search…",
-  fontFamily   = "inherit",
+  fontFamily   = "'Roboto', sans-serif",
   pillColor    = "#006DAE",
   pillText     = "#fff",
   listHeight   = 180,
