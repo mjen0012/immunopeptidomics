@@ -48,7 +48,8 @@ export function heatmapChart({
   const y = d3.scaleBand()
     .domain(alleles)
     .range([margin.top, margin.top + cellHeight * alleles.length])
-    .paddingInner(0.05);
+    .paddingInner(0)
+    .paddingOuter(0);
 
   const height0 = y.range()[1] + margin.bottom;
   const svg = d3.create("svg")
