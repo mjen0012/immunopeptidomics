@@ -1772,8 +1772,8 @@ dlPepsBtn.disabled = true;
 ```
 
 ```js
-// Example skeleton inputs (seed once if empty)
-const EXAMPLE_FASTA = `>NS2
+// Example placeholders (no auto-population, no side effects)
+const FASTA_PLACEHOLDER = `>NS2
 MDPNTVSSFQDILLRMSKMQLESSSEDLNGMITQFESLKLYRDSLGEAVMRMGDLHSLQN
 RNEKWREQLGQKFEEIRWLIEEVRHKLKITENSFEQITFMQALHLLLEVEQEIRTFSFQL
 I
@@ -1790,7 +1790,7 @@ GVTRREVHIYYLEKANKIKSEKTHIHIFSFTGEEMATKADYTLDEESRARIKTRLFTIRQ
 EMASRGLWDSFVSPREEKRQLKKGLKSQEQCASLPTKVSRRTSPALKILEPMWMDSNRTA
 TLRASCLKCPKK`;
 
-const EXAMPLE_PEPTIDES = `ALHLLLEVE
+const PEP_PLACEHOLDER = `ALHLLLEVE
 EQITFMQAL
 EQLGQKFEE
 FQDILLRMS
@@ -1807,14 +1807,8 @@ NRNEKWREQ
 NSFEQITFM
 NTVSSFQDI`;
 
-if (!(fastaBox.value && fastaBox.value.trim())) {
-  fastaBox.setText(EXAMPLE_FASTA);
-  await parseAndApplyFASTA(EXAMPLE_FASTA);
-}
-if (!(peptideBox.value && peptideBox.value.trim())) {
-  peptideBox.setText(EXAMPLE_PEPTIDES);
-  await parseAndApplyPeptides(EXAMPLE_PEPTIDES);
-}
+try { if (fastaBox?.textarea) fastaBox.textarea.placeholder = FASTA_PLACEHOLDER; } catch {}
+try { if (peptideBox?.textarea) peptideBox.textarea.placeholder = PEP_PLACEHOLDER; } catch {}
 
 /* Filter aligned rows for a given seq index */
 function alignedForSeq(idx) {
