@@ -378,7 +378,7 @@ function fastaTextarea({ label = "FASTA", rows = 12, placeholder = "Paste or typ
 }
 
 const fastaBox = fastaTextarea({
-  label: "Sequences",
+  label: "FASTA",
   rows: 12,
   placeholder: "Paste or type FASTA here… (we’ll sanitize for IEDB under the hood)"
 });
@@ -1768,53 +1768,6 @@ invalidation.then(() => peptideBox.textarea.removeEventListener("input", onPepti
 const peptideSlot = html`<div style="margin:8px 0"></div>`;
 const dlPepsBtn   = makeButton("Download peptides (CSV)");
 dlPepsBtn.disabled = true;
-
-```
-
-```js
-// Example skeleton inputs (seed once if empty)
-const EXAMPLE_FASTA = `>NS2
-MDPNTVSSFQDILLRMSKMQLESSSEDLNGMITQFESLKLYRDSLGEAVMRMGDLHSLQN
-RNEKWREQLGQKFEEIRWLIEEVRHKLKITENSFEQITFMQALHLLLEVEQEIRTFSFQL
-I
->M2
-MSLLTEVETPIRNEWGCRCNGSSDPLTIAANIIGILHLTLWILDRLFFKCIYRRFKYGLK
-GGPSTEGVPKSMREEYRKEQQSAVDADDGHFVSIELE
->PB1F2
-MGQEQDTPWILSTGHISTQKREDGQQTPKLEHRNSTRLMGHCQKTMNQVVMPKQIVYWRR
-WLSLRNPILVFLKTRVLKRWRLFSKHE
->PAX
-MEDFVRQCFNPMIVELAEKTMKEYGEDLKIETNKFAAICTHLEVCFMYSDFHFINEQGES
-IIVELGDPNALLKHRFEIIEGRDRTMAWTVVNSICNTTGAEKPKFLPDLYDYKENRFIEI
-GVTRREVHIYYLEKANKIKSEKTHIHIFSFTGEEMATKADYTLDEESRARIKTRLFTIRQ
-EMASRGLWDSFVSPREEKRQLKKGLKSQEQCASLPTKVSRRTSPALKILEPMWMDSNRTA
-TLRASCLKCPKK`;
-
-const EXAMPLE_PEPTIDES = `ALHLLLEVE
-EQITFMQAL
-EQLGQKFEE
-FQDILLRMS
-HSLQNRNEK
-IEEVRHKLK
-KLKITENSF
-KLYRDSLGE
-KMQLESSSE
-KWREQLGQK
-LESSSEDLN
-LEVEQEIRT
-LKLYRDSLG
-NRNEKWREQ
-NSFEQITFM
-NTVSSFQDI`;
-
-if (!(fastaBox.value && fastaBox.value.trim())) {
-  fastaBox.setText(EXAMPLE_FASTA);
-  await parseAndApplyFASTA(EXAMPLE_FASTA);
-}
-if (!(peptideBox.value && peptideBox.value.trim())) {
-  peptideBox.setText(EXAMPLE_PEPTIDES);
-  await parseAndApplyPeptides(EXAMPLE_PEPTIDES);
-}
 
 /* Filter aligned rows for a given seq index */
 function alignedForSeq(idx) {
