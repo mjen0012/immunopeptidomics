@@ -142,7 +142,10 @@ export function peptideScanChart(
     .attr("y1", margin.top)
     .attr("y2", height - margin.bottom)
     .attr("stroke","#94a3b8")
-    .attr("stroke-width",1);
+    .attr("stroke-width",1)
+    .attr("shape-rendering","crispEdges")
+    .attr("vector-effect","non-scaling-stroke")
+    .attr("pointer-events","none");
   if (selectedAllele) {
     const centerY = margin.top + (height - margin.bottom - margin.top) / 2;
     slotG.append("text")

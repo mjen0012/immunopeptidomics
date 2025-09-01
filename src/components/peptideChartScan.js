@@ -74,7 +74,12 @@ export function peptideChartScan({
     .call(d3.axisBottom(xBase).tickFormat(d3.format("d")).tickSizeOuter(0));
   axisG.call(axisStyling);
   // Y-axis hairline and label (selected allele)
-  const yAxisLine = g.append("line").attr("stroke","#94a3b8").attr("stroke-width",1);
+  const yAxisLine = g.append("line")
+    .attr("stroke","#94a3b8")
+    .attr("stroke-width",1)
+    .attr("shape-rendering","crispEdges")
+    .attr("vector-effect","non-scaling-stroke")
+    .attr("pointer-events","none");
   const yAxisText = g.append("text")
     .attr("fill","#334155")
     .attr("font-family","'Roboto', sans-serif")
