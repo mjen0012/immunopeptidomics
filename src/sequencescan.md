@@ -690,8 +690,27 @@ async function getLatestFastaText() {
     const fileEl = uploadSeqBtn?.querySelector?.('input[type="file"]');
     fasta = await tryRead(fileEl?.files?.[0]);
   }
-  if (fasta) setMut(fastaTextMut, fasta);
-  return fasta;
+  if (fasta) {
+    setMut(fastaTextMut, fasta);
+    return fasta;
+  }
+
+  // 4) Final fallback: rebuild from parsed sequences if available
+  try {
+    const seqs = Array.isArray(seqListMut?.value) ? seqListMut.value : [];
+    if (seqs.length) {
+      const rebuilt = seqs
+        .map(({ id, sequence }) => `>${id}\n${String(sequence ?? "")}`)
+        .join("\n")
+        .trim();
+      if (rebuilt) {
+        setMut(fastaTextMut, rebuilt);
+        return rebuilt;
+      }
+    }
+  } catch {}
+
+  return "";
 }
 
 /* Body builder */
