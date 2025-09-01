@@ -206,12 +206,12 @@ export function peptideChartScan({
 
     // position y-axis hairline + label
     yAxisLine
-      .attr("x1", gutterLeft)
-      .attr("x2", gutterLeft)
+      .attr("x1", gutterLeft - 4)
+      .attr("x2", gutterLeft - 4)
       .attr("y1", margin.top)
       .attr("y2", height - margin.bottom);
     yAxisText
-      .attr("x", gutterLeft - 8)
+      .attr("x", (gutterLeft - 4) - 8)
       .attr("y", margin.top + (height - margin.bottom - margin.top) / 2);
   }
 
@@ -231,12 +231,12 @@ export function peptideChartScan({
     axisG.call(axisStyling);
     // reposition y-axis hairline (height unchanged here)
     yAxisLine
-      .attr("x1", gutterLeft)
-      .attr("x2", gutterLeft)
+      .attr("x1", gutterLeft - 4)
+      .attr("x2", gutterLeft - 4)
       .attr("y1", margin.top)
       .attr("y2", height - margin.bottom);
     yAxisText
-      .attr("x", gutterLeft - 8)
+      .attr("x", (gutterLeft - 4) - 8)
       .attr("y", margin.top + (height - margin.bottom - margin.top) / 2);
   }
 

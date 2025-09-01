@@ -137,8 +137,8 @@ export function peptideScanChart(
 
   // Y-axis hairline and selected allele label
   const yAxisLine = slotG.append("line")
-    .attr("x1", x0)
-    .attr("x2", x0)
+    .attr("x1", x0 - 4)
+    .attr("x2", x0 - 4)
     .attr("y1", margin.top)
     .attr("y2", height - margin.bottom)
     .attr("stroke","#94a3b8")
@@ -146,7 +146,7 @@ export function peptideScanChart(
   if (selectedAllele) {
     const centerY = margin.top + (height - margin.bottom - margin.top) / 2;
     slotG.append("text")
-      .attr("x", x0 - 8)
+      .attr("x", (x0 - 4) - 8)
       .attr("y", centerY)
       .attr("text-anchor","end")
       .attr("dominant-baseline","middle")
@@ -212,8 +212,8 @@ export function peptideScanChart(
     axisG.call(axisStyling);
     // keep y-axis hairline aligned with left range
     yAxisLine
-      .attr("x1", rng[0])
-      .attr("x2", rng[0]);
+      .attr("x1", rng[0] - 4)
+      .attr("x2", rng[0] - 4);
   }
 
   // two-way zoom: attach to root <svg>
