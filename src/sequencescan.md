@@ -29,9 +29,6 @@ const latestRowsMut    = Mutable([]);
 /* Selected allele from heatmap (row toggle) */
 const selectedAlleleMut = Mutable(null);
 
-/* tiny hook for console debugging */
-window.__heatLatestRows = () => latestRowsMut.value;
-
 // Tracks latest [min,max] x-extent computed by the heatmap per sequence index
 const __posExtentBySeq = new Map();
 ```
@@ -378,9 +375,25 @@ function fastaTextarea({ label = "FASTA", rows = 12, placeholder = "Paste or typ
 }
 
 const fastaBox = fastaTextarea({
-  label: "FASTA",
+  label: "Sequences",
   rows: 12,
-  placeholder: "Paste or type FASTA here… (we’ll sanitize for IEDB under the hood)"
+  placeholder: 
+`e.g.
+>NS2
+MDPNTVSSFQDILLRMSKMQLESSSEDLNGMITQFESLKLYRDSLGEAVMRMGDLHSLQN
+RNEKWREQLGQKFEEIRWLIEEVRHKLKITENSFEQITFMQALHLLLEVEQEIRTFSFQLI
+>M2
+MSLLTEVETPIRNEWGCRCNGSSDPLTIAANIIGILHLTLWILDRLFFKCIYRRFKYGLK
+GGPSTEGVPKSMREEYRKEQQSAVDADDGHFVSIELE
+>PB1F2
+MGQEQDTPWILSTGHISTQKREDGQQTPKLEHRNSTRLMGHCQKTMNQVVMPKQIVYWRR
+WLSLRNPILVFLKTRVLKRWRLFSKHE
+>PAX
+MEDFVRQCFNPMIVELAEKTMKEYGEDLKIETNKFAAICTHLEVCFMYSDFHFINEQGES
+IIVELGDPNALLKHRFEIIEGRDRTMAWTVVNSICNTTGAEKPKFLPDLYDYKENRFIEI
+GVTRREVHIYYLEKANKIKSEKTHIHIFSFTGEEMATKADYTLDEESRARIKTRLFTIRQ
+EMASRGLWDSFVSPREEKRQLKKGLKSQEQCASLPTKVSRRTSPALKILEPMWMDSNRTA
+TLRASCLKCPKK`
 });
 
 /* Debounced parsing from textarea */
@@ -404,7 +417,6 @@ async function parseAndApplyFASTA(rawText) {
     renderPeptideTrack(selectedSeqIndex());
     updatePeptideDownloadForSeq(selectedSeqIndex());
   }
-  if (issues?.length) console.warn("FASTA issues (skipped sequences):", issues);
 }
 
 const onFastaInput = () => {
@@ -632,7 +644,6 @@ async function pollResult(resultId, { timeoutMs=10*60_000, minDelay=900, maxDela
 function rowsFromTable(tbl) {
   try {
     if (!tbl || !Array.isArray(tbl.table_data) || !Array.isArray(tbl.table_columns)) {
-      console.warn("rowsFromTable: table missing columns/data, returning []", tbl);
       return [];
     }
     const keys = tbl.table_columns.map(c => c?.display_name ?? c?.name ?? "");
@@ -650,7 +661,6 @@ function rowsFromTable(tbl) {
     });
     return out;
   } catch (e) {
-    console.error("rowsFromTable error:", e);
     return [];
   }
 }
@@ -771,15 +781,6 @@ downloadBtn.onclick = () => {
 };
 invalidation.then(() => { if (csvUrl) URL.revokeObjectURL(csvUrl); });
 
-/* Immediate raw JSON downloader (for debugging) */
-function downloadRawJSON(obj, filename = "iedb_result_raw.json") {
-  const blob = new Blob([JSON.stringify(obj, null, 2)], { type:"application/json" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url; a.download = filename; a.click();
-  setTimeout(() => URL.revokeObjectURL(url), 0);
-}
-
 /* ── Single run handler (defensive) ─────────────────────────────── */
 runBtn.addEventListener("click", async () => {
   try {
@@ -800,7 +801,6 @@ runBtn.addEventListener("click", async () => {
 
     setStatus("Submitting to IEDB…", { busy:true });
     const body = buildBody(fasta);
-    console.groupCollapsed("🚀 submitPipeline body"); console.log(body); console.groupEnd();
 
     const rid = await submitPipeline(body);
     setStatus(`Submitted (result_id: ${rid}).`, { busy:true });
@@ -809,29 +809,15 @@ runBtn.addEventListener("click", async () => {
     // Keep JSON download (for your records), but do it after we parse to avoid racey UI errors
     // (we'll still call it—just after we confirm the table exists)
     const resultsArr = Array.isArray(result?.data?.results) ? result.data.results : [];
-    console.groupCollapsed("📦 IEDB result shape");
-    console.log("has results array:", Array.isArray(result?.data?.results), "length:", resultsArr.length);
-    console.log("result keys:", Object.keys(result?.data || {}));
-    console.groupEnd();
 
     const tbl = resultsArr.find(t => t?.type === "peptide_table");
     if (!tbl) {
-      console.error("No peptide_table in results:", resultsArr);
       throw new Error("No peptide_table returned in results");
     }
 
     const rowsParsed = rowsFromTable(tbl);
     const rows = Array.isArray(rowsParsed) ? rowsParsed : [];
     const rowsLen = rows.length|0;
-
-    // Now it’s safe to dump the raw JSON without interfering with flow
-    try { downloadRawJSON(result); } catch {}
-
-    console.groupCollapsed("🧩 parsed table snapshot");
-    console.log("rows length:", rowsLen);
-    if (rowsLen) console.log("sample row:", rows[0]);
-    console.log("lengths(seq#1):", lengthsFromRows(rows));
-    console.groupEnd();
 
     // with direct, guaranteed assignments:
     predRowsMut.value   = rows;
@@ -859,7 +845,6 @@ runBtn.addEventListener("click", async () => {
     }
 
   } catch (err) {
-    console.error(err);
     setStatus(`Error: ${err?.message || err}`, { warn:true });
   } finally {
     runBtn.disabled = false;
@@ -872,7 +857,6 @@ runBtn.addEventListener("click", async () => {
 /* Safe setter for Mutables (permissive) */
 function setMut(mut, val) {
   if (!mut || (typeof mut !== "object" && typeof mut !== "function")) {
-    console.warn("Mutable not ready when setting (not object):", { mut, val });
     return;
   }
   try {
@@ -883,7 +867,7 @@ function setMut(mut, val) {
     try {
       Object.defineProperty(mut, "value", { value: val, writable: true, configurable: true });
     } catch (e2) {
-      console.error("Failed to set Mutable.value", e2, { mut, val });
+      // quiet fail
     }
   }
 }
@@ -893,7 +877,6 @@ function setMut(mut, val) {
 ```js
 /* ── Heatmap length selector (adaptive to slider + data) ─────────── */
 const heatLenSlot = html`<div></div>`;
-const LOG_LEN = "🟦 heatmap";
 
 function makeHeatLenSelect({ onChange } = {}) {
   const root = document.createElement("div");
@@ -931,18 +914,11 @@ function makeHeatLenSelect({ onChange } = {}) {
     }
     if (prefer != null && lengths.includes(prefer)) sel.value = String(prefer);
     else if (lengths.length) sel.value = lengths.includes(+old) ? old : String(lengths[0]);
-
-    const after = lengths.slice();
-    console.groupCollapsed(`${LOG_LEN} setOptions`);
-    console.log("options before → after", before, "→", after);
-    console.log("prefer:", prefer, "old:", +old, "new:", root.value);
-    console.groupEnd();
   };
 
   const handle = () => {
     const len = Number(root.value);
     const rowsNow = latestRowsMut.value || [];
-    console.log(`${LOG_LEN} selector change →`, len, `(cached rows: ${rowsNow.length})`);
     if (typeof onChange === "function") onChange(len);
   };
   sel.addEventListener("input", handle); // 🔸 only one event
@@ -964,11 +940,9 @@ const heatLenCtrl = makeHeatLenSelect({
   onChange: (len) => {
     const rowsNow = (latestRowsMut.value && latestRowsMut.value.length) ? latestRowsMut.value
                   : (Array.isArray(predRowsMut.value) ? predRowsMut.value : []);
-    if (!rowsNow.length) return console.warn("🟦 heatmap no rows available on select");
+    if (!rowsNow.length) return;
 
     const seqNow = selectedSeqIndex();
-    console.log("🟦 heatmap re-render on select", { len, rows: rowsNow.length, seq: seqNow },
-                "mutable=", chosenSeqIndexMut?.value);
     renderHeatmap(rowsNow, Number(len), seqNow);
 
     // keep peptide track/download in sync
@@ -997,22 +971,14 @@ function refreshHeatLenChoices(seqOverride) {
   const lens     = fromData.length ? intersectSorted(fromSlider, fromData) : fromSlider;
   const prefer   = heatLenCtrl.value ?? lens[0];
 
-  console.groupCollapsed("🟦 heatmap refreshHeatLenChoices");
-  console.log("seq #:", seqIdx, "mutable=", chosenSeqIndexMut?.value);
-  console.log("slider range:", fromSlider);
-  console.log("lengths in data(seq#):", fromData);
-  console.log("intersect:", lens, "prefer:", prefer);
-  console.groupEnd();
-
   heatLenCtrl.setOptions(lens, { prefer });
 }
 
 refreshHeatLenChoices();
 
-const onSliderInput = () => {
-  console.log(`${LOG_LEN} slider input →`, lengthCtrl.value);
-  refreshHeatLenChoices();
-};
+  const onSliderInput = () => {
+    refreshHeatLenChoices();
+  };
 lengthCtrl.addEventListener("input", onSliderInput);
 invalidation.then(() => lengthCtrl.removeEventListener("input", onSliderInput));
 
@@ -1061,23 +1027,6 @@ function lengthsFromRows(rows) {
 
 const heatmapSlot = html`<div style="margin-top:12px"></div>`;
 
-// Debug panel (scoped to this cell)
-function makeHeatDebugBox() {
-  const det = document.createElement("details");
-  det.open = false;
-  const sum = document.createElement("summary");
-  sum.textContent = "Debug";
-  const pre = document.createElement("pre");
-  pre.style.margin = "8px 0 0 0";
-  pre.style.maxHeight = "260px";
-  pre.style.overflow = "auto";
-  det.append(sum, pre);
-  det.__setText = (obj) => { pre.textContent = JSON.stringify(obj, null, 2); };
-  return det;
-}
-const heatDebug = makeHeatDebugBox();
-function updateHeatDebug(payload) { try { heatDebug.__setText(payload); } catch {} }
-
 function buildHeatmapData(rows, method, lengthFilter, seqIdx) {
   const wantedLen = Number(lengthFilter);
   const wantSeq   = Number(seqIdx);
@@ -1085,18 +1034,6 @@ function buildHeatmapData(rows, method, lengthFilter, seqIdx) {
     const seqNum = Number(r["seq #"] ?? r["sequence_number"] ?? 1);
     return seqNum === wantSeq && rowLen(r) === wantedLen;
   });
-
-  console.groupCollapsed("🧮 buildHeatmapData");
-  console.log("wantedLen:", wantedLen, "seq #:", wantSeq);
-  console.log(`rows(seq#${wantSeq}, len=${wantedLen}):`, r1.length);
-  if (r1.length) {
-    console.log("sample rows:", r1.slice(0, 3).map(r => ({
-      seq: r["seq #"] ?? r["sequence_number"],
-      peptide: r.peptide, start: +r.start, end: +r.end,
-      len: rowLen(r)
-    })));
-  }
-  console.groupEnd();
 
   if (!r1.length) return { cells: [], posExtent: [1, 1], alleles: [] };
 
@@ -1153,7 +1090,6 @@ function renderHeatmap(rows, lengthFilter, seqIdx = selectedSeqIndex()) {
     }
 
     const tStart = performance.now();
-    console.log("🟦 render → method:", method, "len:", wantedLen, "seq #:", seqIdx);
     const { cells, posExtent, alleles } =
       buildHeatmapData(rowsArr, method, wantedLen, seqIdx);
     // cache the latest heatmap extent for this sequence (used by peptide tracks)
@@ -1167,22 +1103,6 @@ function renderHeatmap(rows, lengthFilter, seqIdx = selectedSeqIndex()) {
     heatmapSlot.dataset.alleleCount  = String(alleles?.length ?? 0);
     heatmapSlot.dataset.posMin       = String(posExtent?.[0] ?? "");
     heatmapSlot.dataset.posMax       = String(posExtent?.[1] ?? "");
-
-    console.groupCollapsed(`🎨 render #${HM_RENDER_COUNT}`);
-    console.log("method:", method, "length:", wantedLen, "seq #:", seqIdx); 
-    console.log("cells:", Array.isArray(cells) ? cells.length : "(not array)");
-    console.log("alleles:", Array.isArray(alleles) ? alleles.length : "(not array)", "posExtent:", posExtent);
-    console.groupEnd();
-
-    updateHeatDebug({
-      render_count : HM_RENDER_COUNT,
-      method       : method,
-      selected_len : wantedLen,
-      cell_count   : Array.isArray(cells) ? cells.length : 0,
-      allele_count : Array.isArray(alleles) ? alleles.length : 0,
-      pos_extent   : posExtent,
-      lengths_in_data: lengthsFromRowsForSeq(rowsArr, selectedSeqIndex())
-    });
 
     heatmapSlot.replaceChildren();
     if (!Array.isArray(cells) || !cells.length) {
@@ -1234,10 +1154,7 @@ function renderHeatmap(rows, lengthFilter, seqIdx = selectedSeqIndex()) {
       el.__setZoom(__zoomSync.transform);
     }
 
-    const ms = Math.round(performance.now() - tStart);
-    console.log("🟦 heatmap render done in", ms, "ms");
   } catch (err) {
-    console.error("Heatmap render error:", err);
     const span = document.createElement("span");
     span.textContent = `Heatmap error: ${err?.message || err}`;
     span.style.color = "#B30000";
@@ -1344,74 +1261,13 @@ function renderHeatmap(rows, lengthFilter, seqIdx = selectedSeqIndex()) {
       ${heatmapSlot}
       ${peptideScanSlot}
     </div>
-    ${heatDebug}
+    
   </div>
 </section>
-
-
-```js
-/* ─── DEBUG HOOKS ───────────────────────────────────────────────── */
-
-const DEBUG = true;
-let __heatRenderCount = 0;
-
-function dlog(...args) { if (DEBUG) console.log(...args); }
-
-function countsByLenSeq1(rows) {
-  const map = new Map();
-  for (const r of rows || []) {
-    const seqNum = Number(r["seq #"] ?? r["sequence_number"] ?? 1);
-    if (seqNum !== 1) continue;
-    const L = rowLen(r);
-    if (!Number.isFinite(L)) continue;
-    map.set(L, (map.get(L) || 0) + 1);
-  }
-  return Object.fromEntries([...map.entries()].sort((a,b)=>a[0]-b[0]));
-}
-
-function lengthsFromRows_SEQ1(rows) {
-  return Object.keys(countsByLenSeq1(rows)).map(Number);
-}
-
-function debugHeatContext(tag, len) {
-  try {
-    const rows   = predRowsMut.value || [];
-    const method = getPredictor().id;
-    const want   = Number(len);
-    const lensSeq1 = lengthsFromRows_SEQ1(rows);
-    const r1 = rows.filter(r => Number(r["seq #"] ?? r["sequence_number"] ?? 1) === 1 &&
-                                rowLen(r) === want);
-    const pctKey = r1.length ? pickPercentileKey(method, r1[0]) : "(none)";
-
-    console.group(`[${tag}] wantLen=${want}, method=${method}`);
-    console.log("seq#1 available lengths:", lensSeq1);
-    console.log("rows(total):", rows.length, "rows(seq#1,len=", want, "):", r1.length);
-    console.log("percentile key chosen:", pctKey);
-    if (r1.length) {
-      const samp = r1.slice(0, Math.min(3, r1.length))
-                     .map(r => ({
-                       allele: r.allele,
-                       start : +r.start,
-                       end   : +r.end,
-                       len   : rowLen(r),
-                       el    : r["netmhcpan_el percentile"],
-                       ba    : r["netmhcpan_ba percentile"],
-                       med   : r["median binding percentile"]
-                     }));
-      console.table(samp);
-    }
-    console.groupEnd();
-  } catch (e) {
-    console.warn("debugHeatContext error:", e);
-  }
-}
-
-```
 
 ```js
 /* ── Sequence selector ── */
 const seqSelSlot = html`<div></div>`;
-const LOG_SEQ = "🟦 seq";
 
 function makeSeqSelect({ onChange } = {}) {
   const root = document.createElement("div");
@@ -1459,18 +1315,11 @@ function makeSeqSelect({ onChange } = {}) {
       root.value = undefined;
       setSelectedSeqIndex(1);
     }
-
-    const after = Array.from(sel.options).map(o => o.textContent);
-    console.groupCollapsed(`${LOG_SEQ} setOptions`);
-    console.log("before → after", before, "→", after);
-    console.log("prefer:", prefer, "selected:", root.value);
-    console.groupEnd();
   };
 
   const handle = () => {
     const idx = Number(root.value);
     setSelectedSeqIndex(Number.isFinite(idx) ? idx : 1);
-    console.log("🟦 seq change →", idx);
     if (typeof onChange === "function") onChange(idx);
   };
   sel.addEventListener("input", handle); // 🔸 only one event
@@ -1487,7 +1336,6 @@ const seqSelectCtrl = makeSeqSelect({
                : Array.isArray(predRowsMut.value) ? predRowsMut.value : [];
     if (rows.length) {
       const len = Number(heatLenCtrl.value);
-      console.log("🟦 seq change → re-render", { seq, len });
       renderHeatmap(rows, Number.isFinite(len) ? len : undefined, seq);
     }
 
@@ -1506,34 +1354,6 @@ const seqSelectCtrl = makeSeqSelect({
 seqSelSlot.replaceChildren(seqSelectCtrl);
 setSelectedSeqIndex(selectedSeqIndex());
 refreshSeqOptions(seqSelectCtrl);
-
-
-```
-
-```js
-window.__heat = {
-  seq:    () => (typeof selectedSeqIndex === "function" ? selectedSeqIndex() : "(missing getter)"),
-  chosen: () => (chosenSeqIndexMut && typeof chosenSeqIndexMut === "object" && "value" in chosenSeqIndexMut
-                  ? chosenSeqIndexMut.value
-                  : "(no mutable)"),
-  len:        () => (heatLenCtrl?.value),
-  lastRender: () => ({ ...heatmapSlot.dataset })
-};
-
-
-
-```
-
-```js
-window.__heatRefs = {
-  get seqCtl() { return seqSelectCtrl?.querySelector?.("select"); },
-  get seqVal() { return Number(seqSelectCtrl?.value); },
-  get lenVal() { return Number(heatLenCtrl?.value); },
-  get chosen() { return (chosenSeqIndexMut && "value" in chosenSeqIndexMut) ? chosenSeqIndexMut.value : null; },
-  refreshHeatLenChoices,
-  renderHeatmap
-};
-
 ```
 
 ```js
@@ -1725,7 +1545,24 @@ const uploadPepsBtn = uploadButton({ label:"Upload Peptides (.txt/.csv)", accept
 const peptideBox = simpleTextarea({
   label: "Peptides",
   rows: 12,
-  placeholder: "Paste peptides (one per line) or CSV with a 'peptide' column…"
+  placeholder: 
+`e.g.
+ALHLLLEVE
+EQITFMQAL
+EQLGQKFEE
+FQDILLRMS
+HSLQNRNEK
+IEEVRHKLK
+KLKITENSF
+KLYRDSLGE
+KMQLESSSE
+KWREQLGQK
+LESSSEDLN
+LEVEQEIRT
+LKLYRDSLG
+NRNEKWREQ
+NSFEQITFM
+NTVSSFQDI`
 });
 
 const DEBOUNCE_PEP_MS = 350;
