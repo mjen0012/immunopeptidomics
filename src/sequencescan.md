@@ -1850,9 +1850,12 @@ function currentSeqLabel() {
 }
 
 function currentLen() {
-  try { const a = Number(heatmapSlot?.dataset?.lastLen); if (Number.isFinite(a)) return a; } catch {}
-  try { const b = Number(heatLenCtrl?.value); if (Number.isFinite(b)) return b; } catch {}
-  return null;
+ // Only read from the heatmap’s own cached dataset to avoid a reactive cycle
+ try {
+   const a = Number(heatmapSlot?.dataset?.lastLen);
+   if (Number.isFinite(a)) return a;
+ } catch {}
+ return null;
 }
 
 function currentMethod() {
