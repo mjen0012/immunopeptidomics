@@ -1843,11 +1843,27 @@ function iedbRowsForInputPeptides() {
 }
 
 function updatePeptideIEDBDownload() {
+  // local CSV builder to avoid importing buildCSV from the "Run + Download" cell
+  const buildCSVLoose = (rows) => {
+    if (!rows || !rows.length) return "";
+    const cols = Array.from(
+      rows.reduce((set, r) => {
+        Object.keys(r || {}).forEach((k) => set.add(k));
+        return set;
+      }, new Set())
+    );
+    const esc = (v) => {
+      const s = v == null ? "" : String(v);
+      return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+    return [cols.join(","), ...rows.map((r) => cols.map((c) => esc(r[c])).join(","))].join("\n");
+  };
+
   if (pepCsvUrl) { try { URL.revokeObjectURL(pepCsvUrl); } catch {} pepCsvUrl = null; }
   const rows = iedbRowsForInputPeptides();
   if (!rows.length) { dlPepsBtn.disabled = true; return; }
-  const csv = buildCSV(rows);
-  pepCsvUrl = URL.createObjectURL(new Blob([csv], { type:"text/csv" }));
+  const csv = buildCSVLoose(rows);
+  pepCsvUrl = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
   dlPepsBtn.disabled = false;
 }
 dlPepsBtn.onclick = () => {
