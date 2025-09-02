@@ -65,7 +65,7 @@ function renderPeptideAlleleTrack(seqIdx, length, allele) {
     em.textContent = "Click an allele row in the heatmap to view its peptides.";
     peptideScanSlot.appendChild(em);
     __zoomSync.pepAllele = null;
-    try { updateChartDlButtons(); } catch {}
+
     return;
   }
 
@@ -75,7 +75,7 @@ function renderPeptideAlleleTrack(seqIdx, length, allele) {
     em.textContent = `No peptides for allele ${allele} (len ${length}).`;
     peptideScanSlot.appendChild(em);
     __zoomSync.pepAllele = null;
-    try { updateChartDlButtons(); } catch {}
+
     return;
   }
 
@@ -147,7 +147,6 @@ function renderPeptideAlleleTrack(seqIdx, length, allele) {
   }
 
   new ResizeObserver(e => build(e[0].contentRect.width)).observe(wrapper);
-  try { updateChartDlButtons(); } catch {}
 }
 ```
 
@@ -1088,7 +1087,6 @@ function renderHeatmap(rows, lengthFilter, seqIdx = selectedSeqIndex()) {
     const rowsArr = Array.isArray(rows) ? rows : [];
     if (!rowsArr.length) {
       heatmapSlot.replaceChildren(Object.assign(document.createElement("em"), {textContent:"No heat-map data - empty rows."}));
-      try { updateChartDlButtons(); } catch {}
       return;
     }
 
@@ -1168,14 +1166,12 @@ function renderHeatmap(rows, lengthFilter, seqIdx = selectedSeqIndex()) {
     if (__zoomSync.transform && typeof el.__setZoom === "function") {
       el.__setZoom(__zoomSync.transform);
     }
-    try { updateChartDlButtons(); } catch {}
 
   } catch (err) {
     const span = document.createElement("span");
     span.textContent = `Heatmap error: ${err?.message || err}`;
     span.style.color = "#B30000";
     heatmapSlot.replaceChildren(span);
-    try { updateChartDlButtons(); } catch {}
   }
 }
 
@@ -1697,7 +1693,6 @@ function renderPeptideTrack(seqIdx, lenNow, selAllele = null) {
     const em = document.createElement("em");
     em.textContent = "No aligned peptides for the selected sequence and length.";
     peptideSlot.appendChild(em);
-    try { updateChartDlButtons(); } catch {}
     return;
   }
   // Build percentile map for colouring
@@ -1761,7 +1756,6 @@ function renderPeptideTrack(seqIdx, lenNow, selAllele = null) {
   if (__zoomSync.transform && typeof el.__setZoom === "function") {
     el.__setZoom(__zoomSync.transform);
   }
-  try { updateChartDlButtons(); } catch {}
 }
 
 /* CSV download */
@@ -1840,13 +1834,18 @@ function downloadSvgFromSlot(slot, filename) {
   } catch {}
 }
 
+
 function currentSeqLabel() {
   try {
     const id = String(chosenSeqIdMut?.value || "").trim();
     if (id) return id;
   } catch {}
-  const idx = Number.isFinite(selectedSeqIndex?.()) ? selectedSeqIndex() : 1;
-  return `seq${idx}`;
+  // Avoid calling selectedSeqIndex() (no function dependency), read Mutable directly
+  try {
+    const idx = Number(chosenSeqIndexMut?.value);
+    if (Number.isFinite(idx) && idx >= 1) return `seq${idx}`;
+  } catch {}
+  return "seq1";
 }
 
 function currentLen() {
@@ -1858,8 +1857,10 @@ function currentLen() {
  return null;
 }
 
+
 function currentMethod() {
-  try { return String(heatmapSlot?.dataset?.lastMethod || getPredictor()?.id || ""); } catch { return ""; }
+  // Only use the heatmap’s cached method; do NOT read predictorDrop here
+  try { return String(heatmapSlot?.dataset?.lastMethod || ""); } catch { return ""; }
 }
 
 function makeChartFilename(kind) {
@@ -1875,13 +1876,24 @@ dlPeptideSvgBtn.addEventListener("click", () => downloadSvgFromSlot(peptideSlot,
 dlHeatmapSvgBtn.addEventListener("click", () => downloadSvgFromSlot(heatmapSlot, makeChartFilename("heatmap")));
 dlAlleleSvgBtn.addEventListener("click", () => downloadSvgFromSlot(peptideScanSlot, makeChartFilename("allele")));
 
+
 function updateChartDlButtons() {
-  try { dlPeptideSvgBtn.disabled = !peptideSlot?.querySelector?.('svg'); } catch { dlPeptideSvgBtn.disabled = true; }
-  try { dlHeatmapSvgBtn.disabled = !heatmapSlot?.querySelector?.('svg'); } catch { dlHeatmapSvgBtn.disabled = true; }
-  try { dlAlleleSvgBtn.disabled  = !peptideScanSlot?.querySelector?.('svg'); } catch { dlAlleleSvgBtn.disabled = true; }
+  try { dlPeptideSvgBtn.disabled = !peptideSlot?.querySelector?.("svg"); } catch { dlPeptideSvgBtn.disabled = true; }
+  try { dlHeatmapSvgBtn.disabled = !heatmapSlot?.querySelector?.("svg"); } catch { dlHeatmapSvgBtn.disabled = true; }
+  try { dlAlleleSvgBtn.disabled  = !peptideScanSlot?.querySelector?.("svg"); } catch { dlAlleleSvgBtn.disabled = true; }
 }
 
-// Initial state
-updateChartDlButtons();
-
+// Observe the chart slots so this cell is only downstream of them
+let __dlObs;
+function attachDlObservers() {
+  try { __dlObs?.disconnect?.(); } catch {}
+  __dlObs = new MutationObserver(() => updateChartDlButtons());
+  [peptideSlot, heatmapSlot, peptideScanSlot].forEach(el => {
+    try { __dlObs.observe(el, { childList: true, subtree: true }); } catch {}
+  });
+  // set initial state
+  updateChartDlButtons();
+}
+attachDlObservers();
+invalidation.then(() => { try { __dlObs?.disconnect?.(); } catch {} });
 ```
