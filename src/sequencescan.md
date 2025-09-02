@@ -563,9 +563,46 @@ function makeButton(txt) {
   return b;
 }
 
+// Small inline download icon helper for buttons
+function makeDlIcon() {
+  const svgNS = "http://www.w3.org/2000/svg";
+  const s = document.createElementNS(svgNS, "svg");
+  s.setAttribute("viewBox", "0 0 16 16");
+  s.setAttribute("width", "16");
+  s.setAttribute("height", "16");
+  s.setAttribute("aria-hidden", "true");
+  const p1 = document.createElementNS(svgNS, "path");
+  p1.setAttribute("d", "M8 2v6m-2.5-2.5L8 9l2.5-3.5");
+  p1.setAttribute("fill", "none");
+  p1.setAttribute("stroke", "#334155");
+  p1.setAttribute("stroke-width", "1.8");
+  p1.setAttribute("stroke-linecap", "round");
+  p1.setAttribute("stroke-linejoin", "round");
+  const p2 = document.createElementNS(svgNS, "path");
+  p2.setAttribute("d", "M3 12v2h10v-2");
+  p2.setAttribute("fill", "none");
+  p2.setAttribute("stroke", "#334155");
+  p2.setAttribute("stroke-width", "1.8");
+  p2.setAttribute("stroke-linecap", "round");
+  p2.setAttribute("stroke-linejoin", "round");
+  s.append(p1, p2);
+  return s;
+}
+
 const runBtn       = makeButton("Run prediction");
-const downloadBtn  = makeButton("Download table (CSV)");
+const downloadBtn  = makeButton("");
 downloadBtn.disabled = true;
+
+// Apply icon + concise label for the sequence table download
+{
+  const icon = makeDlIcon();
+  const span = document.createElement("span");
+  span.textContent = "Sequence";
+  downloadBtn.style.display = "inline-flex";
+  downloadBtn.style.alignItems = "center";
+  downloadBtn.style.gap = "8px";
+  downloadBtn.append(icon, span);
+}
 
 const statusBanner = document.createElement("div");
 statusBanner.setAttribute("aria-live", "polite");
@@ -769,9 +806,18 @@ function buildCSV(rows) {
   };
   return [cols.join(","), ...rows.map(r => cols.map(c => esc(r[c])).join(","))].join("\n");
 }
+// Attach sequence label from FASTA to each row
+function rowsWithSeqLabel(rows) {
+  const seqs = Array.isArray(seqListMut?.value) ? seqListMut.value : [];
+  return (rows || []).map(r => {
+    const seqNum = Number(r["seq #"] ?? r["sequence_number"] ?? r["sequence_index"] ?? 1);
+    const label = (seqs[seqNum - 1]?.id) || `seq${seqNum}`;
+    return { ...r, label };
+  });
+}
 function updateDownload(rows) {
   if (csvUrl) { try { URL.revokeObjectURL(csvUrl); } catch {} csvUrl = null; }
-  const csv = buildCSV(rows);
+  const csv = buildCSV(rowsWithSeqLabel(rows));
   if (rows && rows.length && csv) {
     csvUrl = URL.createObjectURL(new Blob([csv], { type:"text/csv" }));
     downloadBtn.disabled = false;
@@ -845,7 +891,7 @@ runBtn.addEventListener("click", async () => {
       try {
         const selAllele = (selectedAlleleMut && "value" in selectedAlleleMut) ? selectedAlleleMut.value : null;
         renderPeptideTrack(seqNow, safeLen, selAllele);
-        updatePeptideDownloadForSeq(seqNow);
+        updatePeptideIEDBDownload(seqNow);
       } catch {}
       try {
         const selAllele = (selectedAlleleMut && "value" in selectedAlleleMut) ? selectedAlleleMut.value : null;
@@ -958,7 +1004,7 @@ const heatLenCtrl = makeHeatLenSelect({
     try {
       const selAllele = (selectedAlleleMut && "value" in selectedAlleleMut) ? selectedAlleleMut.value : null;
       renderPeptideTrack(seqNow, Number(len), selAllele);
-      updatePeptideDownloadForSeq(seqNow);
+      updatePeptideIEDBDownload(seqNow);
     } catch {}
     try {
       const selAllele = (selectedAlleleMut && "value" in selectedAlleleMut) ? selectedAlleleMut.value : null;
@@ -1359,7 +1405,7 @@ const seqSelectCtrl = makeSeqSelect({
     try {
       const selAllele = (selectedAlleleMut && "value" in selectedAlleleMut) ? selectedAlleleMut.value : null;
       renderPeptideTrack(seq, Number(heatLenCtrl?.value), selAllele);
-      updatePeptideDownloadForSeq(seq);
+      updatePeptideIEDBDownload(seq);
     } catch {}
     try {
       const selAllele = (selectedAlleleMut && "value" in selectedAlleleMut) ? selectedAlleleMut.value : null;
@@ -1603,7 +1649,7 @@ async function parseAndApplyPeptides(rawText) {
     const selAllele = (selectedAlleleMut && "value" in selectedAlleleMut) ? selectedAlleleMut.value : null;
     renderPeptideTrack(seqNow, lenNow, selAllele);
   }
-  updatePeptideDownloadForSeq(selectedSeqIndex());
+  updatePeptideIEDBDownload(selectedSeqIndex());
 }
 
 const onPeptideInput = () => {
@@ -1632,7 +1678,7 @@ invalidation.then(() => peptideBox.textarea.removeEventListener("input", onPepti
         const selAllele = (selectedAlleleMut && "value" in selectedAlleleMut) ? selectedAlleleMut.value : null;
         renderPeptideTrack(seqNow, lenNow, selAllele);
       }
-      updatePeptideDownloadForSeq(selectedSeqIndex());
+      updatePeptideIEDBDownload(selectedSeqIndex());
       return;
     }
     let txt = ""; try { txt = await file.text(); } catch {}
@@ -1663,7 +1709,17 @@ invalidation.then(() => peptideBox.textarea.removeEventListener("input", onPepti
 
 ```js
 const peptideSlot = html`<div style="margin:0"></div>`;
-const dlPepsBtn   = makeButton("Download peptides (CSV)");
+const dlPepsBtn   = makeButton("");
+// Apply icon + concise label
+{
+  const icon = makeDlIcon();
+  const span = document.createElement("span");
+  span.textContent = "Peptides";
+  dlPepsBtn.style.display = "inline-flex";
+  dlPepsBtn.style.alignItems = "center";
+  dlPepsBtn.style.gap = "8px";
+  dlPepsBtn.append(icon, span);
+}
 dlPepsBtn.disabled = true;
 
 /* Filter aligned rows for a given seq index */
@@ -1769,19 +1825,37 @@ function buildPeptideCSV(rows) {
   };
   return [cols.join(","), ...rows.map(r => cols.map(c => esc(r[c])).join(","))].join("\n");
 }
-function updatePeptideDownloadForSeq(seqIdx) {
+// Download of IEDB result rows for user-provided peptides
+function iedbRowsForInputPeptides() {
+  const peps = new Set((Array.isArray(peptideListMut?.value) ? peptideListMut.value : [])
+                      .map(p => sanitizePeptide(p)).filter(Boolean));
+  if (!peps.size) return [];
+  const src = (latestRowsMut?.value && latestRowsMut.value.length)
+            ? latestRowsMut.value
+            : (Array.isArray(predRowsMut?.value) ? predRowsMut.value : []);
+  if (!src.length) return [];
+  const out = [];
+  for (const r of src) {
+    const pep = sanitizePeptide(r?.peptide || "");
+    if (pep && peps.has(pep)) out.push(r);
+  }
+  return out;
+}
+
+let pepCsvUrl = null;
+function updatePeptideIEDBDownload() {
   if (pepCsvUrl) { try { URL.revokeObjectURL(pepCsvUrl); } catch {} pepCsvUrl = null; }
-  const rows = alignedForSeq(seqIdx);
+  const rows = iedbRowsForInputPeptides();
   if (!rows.length) { dlPepsBtn.disabled = true; return; }
-  const csv = buildPeptideCSV(rows);
+  const csv = buildCSV(rows);
   pepCsvUrl = URL.createObjectURL(new Blob([csv], { type:"text/csv" }));
   dlPepsBtn.disabled = false;
 }
 dlPepsBtn.onclick = () => {
-  if (!pepCsvUrl) { alert("No aligned peptides to download."); return; }
+  if (!pepCsvUrl) { alert("No IEDB rows for provided peptides."); return; }
   const a = document.createElement("a");
   a.href = pepCsvUrl;
-  a.download = "aligned_peptides.csv";
+  a.download = "iedb_peptides_for_input.csv";
   a.click();
 };
 invalidation.then(() => { if (pepCsvUrl) URL.revokeObjectURL(pepCsvUrl); });
@@ -1791,9 +1865,47 @@ invalidation.then(() => { if (pepCsvUrl) URL.revokeObjectURL(pepCsvUrl); });
 ```js
 // Chart SVG download buttons (peptide track, heatmap, allele track)
 
-const dlPeptideSvgBtn = makeButton("Download peptide track (SVG)");
-const dlHeatmapSvgBtn = makeButton("Download heatmap (SVG)");
-const dlAlleleSvgBtn  = makeButton("Download allele track (SVG)");
+function createDownloadIcon() {
+  const svgNS = "http://www.w3.org/2000/svg";
+  const s = document.createElementNS(svgNS, "svg");
+  s.setAttribute("viewBox", "0 0 16 16");
+  s.setAttribute("width", "16");
+  s.setAttribute("height", "16");
+  s.setAttribute("aria-hidden", "true");
+  const p1 = document.createElementNS(svgNS, "path");
+  p1.setAttribute("d", "M8 2v6m-2.5-2.5L8 9l2.5-3.5");
+  p1.setAttribute("fill", "none");
+  p1.setAttribute("stroke", "#334155");
+  p1.setAttribute("stroke-width", "1.8");
+  p1.setAttribute("stroke-linecap", "round");
+  p1.setAttribute("stroke-linejoin", "round");
+  const p2 = document.createElementNS(svgNS, "path");
+  p2.setAttribute("d", "M3 12v2h10v-2");
+  p2.setAttribute("fill", "none");
+  p2.setAttribute("stroke", "#334155");
+  p2.setAttribute("stroke-width", "1.8");
+  p2.setAttribute("stroke-linecap", "round");
+  p2.setAttribute("stroke-linejoin", "round");
+  s.append(p1, p2);
+  return s;
+}
+
+function makeIconDlButton(label, title) {
+  const b = makeButton("");
+  b.title = title || `Download ${label} (SVG)`;
+  b.style.display = "inline-flex";
+  b.style.alignItems = "center";
+  b.style.gap = "8px";
+  const icon = createDownloadIcon();
+  const span = document.createElement("span");
+  span.textContent = label;
+  b.append(icon, span);
+  return b;
+}
+
+const dlPeptideSvgBtn = makeIconDlButton("Peptides", "Download peptide track (SVG)");
+const dlHeatmapSvgBtn = makeIconDlButton("Heatmap", "Download heatmap (SVG)");
+const dlAlleleSvgBtn  = makeIconDlButton("Allele",  "Download allele track (SVG)");
 
 dlPeptideSvgBtn.disabled = true;
 dlHeatmapSvgBtn.disabled = true;
