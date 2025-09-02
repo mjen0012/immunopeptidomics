@@ -1314,6 +1314,7 @@ function renderHeatmap(rows, lengthFilter, seqIdx = selectedSeqIndex()) {
     <div class="controls-row" style="margin-bottom:8px;">
       ${seqSelSlot}
       ${heatLenSlot}
+      ${colorKeySlot}
     </div>
     <div class="charts">
       ${peptideSlot}
@@ -2023,4 +2024,121 @@ function attachDlObservers() {
 }
 attachDlObservers();
 invalidation.then(() => { try { __dlObs?.disconnect?.(); } catch {} });
+```
+
+```js
+// Color key legend (matches heatmap colors): 0–2 blue→white, 2–50 white→red, 50–100 red
+import * as d3 from "npm:d3@7";
+
+const colorKeySlot = html`<div></div>`;
+
+function renderColorKey() {
+  const BLUE_MAX = 2, RED_MIN = 50;
+
+  const root = document.createElement("div");
+  root.style.fontFamily = "'Roboto', sans-serif";
+
+  const label = document.createElement("label");
+  label.textContent = "Key";
+  label.style.cssText = "display:block;margin:0 0 8px 0;font:500 13px/1.3 'Roboto',sans-serif;color:#111;";
+
+  // Colors matching charts
+  const blue0 = d3.interpolateBlues(1); // deep
+  const blueW = d3.interpolateBlues(0); // white
+  const redW  = d3.interpolateReds(0);  // white
+  const red1  = d3.interpolateReds(1);  // deep red
+
+  // Wrapper with room for tick labels
+  const wrap = document.createElement("div");
+  wrap.style.position = "relative";
+  wrap.style.paddingBottom = "24px"; // room for ticks + labels
+
+  // Box sized like other controls (selects) for a unified row look
+  const box = document.createElement("div");
+  box.style.cssText = `
+    height:36px; width:100%; box-sizing:border-box;
+    border:1px solid #bbb; border-radius:6px; background:#fff; overflow:hidden;
+    display:grid; grid-template-columns:1fr 1fr 1fr; position:relative;
+  `;
+  wrap.appendChild(box);
+
+  // Three equal segments with a visual break between them
+  const s1 = document.createElement("div");
+  s1.style.cssText = `background: linear-gradient(to right, ${blue0}, ${blueW});`;
+  const s2 = document.createElement("div");
+  s2.style.cssText = `background: linear-gradient(to right, ${redW}, ${red1});`;
+  const s3 = document.createElement("div");
+  s3.style.cssText = `background: ${red1};`;
+  box.append(s1, s2, s3);
+
+  // No end lines at 0 or 100 per design
+
+  // Prominent double-line breaks at 2 and 50 (segment boundaries).
+  // Use pixel-snapped positioning for crispness at all zoom levels.
+  const overlay = document.createElement("div");
+  overlay.style.cssText = "position:absolute; left:0; right:0; top:0; bottom:0; pointer-events:none; z-index:2;";
+  wrap.appendChild(overlay);
+
+  function makeLine() {
+    const el = document.createElement("div");
+    el.style.position = "absolute";
+    el.style.width = "1px";
+    el.style.background = "#94a3b8";
+    el.style.top = "-3px";     // slightly above box
+    el.style.bottom = "24px";   // stop above labels
+    return el;
+  }
+  function makeGap() {
+    const el = document.createElement("div");
+    el.style.position = "absolute";
+    el.style.width = "8px"; // widen to fully mask color and border
+    el.style.background = "#fff"; // slice whitespace
+    el.style.top = "-2px";
+    el.style.bottom = "24px";
+    return el;
+  }
+  const gap1 = makeGap(), l1 = makeLine(), r1 = makeLine();
+  const gap2 = makeGap(), l2 = makeLine(), r2 = makeLine();
+  overlay.append(gap1, l1, r1, gap2, l2, r2);
+
+  function positionBreaks() {
+    const w = overlay.clientWidth;
+    const x1 = Math.round(w / 3);
+    const x2 = Math.round(2 * w / 3);
+    // first break: bias gap 1px to the right to prevent right-side bleed
+    gap1.style.left = `${x1 - 3}px`; // covers x1-3 .. x1+5
+    l1.style.left   = `${x1 - 4}px`;
+    r1.style.left   = `${x1 + 4}px`;
+    // second break
+    gap2.style.left = `${x2 - 3}px`;
+    l2.style.left   = `${x2 - 4}px`;
+    r2.style.left   = `${x2 + 4}px`;
+  }
+  // Initial and on resize
+  positionBreaks();
+  new ResizeObserver(() => positionBreaks()).observe(overlay);
+
+  // Compose tick positions array for ticks + labels
+  const tickPerc = [0, 33.3333, 66.6667, 100];
+  // No bottom tick axis marks per latest design
+
+  // Tick labels aligned to the same positions: 0, 2, 50, 100
+  const labels = [0, BLUE_MAX, RED_MIN, 100];
+  labels.forEach((val, i) => {
+    const t = document.createElement("span");
+    const p = tickPerc[i];
+    t.textContent = String(val);
+    t.style.cssText = `
+      position:absolute; left:${p}%; bottom:0; transform:translateX(-50%);
+      font:12px/1 'Roboto', sans-serif; color:#424242; user-select:none;
+    `;
+    wrap.appendChild(t);
+  });
+
+  root.append(label, wrap);
+  colorKeySlot.replaceChildren(root);
+}
+
+renderColorKey();
+
 ```
