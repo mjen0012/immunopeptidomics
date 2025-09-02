@@ -422,7 +422,7 @@ async function parseAndApplyFASTA(rawText) {
      const selAllele = (selectedAlleleMut && "value" in selectedAlleleMut) ? selectedAlleleMut.value : null;
      renderPeptideTrack(seqNow, lenNow, selAllele);
    }
-    updatePeptideDownloadForSeq(selectedSeqIndex());
+    updatePeptideIEDBDownload();
   }
 }
 
@@ -1842,7 +1842,6 @@ function iedbRowsForInputPeptides() {
   return out;
 }
 
-let pepCsvUrl = null;
 function updatePeptideIEDBDownload() {
   if (pepCsvUrl) { try { URL.revokeObjectURL(pepCsvUrl); } catch {} pepCsvUrl = null; }
   const rows = iedbRowsForInputPeptides();
