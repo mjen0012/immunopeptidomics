@@ -88,7 +88,7 @@ export function comboSelectLazy({
 }
 .combo-item { padding:.3em .5em; cursor:pointer; }
 .combo-item:hover       { background:#f0f0f0; }
-.combo-item.is-selected { background:#e8f4ff; }
+.combo-item.is-selected { background:#d6ecff; }
 .combo-pills {
   width:100%; display:flex; gap:4px; flex-wrap:wrap; margin-top:6px;
 }
