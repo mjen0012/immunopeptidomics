@@ -5,6 +5,164 @@ slug: netmhc
 toc: false
 ---
 
+<!-- Banner -->
+```js
+const banner = await FileAttachment("banner_static.jpg").image();
+banner.alt = "";
+banner.className = "banner__bg";
+```
+
+<style>
+@import url("https://fonts.googleapis.com/css2?family=Roboto+Condensed:wght@300;400;700&display=swap");
+
+/* ------------- banner shell --------------------------------------- */
+.banner {
+  position: relative;
+  height: 200px;
+  width: 100vw;               /* full-bleed background image */
+  left: 50%;                  /* center the 100vw box in the viewport */
+  margin-left: -50vw;
+
+  /* cancel the article’s built-in top padding */
+  margin-top: calc(-1 * var(--observable-layout-spacing-block, 2rem));
+  margin-bottom: var(--observable-layout-spacing-block, 1rem);
+
+  background: none;           /* handled by the <img> element */
+  display: block;             /* inner handles layout */
+  font-family: "Roboto Condensed", sans-serif;
+  overflow: hidden;
+  z-index: 0;
+}
+
+/* inner content aligns with article column; adjusted by JS for sidebar */
+.banner__inner {
+  position: relative;
+  width: 100%;
+  max-width: 1200px;          /* sensible cap for very wide screens */
+  margin: 0 auto;              /* default center; JS will set precise margins */
+  padding: 0;                  /* align exactly with cards' edges */
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;         /* vertical centering */
+  justify-content: flex-start; /* text at left; logo handled separately */
+  gap: 1rem;
+  text-align: center;
+  z-index: 2;                  /* above bg image */
+  height: 100%;                /* match banner height for centering */
+}
+
+/* background image fills the box */
+.banner__bg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  z-index: 0;
+}
+
+/* ------------- text ---------------------------------------------- */
+.banner__text {
+  position: relative;
+  z-index: 2;
+  text-align: left;            /* align with cards' left edge */
+}
+.banner__text h1 {
+  margin: 0;
+  font-size: 64px;
+  font-weight: 400;
+  color: #fff;
+  line-height: 1;
+}
+.banner__text h2 {
+  margin: 0;
+  font-size: 36px;
+  font-weight: 300;
+  color: #fff;
+}
+
+/* ------------- translucent “M” ----------------------------------- */
+.banner__logo {
+  position: absolute;         /* overlay, independent of text */
+  top: 0;
+  bottom: 0;
+  right: 0;                   /* JS will nudge into the right whitespace */
+  width: 88px;
+  height: 100%;
+  fill: rgba(255,255,255,0.30);
+  z-index: 1;                 /* behind text */
+  pointer-events: none;
+}
+
+/* mobile tweaks */
+@media (max-width: 640px) {
+  .banner__text h1 { font-size: 40px; }
+  .banner__text h2 { font-size: 22px; }
+  .banner__logo { width: 64px; }
+}
+</style>
+
+<header class="banner">
+  ${banner}
+
+  <div class="banner__inner">
+    <div class="banner__text">
+      <h1>MHCOMP</h1>
+      <h2>Compare peptide binding</h2>
+    </div>
+
+  </div>
+</header>
+
+```js
+// Align banner text/logo with the main content column even when the sidebar opens
+{
+  const header = document.querySelector('header.banner');
+  const inner  = header?.querySelector('.banner__inner');
+  const NS = 'http://www.w3.org/2000/svg';
+  let logo   = header?.querySelector('.banner__logo');
+  // If the logo SVG isn't present (or HTML was sanitized), create it dynamically
+  if (header && inner && !logo) {
+    logo = document.createElementNS(NS, 'svg');
+    logo.setAttribute('class', 'banner__logo');
+    logo.setAttribute('viewBox', '0 0 1 1');
+    logo.setAttribute('preserveAspectRatio', 'none');
+    const poly = document.createElementNS(NS, 'polygon');
+    poly.setAttribute('points', '0.5745 0,0.5 0.33,0.42 0,0 0,0 1,0.27 1,0.27 0.59, 0.37 1,0.634 1,0.736 0.59,0.736 1,1 1,1 0,0.5745 0');
+    poly.setAttribute('fill', 'rgba(255,255,255,0.30)');
+    logo.appendChild(poly);
+    header.appendChild(logo);   // overlay logo outside text container
+  }
+  function alignBanner() {
+    if (!inner) return;
+    const content = document.querySelector('main')
+                   || document.querySelector('article')
+                   || header.parentElement;
+    const rect = content?.getBoundingClientRect?.();
+    const vw   = window.innerWidth || document.documentElement.clientWidth || 0;
+    if (rect && rect.width) {
+      const left  = Math.max(0, rect.left);
+      const right = Math.max(0, vw - rect.right);
+      inner.style.marginLeft  = left + 'px';
+      inner.style.marginRight = right + 'px';
+      // Place the logo centered within the whitespace to the right of the cards
+      const logoNow = header?.querySelector('.banner__logo');
+      if (logoNow) {
+        const logoW = 88; // keep in sync with CSS
+        const offset = Math.max(0, (right - logoW) / 2);
+        logoNow.style.right = offset + 'px';
+      }
+    }
+  }
+  alignBanner();
+  addEventListener('resize', alignBanner, { passive: true });
+  // Watch for layout changes (e.g., sidebar toggle)
+  const obs = new MutationObserver(alignBanner);
+  obs.observe(document.documentElement, { attributes: true, subtree: true, attributeFilter: ['class','style'] });
+  invalidation.then(() => { try { obs.disconnect(); } catch {} });
+}
+```
+
 ```js
 // Imports (no DuckDB)
 import { uploadButton }    from "./components/uploadButton.js";
