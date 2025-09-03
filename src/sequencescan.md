@@ -1766,10 +1766,11 @@ function simpleTextarea({ label, rows = 12, placeholder = "" } = {}) {
 
 const uploadPepsBtn = uploadButton({ label:"Upload Peptides (.txt/.csv)", accept: ".txt,.csv" });
 const peptideBox = simpleTextarea({
-  label: "Peptides",
+  label: "Peptides (optional)",
   rows: 12,
   placeholder: 
-`e.g.
+`(optional) 
+e.g.
 ALHLLLEVE
 EQITFMQAL
 EQLGQKFEE
@@ -2197,7 +2198,7 @@ function renderColorKey() {
   root.style.fontFamily = "'Roboto', sans-serif";
 
   const label = document.createElement("label");
-  label.textContent = "Key";
+  label.textContent = "Key (binding percentile)";
   label.style.cssText = "display:block;margin:0 0 8px 0;font:500 13px/1.3 'Roboto',sans-serif;color:#111;";
 
   // Colors matching charts

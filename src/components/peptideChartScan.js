@@ -86,7 +86,7 @@ export function peptideChartScan({
     .attr("font-size",11)
     .attr("dominant-baseline","middle")
     .attr("text-anchor","end")
-    .text(selectedAllele ? String(selectedAllele) : "");
+    .text(selectedAllele ? String(selectedAllele) : "Selected Peptides");
 
   // Percentile -> colour (match heatmap & peptideScanChart)
   const BLUE_MAX = 2, RED_MIN = 50;
@@ -113,7 +113,7 @@ export function peptideChartScan({
     .enter().append("rect")
       .attr("y", d => margin.top + (nLevels - 1 - d.level) * rowHeight + gap / 2)
       .attr("height", rowHeight - gap)
-      .attr("fill", fillFor)
+      .attr("fill", d => selectedAllele ? fillFor(d) : "#9498A0")
       .attr("stroke", "none");
 
   // Tooltip (unified style)
