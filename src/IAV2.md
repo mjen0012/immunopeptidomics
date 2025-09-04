@@ -379,16 +379,30 @@ function withQueryLogging(db) {
 
 ```js
 
-/* Wrap Database */
-const db = withQueryLogging(
-  extendDB(
-    await DuckDBClient.of({
-      proteins: FileAttachment("data/IAV6-all.parquet").parquet(),
-      sequencecalc: FileAttachment("data/IAV8_sequencecalc.parquet").parquet(),
-      hla: FileAttachment("data/HLAlistClassI.parquet").parquet()
-    })
-  )
-);
+/* Wrap Database (per-protein only; do not load the full table) */
+// Build a raw client, attach the single-partition table as proteins_raw,
+// then expose a view `proteins` that includes a constant `protein` column.
+const __START_PROT = "M1"; // initial attachment
+const __rawdb = await DuckDBClient.of({
+  proteins_raw: FileAttachment("data/IAV6_partitioned/protein=M1/part-0.parquet").parquet(),
+  sequencecalc: FileAttachment("data/IAV8_sequencecalc.parquet").parquet(),
+  hla: FileAttachment("data/HLAlistClassI.parquet").parquet()
+});
+
+// Ensure downstream queries always see a `protein` column.
+// Replace the existing protein column (from the partition file) with a constant,
+// so downstream WHERE protein = ? works and avoids ambiguity/duplicates.
+// Create a view that projects a constant protein id and the needed columns.
+// Note: literal 'M1' to avoid prepared parameters inside DDL.
+await __rawdb.sql`
+  CREATE OR REPLACE VIEW proteins AS
+  SELECT 'M1'::VARCHAR AS protein,
+         accession, title, genotype, country, host,
+         collection_date, release_date, sequence
+  FROM proteins_raw
+`;
+
+const db = withQueryLogging(extendDB(__rawdb));
 ```
 
 ```js
