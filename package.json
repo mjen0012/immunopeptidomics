@@ -7,7 +7,6 @@
     "dev": "observable preview",
     "deploy": "observable deploy",
     "observable": "observable",
-    "postbuild": "python3 src/data/export_per_protein.py --input src/data/IAV6-all.parquet --outdir dist/data/iav6/protein",
     "export:iav6": "python src/data/export_per_protein.py --input src/data/IAV6-all.parquet --outdir dist/data/iav6/protein"
   },
   "dependencies": {
