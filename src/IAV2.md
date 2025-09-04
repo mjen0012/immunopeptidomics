@@ -223,14 +223,171 @@ import * as d3 from "npm:d3";
 ```
 
 ```js
+// ===== Memory, File, and SQL instrumentation =====
+globalThis.__MEMLOG_ENABLED = true; // toggle to quickly enable/disable
+
+function fmtBytes(n) {
+  if (n == null || !isFinite(n)) return String(n);
+  const u = ["B","KB","MB","GB","TB"]; let i = 0; let x = Math.max(0, n);
+  while (x >= 1024 && i < u.length - 1) { x /= 1024; i++; }
+  return `${x.toFixed(x < 10 ? 2 : 1)} ${u[i]}`;
+}
+
+function trySizeJSON(value, limit = 2500) {
+  try {
+    if (Array.isArray(value) && value.length > limit) return null; // avoid heavy stringify
+    const s = JSON.stringify(value);
+    return new Blob([s]).size;
+  } catch { return null; }
+}
+
+function logArray(label, arr, {sample = 3, jsonLimit = 2500} = {}) {
+  if (!globalThis.__MEMLOG_ENABLED) return arr;
+  const len = Array.isArray(arr) ? arr.length : (arr?.length ?? null);
+  const approx = trySizeJSON(arr, jsonLimit);
+  const head = Array.isArray(arr) ? arr.slice(0, Math.min(sample, len ?? 0)) : null;
+  console.log(`[ARR] ${label}: length=${len}` + (approx!=null?`, approxSize≈${fmtBytes(approx)}`:""), head);
+  return arr;
+}
+
+function logMap(label, mapLike) {
+  if (!globalThis.__MEMLOG_ENABLED) return mapLike;
+  const size = mapLike?.size ?? null;
+  console.log(`[MAP] ${label}: size=${size}`);
+  return mapLike;
+}
+
+// Wrap FileAttachment methods (text/json/csv/parquet/image/blob) for timing and size
+(() => {
+  try {
+    if (globalThis.__faWrapped) return;
+    const Original = globalThis.FileAttachment;
+    if (typeof Original !== "function") return; // not available yet in some contexts
+    globalThis.FileAttachment = function(name) {
+      if (globalThis.__MEMLOG_ENABLED) console.log(`[FILE] attach: ${name}`);
+      const fa = Original(name);
+      const methods = ["text","json","csv","parquet","image","blob"];
+      for (const m of methods) {
+        if (typeof fa[m] === "function") {
+          const orig = fa[m].bind(fa);
+          fa[m] = async (...args) => {
+            const tag = `[FILE] ${name}.${m}`;
+            if (globalThis.__MEMLOG_ENABLED) console.time(tag);
+            try {
+              const res = await orig(...args);
+              if (globalThis.__MEMLOG_ENABLED) {
+                console.timeEnd(tag);
+                let bytes = null;
+                if (m === "text") bytes = new Blob([res]).size;
+                else if (m === "json") bytes = trySizeJSON(res);
+                if (bytes != null) console.log(`${tag} size≈ ${fmtBytes(bytes)}`);
+              }
+              return res;
+            } catch (e) {
+              if (globalThis.__MEMLOG_ENABLED) console.error(`${tag} error`, e);
+              throw e;
+            }
+          };
+        }
+      }
+      return fa;
+    };
+    globalThis.__faWrapped = true;
+  } catch {}
+})();
+
+// Wrap DuckDB client's `sql` to log queries and row materialisation
+function withQueryLogging(db) {
+  try {
+    if (!db || typeof db !== "object") return db;
+    if (db?.[Symbol.for("memlog_wrapped")]) return db;
+    const origSql = db.sql?.bind(db);
+    if (typeof origSql !== "function") return db;
+    let qid = 0;
+    const wrapResult = (res, id) => {
+      try {
+        return new Proxy(res, {
+          get(t, k, rcv) {
+            const v = Reflect.get(t, k, rcv);
+            if (k === "toArray" && typeof v === "function") {
+              return (...args) => {
+                const tag = `[SQL#${id}] toArray`;
+                if (globalThis.__MEMLOG_ENABLED) console.time(tag);
+                try {
+                  const out = v.apply(t, args);
+                  // preserve original sync/async semantics
+                  if (out && typeof out.then === "function") {
+                    return out.then(
+                      (arr) => {
+                        if (globalThis.__MEMLOG_ENABLED) {
+                          console.timeEnd(tag);
+                          console.log(`[SQL#${id}] rows=${arr?.length ?? null}`);
+                        }
+                        return arr;
+                      },
+                      (err) => {
+                        if (globalThis.__MEMLOG_ENABLED) console.timeEnd(tag);
+                        throw err;
+                      }
+                    );
+                  } else {
+                    if (globalThis.__MEMLOG_ENABLED) {
+                      console.timeEnd(tag);
+                      console.log(`[SQL#${id}] rows=${out?.length ?? null}`);
+                    }
+                    return out;
+                  }
+                } catch (e) {
+                  if (globalThis.__MEMLOG_ENABLED) console.timeEnd(tag);
+                  throw e;
+                }
+              };
+            }
+            return v;
+          }
+        });
+      } catch {
+        return res;
+      }
+    };
+    const sqlFn = (...a) => {
+      const id = ++qid;
+      if (globalThis.__MEMLOG_ENABLED) {
+        try {
+          const [strings, ...params] = a;
+          const text = Array.isArray(strings) ? strings.join(" ? ") : String(strings);
+          const pinf = params.map(p => Array.isArray(p) ? `arr(len=${p.length})` : (p && typeof p === "object" ? "obj" : String(p))).join(", ");
+          console.log(`[SQL#${id}] prepare:`, text, pinf);
+        } catch {}
+      }
+      const r = origSql(...a);
+      return (r && typeof r.then === "function") ? r.then(x => wrapResult(x, id)) : wrapResult(r, id);
+    };
+    const proxy = new Proxy(db, {
+      get(t, k, rcv) {
+        if (k === "sql") return sqlFn;
+        return Reflect.get(t, k, rcv);
+      }
+    });
+    Object.defineProperty(proxy, Symbol.for("memlog_wrapped"), {value: true});
+    return proxy;
+  } catch {
+    return db;
+  }
+}
+```
+
+```js
 
 /* Wrap Database */
-const db = extendDB(
-  await DuckDBClient.of({
-    proteins: FileAttachment("data/IAV6-all.parquet").parquet(),
-    sequencecalc: FileAttachment("data/IAV8_sequencecalc.parquet").parquet(),
-    hla: FileAttachment("data/HLAlistClassI.parquet").parquet()
-  })
+const db = withQueryLogging(
+  extendDB(
+    await DuckDBClient.of({
+      proteins: FileAttachment("data/IAV6-all.parquet").parquet(),
+      sequencecalc: FileAttachment("data/IAV8_sequencecalc.parquet").parquet(),
+      hla: FileAttachment("data/HLAlistClassI.parquet").parquet()
+    })
+  )
 );
 ```
 
@@ -463,6 +620,11 @@ function nwAffineBanded(ref, freqs, baseBandWidth = 75, gOpen = -5, gExt = -2) {
   const Mx = Array.from({ length: M + 1 }, () => Array(N + 1).fill(-1e9)),
         Ix = Array.from({ length: M + 1 }, () => Array(N + 1).fill(-1e9)),
         Iy = Array.from({ length: M + 1 }, () => Array(N + 1).fill(-1e9));
+
+  if (globalThis.__MEMLOG_ENABLED) {
+    const cells = (M + 1) * (N + 1) * 3; // three DP matrices
+    console.log(`[NW] alloc: M=${M}, N=${N}, bandWidth=${bandWidth}, cells≈${cells}`);
+  }
 
   const TBM = Array.from({ length: M + 1 }, () => Array(N + 1).fill(0)),
         TBIx= Array.from({ length: M + 1 }, () => Array(N + 1).fill(0)),
@@ -2516,4 +2678,68 @@ const committedII       = snapshotOn(runBtnII, () => Array.from(alleleCtrl2.valu
 
 
 
+```
+
+```js
+// ===== Consolidated memory logging watchers =====
+// Re-evaluates reactively when upstream values update.
+{
+  if (!globalThis.__MEMLOG_ENABLED) null;
+  try {
+    console.groupCollapsed("MEMLOG: arrays & maps");
+
+    // Options & filter domains
+    logArray("allGenotypes", allGenotypes);
+    logArray("allHosts", allHosts);
+    logArray("allCountries", allCountries);
+
+    // FASTA-derived
+    logArray("fastaAligned", fastaAligned);
+    try { console.log(`[PROFILE] ${proteinCommitted}: profile length=`, __profileForCommitted?.length ?? null); } catch {}
+
+    // Uploaded peptides
+    logArray("peptidesRaw", peptidesRaw);
+    logArray("peptidesClean", peptidesClean);
+    logMap("alignRefMap", alignRefMap);
+    logArray("peptidesAligned", peptidesAligned);
+    logArray("peptideWindows", peptideWindows);
+    logArray("topCandidatesByWindow", topCandidatesByWindow);
+    logArray("peptidesIWorkset", peptidesIWorkset);
+
+    // Derived plotting arrays
+    logArray("aaFrequencies", aaFrequencies);
+    logArray("stackedBars", stackedBars);
+    logArray("areaData", areaData);
+    logArray("refRows", refRows);
+    logArray("consensusRows", consensusRows);
+    try {
+      console.log(`[FACET] levels=${facetArea?.size ?? null}`);
+      for (const [k, v] of (facetArea ?? [])) logArray(`facetArea[${k}]`, v);
+    } catch {}
+
+    // Peptide property queries -> arrays
+    try { logArray("peptideProps.rowsRaw", rowsRaw); } catch {}
+    try { logArray("heatmapData", heatmapData); } catch {}
+
+    // NetMHC-related
+    try { logArray("peptidesI", peptidesI); } catch {}
+    try { logArray("chartRowsI", chartRowsI); } catch {}
+    try { console.log(`[MHC I] resultsArrayI=${resultsArrayI?.value?.length ?? null}`); } catch {}
+    try { console.log(`[MHC II] resultsArrayII=${resultsArrayII?.value?.length ?? null}`); } catch {}
+
+    // Uploaded peptide table + committed slice
+    try { logArray("uploadedPeptidesTable", uploadedPeptidesTable); } catch {}
+    try { logArray("peptidesICommitted", peptidesICommitted); } catch {}
+
+    // Heap snapshot (Chrome only)
+    try {
+      const m = performance?.memory;
+      if (m) console.log(`[HEAP] used=${fmtBytes(m.usedJSHeapSize)} total=${fmtBytes(m.totalJSHeapSize)} limit=${fmtBytes(m.jsHeapSizeLimit)}`);
+    } catch {}
+
+    console.groupEnd();
+  } catch (e) {
+    console.warn("MEMLOG watcher error", e);
+  }
+}
 ```
