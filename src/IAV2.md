@@ -395,22 +395,33 @@ const db = withQueryLogging(extendDB(__rawdb));
 
 ```js
 
+// Initial httpfs attach so `proteins` exists before any queries use it.
+// Uses DEFAULT_PROTEIN at startup; later we reattach reactively.
+const proteinsInit = (async () => {
+  await db.sql`INSTALL httpfs; LOAD httpfs;`;
+  await db.sql`CREATE OR REPLACE VIEW proteins AS
+               SELECT ${DEFAULT_PROTEIN} AS protein,
+                      accession, title, genotype, country, host,
+                      collection_date, release_date, sequence
+               FROM read_parquet(${`${BLOB_BASE}/${DEFAULT_PROTEIN}.parquet`})`;
+  return true;
+})();
+
 // Reactive httpfs reattach for the per-protein "proteins" view.
-// Loads a single protein partition from Vercel Blob each time
-// the committed protein filter changes (or on first load).
+// Loads a single protein Parquet from Vercel Blob each time the
+// committed protein filter changes.
 {
-  const raw = typeof proteinCommitted === "undefined" ? null : proteinCommitted;
+  // ensure httpfs/view initialised, then establish reactive dependency safely
+  await proteinsInit;
+  const _dep = proteinCommitted; 
   const pid = (() => {
-    if (raw == null || raw === "") return DEFAULT_PROTEIN;
-    if (typeof raw === "string") return raw.trim().toUpperCase();
-    const v = raw?.id ?? raw?.value ?? raw?.protein ?? DEFAULT_PROTEIN;
-    return String(v).trim().toUpperCase();
+    const v = _dep ?? DEFAULT_PROTEIN;
+    if (typeof v === "string") return v.trim().toUpperCase();
+    return String(v?.id ?? v?.value ?? v?.protein ?? DEFAULT_PROTEIN).trim().toUpperCase();
   })();
 
-  const url = `${BLOB_BASE}/IAV6_partitioned/protein=${encodeURIComponent(pid)}/part-0.parquet`;
+  const url = `${BLOB_BASE}/${encodeURIComponent(pid)}.parquet`;
 
-  // Install/load httpfs (no-op if already loaded), then redefine the view.
-  await db.sql`INSTALL httpfs; LOAD httpfs;`;
   await db.sql`CREATE OR REPLACE VIEW proteins AS
                SELECT ${pid} AS protein,
                       accession, title, genotype, country, host,
@@ -438,6 +449,8 @@ const proteinOptions = [
   {id: "PB2",   label: "Polymerase Basic 2 (PB2)"}
 ];
 
+// await initial view install, and depend on protein for re-runs
+await proteinsInit; const __prot_dep1 = proteinCommitted;
 const allGenotypes = (await db.sql`
   SELECT DISTINCT genotype
   FROM proteins
@@ -446,12 +459,14 @@ const allGenotypes = (await db.sql`
   .map(d => d.genotype)
   .sort();
 
+await proteinsInit; const __prot_dep2 = proteinCommitted;
 const allHosts = (await db.sql`
   SELECT DISTINCT host
   FROM   proteins
   WHERE  host IS NOT NULL
 `).toArray().map(d => d.host).sort();
 
+await proteinsInit; const __prot_dep3 = proteinCommitted;
 const allCountries = (await db.sql`
   SELECT DISTINCT country
   FROM   proteins
@@ -2015,6 +2030,7 @@ function getPeptidePropsAll() {
 
   /* 1. build a key that now ALSO tracks the peptide list size */
   const filterKey = JSON.stringify({
+    protein         : committedProteinId,
     genotypes       : [...genotypesCommitted].sort(),
     hosts           : [...hostsCommitted].sort(),
     hostCategory    : [...hostCategoryCommitted].sort(),
