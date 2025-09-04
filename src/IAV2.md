@@ -379,34 +379,44 @@ function withQueryLogging(db) {
 
 ```js
 
-/* Wrap Database (per-protein only; do not load the full table) */
-// Build a raw client, attach the single-partition table as proteins_raw,
-// then expose a view `proteins` that includes a constant `protein` column.
-const __START_PROT = "M1"; // initial attachment
+/* Wrap Database (per‑protein via httpfs; no full-table load) */
+// Create the DuckDB client with only the invariant local attachments.
+// "proteins" will be created as a reactive httpfs view below.
+const DEFAULT_PROTEIN = "M1";
+const BLOB_BASE = "https://gbxc45oychilox63.public.blob.vercel-storage.com";
+
 const __rawdb = await DuckDBClient.of({
-  proteins_raw: FileAttachment("data/IAV6_partitioned/protein=M1/part-0.parquet").parquet(),
   sequencecalc: FileAttachment("data/IAV8_sequencecalc.parquet").parquet(),
   hla: FileAttachment("data/HLAlistClassI.parquet").parquet()
 });
-
-// Ensure downstream queries always see a `protein` column.
-// Replace the existing protein column (from the partition file) with a constant,
-// so downstream WHERE protein = ? works and avoids ambiguity/duplicates.
-// Create a view that projects a constant protein id and the needed columns.
-// Note: literal 'M1' to avoid prepared parameters inside DDL.
-await __rawdb.sql`
-  CREATE OR REPLACE VIEW proteins AS
-  SELECT 'M1'::VARCHAR AS protein,
-         accession, title, genotype, country, host,
-         collection_date, release_date, sequence
-  FROM proteins_raw
-`;
 
 const db = withQueryLogging(extendDB(__rawdb));
 ```
 
 ```js
 
+// Reactive httpfs reattach for the per-protein "proteins" view.
+// Loads a single protein partition from Vercel Blob each time
+// the committed protein filter changes (or on first load).
+{
+  const raw = typeof proteinCommitted === "undefined" ? null : proteinCommitted;
+  const pid = (() => {
+    if (raw == null || raw === "") return DEFAULT_PROTEIN;
+    if (typeof raw === "string") return raw.trim().toUpperCase();
+    const v = raw?.id ?? raw?.value ?? raw?.protein ?? DEFAULT_PROTEIN;
+    return String(v).trim().toUpperCase();
+  })();
+
+  const url = `${BLOB_BASE}/IAV6_partitioned/protein=${encodeURIComponent(pid)}/part-0.parquet`;
+
+  // Install/load httpfs (no-op if already loaded), then redefine the view.
+  await db.sql`INSTALL httpfs; LOAD httpfs;`;
+  await db.sql`CREATE OR REPLACE VIEW proteins AS
+               SELECT ${pid} AS protein,
+                      accession, title, genotype, country, host,
+                      collection_date, release_date, sequence
+               FROM read_parquet(${url})`;
+}
 
 ```
 
