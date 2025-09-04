@@ -112,8 +112,8 @@ html, body { font-family: "Roboto", system-ui, -apple-system, Segoe UI, Arial, s
 // Imports
 import * as d3 from "npm:d3";
 import * as Inputs from "@observablehq/inputs";
-import {sql} from "./components/extenddb.js";
-import {initDB, disposeDB} from "./components/db.js";
+import {DuckDBClient} from "npm:@observablehq/duckdb";
+import {extendDB, sql} from "./components/extenddb.js";
 import {heatmapChart} from "./components/heatmapChart.js";
 import {peptideScanChart} from "./components/peptideScanChart.js";
 import {uploadButton} from "./components/uploadButton.js";
@@ -121,12 +121,12 @@ import {uploadButton} from "./components/uploadButton.js";
 ```
 
 ```js
-/* Database (singleton across routes) */
-const db = await initDB({
-  peptidescan: FileAttachment("data/peptide_table_slim.parquet").parquet(),
-}, "netmhc");
-
-invalidation.then(() => { disposeDB(); });
+/* Database */
+const db = extendDB(
+  await DuckDBClient.of({
+    peptidescan: FileAttachment("data/peptide_table_slim.parquet").parquet(),
+  })
+);
 
 ```
 

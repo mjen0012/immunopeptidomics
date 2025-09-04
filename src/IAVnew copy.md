@@ -197,8 +197,9 @@ banner.className = "banner__bg";
 <!-- Imports and Loading Data -->
 ```js
 /* Imports */
-import {sql} from "./components/extenddb.js";
-import {initDB, disposeDB} from "./components/db.js";
+import {extendDB, sql, extended} from "./components/extenddb.js"
+import {DuckDBClient} from "npm:@observablehq/duckdb";
+import * as duckdb from "@duckdb/duckdb-wasm";
 import {dropSelect} from "./components/dropSelect.js";
 import {comboSelect} from "./components/comboSelect.js"
 import {dateSelect} from "./components/dateSelect.js";
@@ -224,14 +225,14 @@ import * as d3 from "npm:d3";
 ```js
 
 /* Wrap Database */
-const db = await initDB({
-  proteins: FileAttachment("data/IAV6-all.parquet").parquet(),
-  sequencecalc: FileAttachment("data/IAV8_sequencecalc.parquet").parquet(),
-  netmhccalc: FileAttachment("data/iedb_netmhc_slim.parquet").parquet(),
-  hla: FileAttachment("data/HLAlistClassI.parquet").parquet()
-}, "IAV2-copy");
-
-invalidation.then(() => { disposeDB(); });
+const db = extendDB(
+  await DuckDBClient.of({
+    proteins: FileAttachment("data/IAV6-all.parquet").parquet(),
+    sequencecalc: FileAttachment("data/IAV8_sequencecalc.parquet").parquet(),
+    netmhccalc: FileAttachment("data/iedb_netmhc_slim.parquet").parquet(),
+    hla: FileAttachment("data/HLAlistClassI.parquet").parquet()
+  })
+);
 ```
 
 ```js
