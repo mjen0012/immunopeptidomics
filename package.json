@@ -6,8 +6,7 @@
     "build": "observable build",
     "dev": "observable preview",
     "deploy": "observable deploy",
-    "observable": "observable",
-    "export:iav6": "python src/data/export_per_protein.py --input src/data/IAV6-all.parquet --outdir dist/data/iav6/protein"
+    "observable": "observable"
   },
   "dependencies": {
     "@duckdb/duckdb-wasm": "1.29.1-dev132.0",
