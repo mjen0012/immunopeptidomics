@@ -380,27 +380,39 @@ function withQueryLogging(db) {
 ```js
 
 /* Wrap Database (per-protein only; do not load the full table) */
-// Build a raw client, attach the single-partition table as proteins_raw,
-// then expose a view `proteins` that includes a constant `protein` column.
+// Build a DuckDB client with static attachments (sequencecalc, hla),
+// and a dynamic view `proteins` that reads a single per-protein Parquet
+// over HTTP using httpfs. We re-point the view when the protein changes.
 const __START_PROT = "M1"; // initial attachment
 const __rawdb = await DuckDBClient.of({
-  proteins_raw: FileAttachment("data/IAV6_partitioned/protein=M1/part-0.parquet").parquet(),
   sequencecalc: FileAttachment("data/IAV8_sequencecalc.parquet").parquet(),
   hla: FileAttachment("data/HLAlistClassI.parquet").parquet()
 });
 
-// Ensure downstream queries always see a `protein` column.
-// Replace the existing protein column (from the partition file) with a constant,
-// so downstream WHERE protein = ? works and avoids ambiguity/duplicates.
-// Create a view that projects a constant protein id and the needed columns.
-// Note: literal 'M1' to avoid prepared parameters inside DDL.
-await __rawdb.sql`
-  CREATE OR REPLACE VIEW proteins AS
-  SELECT 'M1'::VARCHAR AS protein,
-         accession, title, genotype, country, host,
-         collection_date, release_date, sequence
-  FROM proteins_raw
-`;
+// Enable HTTPFS for remote Parquet; Observable's DuckDB supports extensions.
+await __rawdb.sql`INSTALL httpfs; LOAD httpfs;`;
+
+function __sqlQuote(s) {
+  return String(s).replaceAll("'", "''");
+}
+function __proteinUrl(pid) {
+  const base = "/data/iav6/protein"; // served from dist
+  const rel = `${base}/${encodeURIComponent(pid)}.parquet`;
+  return new URL(rel, location.href).href;
+}
+async function reattachProtein(pid) {
+  const p = __sqlQuote(pid);
+  const url = __sqlQuote(__proteinUrl(pid));
+  await __rawdb.sql`
+    CREATE OR REPLACE VIEW proteins AS
+    SELECT '${p}'::VARCHAR AS protein,
+           accession, title, genotype, country, host,
+           collection_date, release_date, sequence
+    FROM read_parquet('${url}')
+  `;
+}
+
+await reattachProtein(__START_PROT);
 
 const db = withQueryLogging(extendDB(__rawdb));
 ```
@@ -521,6 +533,14 @@ const hostCategoryCommitted    = commit(hostCategoryBox);
 const countriesCommitted       = commit(countryInput);
 const collectionDatesCommitted = commit(collectionDateInput);
 const releaseDatesCommitted    = commit(releaseDateInput);
+```
+
+```js
+/* Reattach per-protein view when the committed protein changes */
+{
+  const pid = proteinCommitted; // reactive
+  await reattachProtein(pid || __START_PROT);
+}
 ```
 
 ```js
