@@ -197,9 +197,8 @@ banner.className = "banner__bg";
 <!-- Imports and Loading Data -->
 ```js
 /* Imports */
-import {extendDB, sql, extended} from "./components/extenddb.js"
-import {DuckDBClient} from "npm:@observablehq/duckdb";
-import * as duckdb from "@duckdb/duckdb-wasm";
+import {sql} from "./components/extenddb.js";
+import {initDB, disposeDB} from "./components/db.js";
 import {dropSelect} from "./components/dropSelect.js";
 import {comboSelect} from "./components/comboSelect.js"
 import {dateSelect} from "./components/dateSelect.js";
@@ -224,14 +223,15 @@ import * as d3 from "npm:d3";
 
 ```js
 
-/* Wrap Database */
-const db = extendDB(
-  await DuckDBClient.of({
-    proteins: FileAttachment("data/IAV6-all.parquet").parquet(),
-    sequencecalc: FileAttachment("data/IAV8_sequencecalc.parquet").parquet(),
-    hla: FileAttachment("data/HLAlistClassI.parquet").parquet()
-  })
-);
+/* Wrap Database (singleton across routes) */
+const db = await initDB({
+  proteins: FileAttachment("data/IAV6-all.parquet").parquet(),
+  sequencecalc: FileAttachment("data/IAV8_sequencecalc.parquet").parquet(),
+  hla: FileAttachment("data/HLAlistClassI.parquet").parquet()
+}, "IAV2");
+
+// Dispose DB when this page is invalidated (route change/navigation)
+invalidation.then(() => { disposeDB(); });
 ```
 
 ```js
