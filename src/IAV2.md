@@ -2432,17 +2432,16 @@ console.groupEnd();
 
 ```js
 /* merged rows for the chart - STRICT to workset (API only) */
-/* Break the runResultsI ↔ chartRowsI dependency: read the Mutable instead */
 const chartRowsI = (() => {
-  selectedI;              // reactive dep
-  committedProteinId;     // reactive dep
+  selectedI;
+  committedProteinId;
 
   const allelesNow = new Set((alleleCtrl1?.value || []).map(a => String(a).toUpperCase()));
   const allowed    = new Set((peptidesIWorkset || []).map(p => String(p).toUpperCase()));
   if (!allelesNow.size || !allowed.size) return [];
 
   const map = new Map();
-  const apiRows = Array.isArray(resultsArrayI?.value) ? resultsArrayI.value : [];
+  const apiRows = Array.isArray(runResultsI) ? runResultsI : [];
   for (const r of apiRows) {
     const al = String(r.allele || '').toUpperCase();
     const pp = String(r.peptide|| '').toUpperCase();
@@ -2452,8 +2451,6 @@ const chartRowsI = (() => {
   }
   return [...map.values()];
 })();
-
-
 ```
 
 ```js
