@@ -395,13 +395,6 @@ const db = withQueryLogging(extendDB(__rawdb));
 
 ```js
 
-/* Reactive tick for proteins view changes */
-const proteinsViewNonce = Mutable(0);
-function bumpProteinsView() {
-  const cur = proteinsViewNonce.value ?? 0;
-  proteinsViewNonce.value = cur + 1;
-}
-
 // Initial httpfs attach so `proteins` exists before any queries use it.
 // Uses DEFAULT_PROTEIN at startup; later we reattach reactively.
 const proteinsInit = (async () => {
@@ -411,7 +404,6 @@ const proteinsInit = (async () => {
                       accession, title, genotype, country, host,
                       collection_date, release_date, sequence
                FROM read_parquet(${`${BLOB_BASE}/${DEFAULT_PROTEIN}.parquet`})`;
-  bumpProteinsView();
   return true;
 })();
 
@@ -435,7 +427,6 @@ const proteinsInit = (async () => {
                       accession, title, genotype, country, host,
                       collection_date, release_date, sequence
                FROM read_parquet(${url})`;
-  bumpProteinsView();
 }
 
 ```
@@ -458,8 +449,8 @@ const proteinOptions = [
   {id: "PB2",   label: "Polymerase Basic 2 (PB2)"}
 ];
 
-// ensure view exists, and re-run when proteins view is refreshed
-await proteinsInit; const __view_tick1 = proteinsViewNonce;
+// await initial view install, and depend on protein for re-runs
+await proteinsInit; const __prot_dep1 = proteinCommitted;
 const allGenotypes = (await db.sql`
   SELECT DISTINCT genotype
   FROM proteins
@@ -468,14 +459,14 @@ const allGenotypes = (await db.sql`
   .map(d => d.genotype)
   .sort();
 
-await proteinsInit; const __view_tick2 = proteinsViewNonce;
+await proteinsInit; const __prot_dep2 = proteinCommitted;
 const allHosts = (await db.sql`
   SELECT DISTINCT host
   FROM   proteins
   WHERE  host IS NOT NULL
 `).toArray().map(d => d.host).sort();
 
-await proteinsInit; const __view_tick3 = proteinsViewNonce;
+await proteinsInit; const __prot_dep3 = proteinCommitted;
 const allCountries = (await db.sql`
   SELECT DISTINCT country
   FROM   proteins
