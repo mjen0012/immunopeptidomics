@@ -234,16 +234,62 @@ const db = await getOrCreateDB(() =>
   })
 );
 
-// Initialize proteins view to a default protein so dependent cells can run
+// Initialize proteins temp table/view to a default protein so dependent cells can run
 const DEFAULT_PROTEIN = "M2";
-await db.sql`CREATE OR REPLACE VIEW proteins AS
-  SELECT * FROM read_parquet('https://gbxc45oychilox63.public.blob.vercel-storage.com/${DEFAULT_PROTEIN}.parquet')`;
+{
+  const url0 = `https://gbxc45oychilox63.public.blob.vercel-storage.com/${encodeURIComponent(DEFAULT_PROTEIN)}.parquet`;
+  await db.sql`CREATE OR REPLACE TABLE proteins_cache AS
+    SELECT * FROM read_parquet('${url0}')`;
+  await db.sql`CREATE OR REPLACE VIEW proteins AS SELECT * FROM proteins_cache`;
+  globalThis.__proteinViewState = { last: DEFAULT_PROTEIN };
+  console.info('[IAV2] proteins table initialised', { protein: DEFAULT_PROTEIN });
+}
 ```
 
 ```js
 
 
 ```
+
+```js
+// Perf helpers (console logging only; no dataflow deps)
+{
+  const g = globalThis;
+  if (!g.__perfUtils) {
+    const memSnap = () => {
+      const m = performance && performance.memory;
+      return m ? { used: m.usedJSHeapSize, total: m.totalJSHeapSize, limit: m.jsHeapSizeLimit } : null;
+    };
+    const fmtBytes = (n) => n == null ? null : `${(n/1024/1024).toFixed(2)} MB`;
+    async function perfAsync(label, fn) {
+      const t0 = performance.now();
+      const m0 = memSnap();
+      let out;
+      try {
+        out = await fn();
+        return out;
+      } finally {
+        const t1 = performance.now();
+        const m1 = memSnap();
+        const dUsed = (m0 && m1) ? (m1.used - m0.used) : null;
+        const size = Array.isArray(out) ? out.length : (out && typeof out === 'object' && 'numRows' in out ? out.numRows : undefined);
+        console.log(`[perf] ${label}`, { ms: +(t1 - t0).toFixed(1), usedDelta: fmtBytes(dUsed), size });
+      }
+    }
+    function logArray(label, arr) {
+      try {
+        const len = Array.isArray(arr) ? arr.length : (arr ? arr.length ?? undefined : 0);
+        const m = memSnap();
+        console.debug(`[perf] array ${label}`, { length: len, used: m ? fmtBytes(m.used) : null });
+      } catch {}
+    }
+    g.__perfUtils = { perfAsync, logArray };
+    console.info('[perf] instrumentation ready');
+  }
+}
+```
+
+ 
 
 <!-- Filter Buttons + Helpers -->
 ```js
@@ -263,25 +309,27 @@ const proteinOptions = [
   {id: "PB2",   label: "Polymerase Basic 2 (PB2)"}
 ];
 
-const allGenotypes = (await db.sql`
+const { perfAsync, logArray } = globalThis.__perfUtils ?? {};
+
+const allGenotypes = (await perfAsync?.('sql: allGenotypes', async () => (await db.sql`
   SELECT DISTINCT genotype
   FROM proteins
   WHERE genotype IS NOT NULL
-`).toArray()
+`).toArray()))
   .map(d => d.genotype)
   .sort();
 
-const allHosts = (await db.sql`
+const allHosts = (await perfAsync?.('sql: allHosts', async () => (await db.sql`
   SELECT DISTINCT host
   FROM   proteins
   WHERE  host IS NOT NULL
-`).toArray().map(d => d.host).sort();
+`).toArray())).map(d => d.host).sort();
 
-const allCountries = (await db.sql`
+const allCountries = (await perfAsync?.('sql: allCountries', async () => (await db.sql`
   SELECT DISTINCT country
   FROM   proteins
   WHERE  country IS NOT NULL
-`).toArray().map(d => d.country).sort();
+`).toArray())).map(d => d.country).sort();
 ```
 
 ```js
@@ -435,11 +483,11 @@ async function loadSeqProfileFor(proteinId) {
     return globalThis.__seqProfileCache.profile;         // ⚡ warm
   }
 
-  const rows = (await db.sql`
+  const rows = await (globalThis.__perfUtils?.perfAsync?.(`sql: seqProfile for ${pid}`, async () => (await db.sql`
     SELECT position, aminoacid, value
     FROM   sequencecalc
     WHERE  protein = ${pid}
-  `).toArray();
+  `).toArray()))
 
   // Build an array (1-based positions) of Maps
   const arr = [];
@@ -462,6 +510,8 @@ async function loadSeqProfileFor(proteinId) {
 ```js
 /* Banded Needleman-Wunsch with Dynamic Band Width */
 function nwAffineBanded(ref, freqs, baseBandWidth = 75, gOpen = -5, gExt = -2) {
+  const __t0 = performance.now();
+  try {
   const M = freqs.length, N = ref.length;
   const lengthDiff = Math.abs(M - N);
   const bandWidth = Math.max(baseBandWidth, lengthDiff + 20);
@@ -537,6 +587,13 @@ function nwAffineBanded(ref, freqs, baseBandWidth = 75, gOpen = -5, gExt = -2) {
      if (i <= 0 && j <= 0) break;
   }
   return aln_b;
+  } finally {
+    const dt = performance.now() - __t0;
+    const s = (globalThis.__nwPerf = globalThis.__nwPerf || { count: 0, totalMs: 0, maxMs: 0 });
+    s.count += 1;
+    s.totalMs += dt;
+    if (dt > s.maxMs) s.maxMs = dt;
+  }
 }
 ```
 
@@ -678,10 +735,17 @@ const peptidesAligned = peptidesClean.map(d => {
     aligned_length   : aligned ? aligned.length : null // kept for legacy
   };
 });
-
-
-
-/* Distinct (start,len) windows for uploaded peptides — use RAW (ungapped) coords */
+```
+```js
+// Perf: size of peptidesAligned array and NW totals
+globalThis.__perfUtils?.logArray?.('peptidesAligned', peptidesAligned);
+(function(){
+  const s = globalThis.__nwPerf;
+  if (s) console.log('[perf] nwAffineBanded', { calls: s.count, totalMs: +s.totalMs.toFixed(1), avgMs: s.count ? +(s.totalMs/s.count).toFixed(2) : 0, maxMs: +s.maxMs.toFixed(1) });
+})();
+```
+```js
+/* Distinct (start,len) windows for uploaded peptides - use RAW (ungapped) coords */
 const peptideWindows = (() => {
   const pid = committedProteinId; // reactive
   if (!pid) return [];
@@ -700,18 +764,53 @@ const peptideWindows = (() => {
 ```
 
 ```js
+// Debug: inputs to topCandidatesByWindow
+try {
+  const pid = committedProteinId;
+  const nWin = peptideWindows.length;
+  const sampleWin = peptideWindows.slice(0, 5);
+  console.debug('[IAV2] topCandidates inputs', { protein: pid, nWindows: nWin, sampleWin });
+  if (globalThis.__perfUtils?.perfAsync) {
+    const rows = await globalThis.__perfUtils.perfAsync('sql: proteins count (pre topCandidates)', async () =>
+      (await db.sql`
+        SELECT COUNT(*) AS n
+        FROM   proteins
+        WHERE  1=1
+          AND ${ genotypesCommitted.length
+                  ? sql`genotype IN (${ genotypesCommitted })` : sql`TRUE` }
+          AND ${ hostsCommitted.length
+                  ? sql`host IN (${ hostsCommitted })` : sql`TRUE` }
+          AND ${
+                hostCategoryCommitted.includes('Human') &&
+                !hostCategoryCommitted.includes('Non-human')
+                  ? sql`host = 'Homo sapiens'`
+                  : (!hostCategoryCommitted.includes('Human') &&
+                     hostCategoryCommitted.includes('Non-human'))
+                      ? sql`host <> 'Homo sapiens'`
+                      : sql`TRUE`
+              }
+          AND ${ countriesCommitted.length
+                  ? sql`country IN (${ countriesCommitted })` : sql`TRUE` }
+      `).toArray()
+    );
+    const nSeq = rows?.[0]?.n ?? null;
+    try { console.debug('[IAV2] proteins count (pre topCandidates)', { nSeq, nWindows: nWin, estCross: nSeq != null ? nSeq * nWin : null }); } catch {}
+  }
+} catch (e) { try { console.warn('[IAV2] debug inputs failed', e); } catch {} }
+
 const topCandidatesByWindow = peptideWindows.length === 0 ? []
-: (await db.sql`
+: await (globalThis.__perfUtils?.perfAsync?.('sql: topCandidatesByWindow', async () => {
+  const q = await db.sql`
   WITH
   params(start, len) AS (
     VALUES ${joinSql(peptideWindows.map(w => sql`(${Math.trunc(w.start)}, ${Math.trunc(w.len)})`))}
   ),
 
   filtered AS (
-    /* We only need sequence after filtering */
+    /* We only need sequence after filtering; 'proteins' is already scoped to the committed protein */
     SELECT sequence
     FROM   proteins
-    WHERE  protein = ${proteinCommitted}
+    WHERE  1=1  -- protein scoped by proteins_cache
 
       AND ${ genotypesCommitted.length
               ? sql`genotype IN (${ genotypesCommitted })` : sql`TRUE` }
@@ -843,7 +942,11 @@ const topCandidatesByWindow = peptideWindows.length === 0 ? []
   FROM   ranked
   WHERE  r_all <= 5 OR r_u <= 5
   ORDER  BY start, len, r_all, r_u, peptide;
-`).toArray();
+`;
+  const arr = await q.toArray();
+  try { console.debug('[IAV2] topCandidates done', { rows: arr.length }); } catch {}
+  return arr;
+}))
 
 ```
 
@@ -874,6 +977,10 @@ const peptidesIWorkset = (() => {
 
 ```
 
+```js
+// Perf: size of peptideWindows
+globalThis.__perfUtils?.logArray?.('peptideWindows', peptideWindows);
+```
 <!-- Download Buttons -->
 ```js
 /* Download Alignment Button */
@@ -1158,11 +1265,20 @@ const peptideKeyEl = (() => {
 ```
 
 ```js
-// Keep proteins view in sync with the committed protein selection
+// Keep proteins temp table/view in sync with the committed protein selection, with debounce
 {
   const pid = committedProteinId ?? DEFAULT_PROTEIN; // reactive dep
-  await db.sql`CREATE OR REPLACE VIEW proteins AS
-    SELECT * FROM read_parquet('https://gbxc45oychilox63.public.blob.vercel-storage.com/${pid}.parquet')`;
+  const state = (globalThis.__proteinViewState ??= { last: null });
+  if (state.last === pid) {
+    try { console.info('[IAV2] proteins table reuse', { protein: pid }); } catch {}
+  } else {
+    const url = `https://gbxc45oychilox63.public.blob.vercel-storage.com/${encodeURIComponent(pid)}.parquet`;
+    await db.sql`CREATE OR REPLACE TABLE proteins_cache AS
+      SELECT * FROM read_parquet('${url}')`;
+    await db.sql`CREATE OR REPLACE VIEW proteins AS SELECT * FROM proteins_cache`;
+    state.last = pid;
+    try { console.info('[IAV2] proteins table materialised', { protein: pid }); } catch {}
+  }
 }
 ```
 
@@ -1328,7 +1444,7 @@ const positionStats = (
 ```js
 /* JS Array for Plotting */
 const aaFrequencies = (
-  await positionStats.toArray()
+  await (globalThis.__perfUtils?.perfAsync?.('sql: positionStats -> aaFrequencies', async () => await positionStats.toArray()))
 ).map(r => {
   const all  = Number(r.value       );
   const uniq = Number(r.value_unique);
@@ -1396,7 +1512,7 @@ const facetArea = new Map();
 
 
 if (positionFacetStats !== null) {
-  const rows = await positionFacetStats.toArray();
+  const rows = await (globalThis.__perfUtils?.perfAsync?.('sql: positionFacetStats', async () => await positionFacetStats.toArray()));
 
   /* choose the right value column once */
   const valueField = (seqSet === "Unique sequences" ? "value_unique" : "value");
@@ -1558,7 +1674,7 @@ WHERE NOT EXISTS (SELECT 1 FROM combined WHERE peptide = (SELECT sel_peptide FRO
 
 ```js
 /* Peptide JS Array */
-const rowsRaw = await peptideProps.toArray();
+const rowsRaw = await (globalThis.__perfUtils?.perfAsync?.('sql: peptideProps', async () => await peptideProps.toArray()));
 
 /* Peptide Unique vs All Switcher */
 const useUnique = seqSet === "Unique sequences";
@@ -1590,6 +1706,11 @@ const heatmapSVG = peptideHeatmap({
   margin      : { top:20, right:150, bottom:20, left:4 }
 });
 
+```
+
+```js
+// Perf: size of aaFrequencies for plotting
+globalThis.__perfUtils?.logArray?.('aaFrequencies', aaFrequencies);
 ```
 
 ```js
@@ -2016,7 +2137,7 @@ const peptidePropsAll = getPeptidePropsAll();
 
 ```js
 const histEl = histogramChart({
-  data      : await peptidePropsAll.toArray(),
+  data      : await (globalThis.__perfUtils?.perfAsync?.('sql: peptidePropsAll (histogram)', async () => await peptidePropsAll.toArray())),
   useUnique : seqSet === "Unique sequences"
 })
 ```
@@ -2262,15 +2383,13 @@ const cachePreviewI = await (async () => {
   if (!committedProteinId || !allelesRaw.length || !pepsRaw.length) return [];
 
   // Keep exact strings for pushdown; uppercase later in JS for merging
-  const cacheRows = (
-    await db.sql`
+  const cacheRows = await (globalThis.__perfUtils?.perfAsync?.('sql: cachePreviewI (netmhccalc)', async () => (await db.sql`
       SELECT allele, peptide,
              netmhcpan_el_percentile, netmhcpan_ba_percentile
       FROM   netmhccalc
       WHERE  allele  IN (${allelesRaw})
         AND  peptide IN (${pepsRaw})
-    `
-  ).toArray();
+    `).toArray()));
 
   return cacheRows.map(normalizeRowI_cache);
 })();
@@ -2329,15 +2448,13 @@ const runResultsI = await (async () => {
   setBanner(`Class I: checking cache for ${pepsSel.length} peptides…`);
 
   // Exact match (no UPPER/REPLACE) to enable pushdown
-  const cacheRows = (
-    await db.sql`
+  const cacheRows = await (globalThis.__perfUtils?.perfAsync?.('sql: cache check (netmhccalc)', async () => (await db.sql`
       SELECT allele, peptide,
              netmhcpan_el_percentile, netmhcpan_ba_percentile
       FROM   netmhccalc
       WHERE  allele  IN (${allelesSel})
         AND  peptide IN (${pepsSel})
-    `
-  ).toArray();
+    `).toArray()));
 
   const normCache = cacheRows.map(normalizeRowI_cache);
   const cacheKey  = r => `${r.allele}|${r.peptide}`;
@@ -2542,7 +2659,7 @@ async function fetchAlleles(cls, q = "", offset = 0, limit = PAGE_LIMIT_DEFAULT)
 
   if (!q || q.trim().length < 2) {
     // Initial list (no filter): fast DISTINCT over the pre-trimmed set
-    const rows = (await db.sql`
+    const rows = await (globalThis.__perfUtils?.perfAsync?.(`sql: fetchAlleles initial ${clsNorm}`, async () => (await db.sql`
       WITH base AS (
         SELECT 'I'  AS class, TRIM("Class I")  AS allele FROM hla
         WHERE "Class I" IS NOT NULL AND LENGTH(TRIM("Class I")) > 0
@@ -2558,14 +2675,14 @@ async function fetchAlleles(cls, q = "", offset = 0, limit = PAGE_LIMIT_DEFAULT)
       WHERE class = ${clsNorm}
       ORDER BY allele
       LIMIT ${PAGE_LIMIT_INITIAL} OFFSET ${offset}
-    `).toArray();
+    `).toArray()))
 
     return rows.map(r => r.allele).filter(s => s && s.trim().length);
   }
 
   // Search path (q.length >= 2)
   const like = `%${q}%`;
-  const rows = (await db.sql`
+  const rows = await (globalThis.__perfUtils?.perfAsync?.(`sql: fetchAlleles search ${clsNorm}`, async () => (await db.sql`
     WITH base AS (
       SELECT 'I'  AS class, TRIM("Class I")  AS allele FROM hla
       WHERE "Class I" IS NOT NULL AND LENGTH(TRIM("Class I")) > 0
@@ -2581,7 +2698,7 @@ async function fetchAlleles(cls, q = "", offset = 0, limit = PAGE_LIMIT_DEFAULT)
     WHERE class = ${clsNorm} AND allele ILIKE ${like}
     ORDER BY allele
     LIMIT ${limit} OFFSET ${offset}
-  `).toArray();
+  `).toArray()))
 
   return rows.map(r => r.allele).filter(s => s && s.trim().length);
 }

@@ -122,10 +122,14 @@ const DB_KEY = Symbol.for("__duckdb_singleton__");
 export async function getOrCreateDB(factory) {
   const g = globalThis;
   const prev = g[DB_KEY];
-  if (prev?.[extended]) return prev;
+  if (prev?.[extended]) {
+    try { console.info('[extenddb] Reusing existing DuckDB instance'); } catch {}
+    return prev;
+  }
   const raw = await factory();
   const db  = extendDB(raw);
   g[DB_KEY] = db;
+  try { console.info('[extenddb] Created new DuckDB instance'); } catch {}
   return db;
 }
 
