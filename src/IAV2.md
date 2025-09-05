@@ -197,7 +197,7 @@ banner.className = "banner__bg";
 <!-- Imports and Loading Data -->
 ```js
 /* Imports */
-import {extendDB, sql, extended} from "./components/extenddb.js"
+import {extendDB, sql, extended, getOrCreateDB} from "./components/extenddb.js"
 import {DuckDBClient} from "npm:@observablehq/duckdb";
 import * as duckdb from "@duckdb/duckdb-wasm";
 import {dropSelect} from "./components/dropSelect.js";
@@ -224,15 +224,20 @@ import * as d3 from "npm:d3";
 
 ```js
 
-/* Wrap Database */
-const db = extendDB(
-  await DuckDBClient.of({
-    proteins: FileAttachment("data/IAV6-all.parquet").parquet(),
+/* Wrap Database — reuse a single instance */
+const db = await getOrCreateDB(() =>
+  DuckDBClient.of({
+    // Keep local attachments for these tables
     sequencecalc: FileAttachment("data/IAV8_sequencecalc.parquet").parquet(),
     netmhccalc: FileAttachment("data/iedb_netmhc_slim.parquet").parquet(),
     hla: FileAttachment("data/HLAlistClassI.parquet").parquet()
   })
 );
+
+// Initialize proteins view to a default protein so dependent cells can run
+const DEFAULT_PROTEIN = "M2";
+await db.sql`CREATE OR REPLACE VIEW proteins AS
+  SELECT * FROM read_parquet('https://gbxc45oychilox63.public.blob.vercel-storage.com/${DEFAULT_PROTEIN}.parquet')`;
 ```
 
 ```js
@@ -1152,6 +1157,14 @@ const peptideKeyEl = (() => {
 
 ```
 
+```js
+// Keep proteins view in sync with the committed protein selection
+{
+  const pid = committedProteinId ?? DEFAULT_PROTEIN; // reactive dep
+  await db.sql`CREATE OR REPLACE VIEW proteins AS
+    SELECT * FROM read_parquet('https://gbxc45oychilox63.public.blob.vercel-storage.com/${pid}.parquet')`;
+}
+```
 
 ```js
 /* Sequence set */
