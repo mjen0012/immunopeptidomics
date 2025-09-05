@@ -45,13 +45,54 @@ function expandParams(strings, ...params) {
   return [outStr, ...outPar];
 }
 
+// Fold `${...}` that appear inside single-quoted SQL string literals into
+// a single bound parameter. This enables patterns like:
+//   read_parquet('https://host/${protein}.parquet')
+// to work the same as:
+//   const url = `https://host/${protein}.parquet`;
+//   read_parquet(${url})
+function foldQuotedParams(strings, ...params) {
+  const s = strings.slice();
+  const outStr = [];
+  const outPar = [];
+
+  for (let i = 0; i < s.length; i++) {
+    const left = s[i];
+    if (i < params.length) {
+      const right = s[i + 1] ?? "";
+      const lq = left.lastIndexOf("'");
+      const rq = right.indexOf("'");
+      if (lq !== -1 && rq !== -1) {
+        const prefix    = left.slice(0, lq);
+        const leftPart  = left.slice(lq + 1);
+        const rightPart = right.slice(0, rq);
+        const suffix    = right.slice(rq + 1);
+
+        // Inline the literal inside quotes with proper escaping, and
+        // merge with the following chunk so no stray '?' is introduced
+        // when strings are joined by the client.
+        const content = `${leftPart}${params[i]}${rightPart}`;
+        const escaped = String(content).replaceAll("'", "''");
+        outStr.push(prefix + "'" + escaped + "'" + suffix);
+        i++; // skip the next chunk (we merged it via `suffix`)
+        continue;
+      }
+    }
+    outStr.push(left);
+    if (i < params.length) outPar.push(params[i]);
+  }
+  return [outStr, ...outPar];
+}
+
 /* — exported API — */
 export const sql = (...args) =>
   Object.defineProperty(coerce(args), mark, {value: true});
 
 export function extendDB(client) {
   const {sql: tag, queryTag} = client;
-  const process = (a) => expandParams(...mergeQueries(isSubquery, ...a));
+  const process = (a) => expandParams(
+    ...foldQuotedParams(...mergeQueries(isSubquery, ...a))
+  );
 
   return new Proxy(client, {
     get(t, k) {
@@ -70,4 +111,29 @@ export function nonStreaming(client) {
     has  : (t, p) => p === "queryStream" ? false    : Reflect.has(t, p),
     get  : (t, p) => p === "queryStream" ? undefined : Reflect.get(t, p)
   });
+}
+
+// Singleton helper to avoid creating multiple DuckDB instances.
+// Usage (in notebook):
+//   const db = await getOrCreateDB(() => DuckDBClient.of())
+// Optionally call `disposeDB()` to explicitly free the instance.
+const DB_KEY = Symbol.for("__duckdb_singleton__");
+
+export async function getOrCreateDB(factory) {
+  const g = globalThis;
+  const prev = g[DB_KEY];
+  if (prev?.[extended]) return prev;
+  const raw = await factory();
+  const db  = extendDB(raw);
+  g[DB_KEY] = db;
+  return db;
+}
+
+export async function disposeDB() {
+  const g = globalThis;
+  const prev = g[DB_KEY];
+  g[DB_KEY] = undefined;
+  try { await prev?.close?.(); }     catch {}
+  try { await prev?.terminate?.(); } catch {}
+  try { await prev?.destroy?.(); }   catch {}
 }
