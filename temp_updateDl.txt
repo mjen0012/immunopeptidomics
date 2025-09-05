@@ -1,0 +1,131 @@
+    : (cls === "II" ? [15,15] : [9,9]);  // fallback
+
+  return {
+    run_stage_range: [1,1],
+    stages: [{
+      stage_number: 1,
+      stage_type  : "prediction",
+      tool_group  : (cls === "II" ? "mhcii" : "mhci"),
+      input_sequence_text: fastaText,
+      input_parameters: {
+        alleles,
+        peptide_length_range: [lenMin, lenMax],
+        predictors: [{ type: "binding", method }]
+      }
+    }]
+  };
+}
+
+/* CSV prep */
+let csvUrl = null;
+function buildCSV(rows) {
+  if (!rows || !rows.length) return "";
+  const cols = Array.from(rows.reduce((set, r) => {
+    Object.keys(r||{}).forEach(k => set.add(k)); return set;
+  }, new Set()));
+  const esc = v => {
+    const s = v == null ? "" : String(v);
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g,'""')}"` : s;
+  };
+  return [cols.join(","), ...rows.map(r => cols.map(c => esc(r[c])).join(","))].join("\n");
+}
+function updateDownload(rows) {
+  if (csvUrl) { try { URL.revokeObjectURL(csvUrl); } catch {} csvUrl = null; }
+  const csv = buildCSV(rows);
+  if (rows && rows.length && csv) {
+    csvUrl = URL.createObjectURL(new Blob([csv], { type:"text/csv" }));
+    downloadBtn.disabled = false;
+  } else {
+    downloadBtn.disabled = true;
+  }
+}
+downloadBtn.onclick = () => {
+  if (!csvUrl) { alert("No result table to download."); return; }
+  const a = document.createElement("a");
+  a.href = csvUrl;
+  a.download = "iedb_peptide_table.csv";
+  a.click();
+};
+invalidation.then(() => { if (csvUrl) URL.revokeObjectURL(csvUrl); });
+
+/* ── Single run handler (defensive) ─────────────────────────────── */
+runBtn.addEventListener("click", async () => {
+  try {
+    const fasta = await getLatestFastaText();
+    if (!fasta) {
+      setStatus("Please provide a FASTA sequence (paste or upload).", { warn:true });
+      return;
+    }
+    const alleles = chosenAllelesMut.value || [];
+    if (!alleles.length) {
+      setStatus("Please select at least one allele.", { warn:true });
+      return;
+    }
+
+    runBtn.disabled = true;
+    downloadBtn.disabled = true;
+    updateDownload([]); // reset previous CSV
+
+    setStatus("Submitting to IEDB…", { busy:true });
+    const body = buildBody(fasta);
+
+    const rid = await submitPipeline(body);
+    setStatus(`Submitted (result_id: ${rid}).`, { busy:true });
+    const result = await pollResult(rid);
+
+    // Keep JSON download (for your records), but do it after we parse to avoid racey UI errors
+    // (we'll still call it—just after we confirm the table exists)
+    const resultsArr = Array.isArray(result?.data?.results) ? result.data.results : [];
+
+    const tbl = resultsArr.find(t => t?.type === "peptide_table");
+    if (!tbl) {
+      throw new Error("No peptide_table returned in results");
+    }
+
+    const rowsParsed = rowsFromTable(tbl);
+    const rows = Array.isArray(rowsParsed) ? rowsParsed : [];
+    const rowsLen = rows.length|0;
+
+    // with direct, guaranteed assignments:
+    predRowsMut.value   = rows;
+    latestRowsMut.value = rows;
+
+    updateDownload(rows);
+    setStatus(`Done — ${rowsLen} rows.`, { ok:true });
+    downloadBtn.disabled = rowsLen === 0;
+
+    // Update selector (this calls setOptions → onChange, which will re-render)
+    refreshHeatLenChoices();
+
+    // Ensure we render even if setOptions didn’t fire (e.g., identical value)
+    const safeLen = Number(heatLenCtrl.value);
+    if (rowsLen) {
+      renderHeatmap(rows, safeLen);
+      const seqNow = selectedSeqIndex();
+      try {
+        const selAllele = (selectedAlleleMut && "value" in selectedAlleleMut) ? selectedAlleleMut.value : null;
+        renderPeptideTrack(seqNow, safeLen, selAllele);
+        updatePeptideDownloadForSeq(seqNow);
+      } catch {}
+      try {
+        const selAllele = (selectedAlleleMut && "value" in selectedAlleleMut) ? selectedAlleleMut.value : null;
+        renderPeptideAlleleTrack(seqNow, safeLen, selAllele);
+      } catch {}
+    }
+
+  } catch (err) {
+    setStatus(`Error: ${err?.message || err}`, { warn:true });
+  } finally {
+    runBtn.disabled = false;
+  }
+});
+
+```
+
+```js
+/* Safe setter for Mutables (permissive) */
+function setMut(mut, val) {
+  if (!mut || (typeof mut !== "object" && typeof mut !== "function")) {
+    return;
+  }
+  try {
