@@ -23,7 +23,7 @@ banner.className = "banner__bg";
   left: 50%;
   margin-left: -50vw;
 
-  /* â¬‡ï¸ NEW â€” cancel the articleâ€™s built-in top padding */
+  /* ⬇️ NEW — cancel the article’s built-in top padding */
   margin-top: calc(-1 * var(--observable-layout-spacing-block, 2rem));
   margin-bottom: var(--observable-layout-spacing-block, 1rem);
 
@@ -64,7 +64,7 @@ banner.className = "banner__bg";
   color: #fff;
 }
 
-/* ------------- translucent â€œMâ€ ----------------------------------- */
+/* ------------- translucent “M” ----------------------------------- */
 .banner__logo {
   position: absolute;
   top: 0;
@@ -100,7 +100,7 @@ banner.className = "banner__bg";
   grid-template-columns: 20% 80%;
   gap: var(--observable-layout-spacing-block, 1rem);
 }
-/* kill the cardâ€™s default margin so gap rules all */
+/* kill the card’s default margin so gap rules all */
 .layout-20-80 .card { margin: 0; }
 
 /* mobile */
@@ -122,7 +122,7 @@ banner.className = "banner__bg";
 
 <div class="layout-20-80">
 
-  <!-- Row 1 Â· 20 % Â· Select files -->
+  <!-- Row 1 · 20 % · Select files -->
   <div class="card" style="display:flex; flex-direction:column; gap:1rem;">
     <div class="file-heading">1. Select Files</div>
     ${referencefasta}
@@ -134,7 +134,7 @@ banner.className = "banner__bg";
       ${downloadCSVII}
     </div>
   </div>
-  <!-- Row 1 Â· 80 % Â· Filters -->
+  <!-- Row 1 · 80 % · Filters -->
   <div class="card" style="display:flex; flex-direction:column; gap:1rem;">
     <div class="file-heading">2. Filter</div>
     <div style="display:grid; grid-template-columns:repeat(6,1fr); gap:1rem;">
@@ -154,7 +154,7 @@ banner.className = "banner__bg";
     </div>
   </div>
 
-  <!-- Row 2-4 Â· 20 % Â· continuous sidebar card -->
+  <!-- Row 2-4 · 20 % · continuous sidebar card -->
   <div class="card" style="grid-row: 2 / span 3;">
     <div class="file-heading">3. Control Panel</div>
     <br>${facetSelectInput}</br>
@@ -173,7 +173,7 @@ banner.className = "banner__bg";
 
   </div>
 
-  <!-- Row 2 Â· 80 % Â· metric cards -->
+  <!-- Row 2 · 80 % · metric cards -->
   <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:1rem;">
     ${metricCard({title:"All sequences",     current: total_all_count,    previous: total_count_previous})}
     ${metricCard({title:"Unique sequences",  current: total_unique_count, previous: total_unique_previous})}
@@ -181,13 +181,13 @@ banner.className = "banner__bg";
     ${metricCard({title:"Conserved peptides",current: aligned_count,      previous: nonaligned_count, hideDelta:true})}
   </div>
 
-  <!-- Row 3 Â· 80 % Â· two equal cards -->
+  <!-- Row 3 · 80 % · two equal cards -->
   <div style="display:grid; grid-template-columns:repeat(2,1fr); gap:1rem;">
     <div class="card">${heatmapSVG}</div>
     <div class="card">${histEl}</div>
   </div>
 
-  <!-- Row 4 Â· 80 % Â· single wide card -->
+  <!-- Row 4 · 80 % · single wide card -->
   <div class="card" style="min-height:200px;">
     ${createIAVDashboard()}
   </div>
@@ -197,7 +197,7 @@ banner.className = "banner__bg";
 <!-- Imports and Loading Data -->
 ```js
 /* Imports */
-import {extendDB, sql, extended} from "./components/extenddb.js"
+import {extendDB, sql, extended, getOrCreateDB} from "./components/extenddb.js"
 import {DuckDBClient} from "npm:@observablehq/duckdb";
 import * as duckdb from "@duckdb/duckdb-wasm";
 import {dropSelect} from "./components/dropSelect.js";
@@ -224,20 +224,72 @@ import * as d3 from "npm:d3";
 
 ```js
 
-/* Wrap Database */
-const db = extendDB(
-  await DuckDBClient.of({
-    proteins: FileAttachment("data/IAV6-all.parquet").parquet(),
+/* Wrap Database — reuse a single instance */
+const db = await getOrCreateDB(() =>
+  DuckDBClient.of({
+    // Keep local attachments for these tables
     sequencecalc: FileAttachment("data/IAV8_sequencecalc.parquet").parquet(),
+    netmhccalc: FileAttachment("data/iedb_netmhc_slim.parquet").parquet(),
     hla: FileAttachment("data/HLAlistClassI.parquet").parquet()
   })
 );
+
+// Initialize proteins temp table/view to a default protein so dependent cells can run
+const DEFAULT_PROTEIN = "M2";
+{
+  const url0 = `https://gbxc45oychilox63.public.blob.vercel-storage.com/${encodeURIComponent(DEFAULT_PROTEIN)}.parquet`;
+  await db.sql`CREATE OR REPLACE TABLE proteins_cache AS
+    SELECT * FROM read_parquet('${url0}')`;
+  await db.sql`CREATE OR REPLACE VIEW proteins AS SELECT * FROM proteins_cache`;
+  globalThis.__proteinViewState = { last: DEFAULT_PROTEIN };
+  console.info('[IAV2] proteins table initialised', { protein: DEFAULT_PROTEIN });
+}
 ```
 
 ```js
 
 
 ```
+
+```js
+// Perf helpers (console logging only; no dataflow deps)
+{
+  const g = globalThis;
+  if (!g.__perfUtils) {
+    const memSnap = () => {
+      const m = performance && performance.memory;
+      return m ? { used: m.usedJSHeapSize, total: m.totalJSHeapSize, limit: m.jsHeapSizeLimit } : null;
+    };
+    const fmtBytes = (n) => n == null ? null : `${(n/1024/1024).toFixed(2)} MB`;
+    async function perfAsync(label, fn) {
+      const t0 = performance.now();
+      const m0 = memSnap();
+      let out;
+      try {
+        out = await fn();
+        return out;
+      } finally {
+        const t1 = performance.now();
+        const m1 = memSnap();
+        const dUsed = (m0 && m1) ? (m1.used - m0.used) : null;
+        const size = Array.isArray(out) ? out.length : (out && typeof out === 'object' && 'numRows' in out ? out.numRows : undefined);
+        console.log(`[perf] ${label}`, { ms: +(t1 - t0).toFixed(1), usedDelta: fmtBytes(dUsed), size });
+      }
+    }
+    function logArray(label, arr) {
+      try {
+        const len = Array.isArray(arr) ? arr.length : (arr ? arr.length ?? undefined : 0);
+        const m = memSnap();
+        console.debug(`[perf] array ${label}`, { length: len, used: m ? fmtBytes(m.used) : null });
+      } catch {}
+    }
+    g.__perfUtils = { perfAsync, logArray };
+    console.info('[perf] instrumentation ready');
+  }
+}
+```
+
+ 
 
 <!-- Filter Buttons + Helpers -->
 ```js
@@ -257,25 +309,27 @@ const proteinOptions = [
   {id: "PB2",   label: "Polymerase Basic 2 (PB2)"}
 ];
 
-const allGenotypes = (await db.sql`
+const { perfAsync, logArray } = globalThis.__perfUtils ?? {};
+
+const allGenotypes = (await perfAsync?.('sql: allGenotypes', async () => (await db.sql`
   SELECT DISTINCT genotype
   FROM proteins
   WHERE genotype IS NOT NULL
-`).toArray()
+`).toArray()))
   .map(d => d.genotype)
   .sort();
 
-const allHosts = (await db.sql`
+const allHosts = (await perfAsync?.('sql: allHosts', async () => (await db.sql`
   SELECT DISTINCT host
   FROM   proteins
   WHERE  host IS NOT NULL
-`).toArray().map(d => d.host).sort();
+`).toArray())).map(d => d.host).sort();
 
-const allCountries = (await db.sql`
+const allCountries = (await perfAsync?.('sql: allCountries', async () => (await db.sql`
   SELECT DISTINCT country
   FROM   proteins
   WHERE  country IS NOT NULL
-`).toArray().map(d => d.country).sort();
+`).toArray())).map(d => d.country).sort();
 ```
 
 ```js
@@ -288,14 +342,14 @@ const selectedProtein = Generators.input(proteinInput);
 
 const genotypeInput = comboSelect(allGenotypes, {
   label: "Genotype",
-  placeholder: "Type genotypeâ€¦",
+  placeholder: "Type genotype…",
   fontFamily: "'Roboto', sans-serif"
 });
 const selectedGenotypes = Generators.input(genotypeInput);
 
 const hostInput = comboSelect(allHosts, {
   label: "Host",
-  placeholder: "Type hostâ€¦",
+  placeholder: "Type host…",
   fontFamily: "'Roboto', sans-serif"
 });
 const selectedHosts = Generators.input(hostInput);
@@ -304,7 +358,7 @@ const safe = arr => Array.isArray(arr) ? arr : [];
 
 const countryInput = comboSelect(allCountries, {
   label: "Country",
-  placeholder: "Type countryâ€¦",
+  placeholder: "Type country…",
   fontFamily: "'Roboto', sans-serif"
 });
 const selectedCountries = Generators.input(countryInput);
@@ -414,26 +468,26 @@ const referenceFile = Generators.input(referencefasta);
 /* Normaliser (kept from your code) */
 const normProtein = s => String(s ?? "").trim().replace(/\s+/g, "").toUpperCase();
 
-/* Tiny per-protein cache for sequencecalc â†’ alignment profiles */
+/* Tiny per-protein cache for sequencecalc → alignment profiles */
 if (!globalThis.__seqProfileCache) {
   globalThis.__seqProfileCache = { protein: null, profile: null };
 }
 
-/* Fetch + build [position â†’ Map(aminoacid â†’ proportion)] only for the committed protein */
+/* Fetch + build [position → Map(aminoacid → proportion)] only for the committed protein */
 async function loadSeqProfileFor(proteinId) {
   const pid = normProtein(proteinId);
   if (!pid) return null;
 
   if (globalThis.__seqProfileCache.protein === pid &&
       globalThis.__seqProfileCache.profile) {
-    return globalThis.__seqProfileCache.profile;         // âš¡ warm
+    return globalThis.__seqProfileCache.profile;         // ⚡ warm
   }
 
-  const rows = (await db.sql`
+  const rows = await (globalThis.__perfUtils?.perfAsync?.(`sql: seqProfile for ${pid}`, async () => (await db.sql`
     SELECT position, aminoacid, value
     FROM   sequencecalc
     WHERE  protein = ${pid}
-  `).toArray();
+  `).toArray()))
 
   // Build an array (1-based positions) of Maps
   const arr = [];
@@ -456,6 +510,8 @@ async function loadSeqProfileFor(proteinId) {
 ```js
 /* Banded Needleman-Wunsch with Dynamic Band Width */
 function nwAffineBanded(ref, freqs, baseBandWidth = 75, gOpen = -5, gExt = -2) {
+  const __t0 = performance.now();
+  try {
   const M = freqs.length, N = ref.length;
   const lengthDiff = Math.abs(M - N);
   const bandWidth = Math.max(baseBandWidth, lengthDiff + 20);
@@ -531,6 +587,13 @@ function nwAffineBanded(ref, freqs, baseBandWidth = 75, gOpen = -5, gExt = -2) {
      if (i <= 0 && j <= 0) break;
   }
   return aln_b;
+  } finally {
+    const dt = performance.now() - __t0;
+    const s = (globalThis.__nwPerf = globalThis.__nwPerf || { count: 0, totalMs: 0, maxMs: 0 });
+    s.count += 1;
+    s.totalMs += dt;
+    if (dt > s.maxMs) s.maxMs = dt;
+  }
 }
 ```
 
@@ -653,7 +716,7 @@ function alignPeptideToRef(peptide, refAlign) {
   return { start_raw: idxRaw + 1, start_aln: startAln, aligned };
 }
 
-/* Peptide Alignment Table  â€“ now exposes BOTH lengths */
+/* Peptide Alignment Table  – now exposes BOTH lengths */
 const peptidesAligned = peptidesClean.map(d => {
   const ref  = alignRefMap.get(d.protein);
 
@@ -664,18 +727,25 @@ const peptidesAligned = peptidesClean.map(d => {
   return {
     ...d,
     /* NEW FIELD NAMES */
-    length_raw       : d.peptide.length,               // â† ungapped length
-    length           : aligned ? aligned.length : null,/* â† aligned length */
+    length_raw       : d.peptide.length,               // ← ungapped length
+    length           : aligned ? aligned.length : null,/* ← aligned length */
     start_raw        : start_raw,                      // optional info
     start            : start_aln,                      // aligned coord
     peptide_aligned  : aligned,                        // string incl. gaps
     aligned_length   : aligned ? aligned.length : null // kept for legacy
   };
 });
-
-
-
-/* Distinct (start,len) windows for uploaded peptides â€” use RAW (ungapped) coords */
+```
+```js
+// Perf: size of peptidesAligned array and NW totals
+globalThis.__perfUtils?.logArray?.('peptidesAligned', peptidesAligned);
+(function(){
+  const s = globalThis.__nwPerf;
+  if (s) console.log('[perf] nwAffineBanded', { calls: s.count, totalMs: +s.totalMs.toFixed(1), avgMs: s.count ? +(s.totalMs/s.count).toFixed(2) : 0, maxMs: +s.maxMs.toFixed(1) });
+})();
+```
+```js
+/* Distinct (start,len) windows for uploaded peptides - use RAW (ungapped) coords */
 const peptideWindows = (() => {
   const pid = committedProteinId; // reactive
   if (!pid) return [];
@@ -694,18 +764,53 @@ const peptideWindows = (() => {
 ```
 
 ```js
+// Debug: inputs to topCandidatesByWindow
+try {
+  const pid = committedProteinId;
+  const nWin = peptideWindows.length;
+  const sampleWin = peptideWindows.slice(0, 5);
+  console.debug('[IAV2] topCandidates inputs', { protein: pid, nWindows: nWin, sampleWin });
+  if (globalThis.__perfUtils?.perfAsync) {
+    const rows = await globalThis.__perfUtils.perfAsync('sql: proteins count (pre topCandidates)', async () =>
+      (await db.sql`
+        SELECT COUNT(*) AS n
+        FROM   proteins
+        WHERE  1=1
+          AND ${ genotypesCommitted.length
+                  ? sql`genotype IN (${ genotypesCommitted })` : sql`TRUE` }
+          AND ${ hostsCommitted.length
+                  ? sql`host IN (${ hostsCommitted })` : sql`TRUE` }
+          AND ${
+                hostCategoryCommitted.includes('Human') &&
+                !hostCategoryCommitted.includes('Non-human')
+                  ? sql`host = 'Homo sapiens'`
+                  : (!hostCategoryCommitted.includes('Human') &&
+                     hostCategoryCommitted.includes('Non-human'))
+                      ? sql`host <> 'Homo sapiens'`
+                      : sql`TRUE`
+              }
+          AND ${ countriesCommitted.length
+                  ? sql`country IN (${ countriesCommitted })` : sql`TRUE` }
+      `).toArray()
+    );
+    const nSeq = rows?.[0]?.n ?? null;
+    try { console.debug('[IAV2] proteins count (pre topCandidates)', { nSeq, nWindows: nWin, estCross: nSeq != null ? nSeq * nWin : null }); } catch {}
+  }
+} catch (e) { try { console.warn('[IAV2] debug inputs failed', e); } catch {} }
+
 const topCandidatesByWindow = peptideWindows.length === 0 ? []
-: (await db.sql`
+: await (globalThis.__perfUtils?.perfAsync?.('sql: topCandidatesByWindow', async () => {
+  const q = await db.sql`
   WITH
   params(start, len) AS (
     VALUES ${joinSql(peptideWindows.map(w => sql`(${Math.trunc(w.start)}, ${Math.trunc(w.len)})`))}
   ),
 
   filtered AS (
-    /* We only need sequence after filtering */
+    /* We only need sequence after filtering; 'proteins' is already scoped to the committed protein */
     SELECT sequence
     FROM   proteins
-    WHERE  protein = ${proteinCommitted}
+    WHERE  1=1  -- protein scoped by proteins_cache
 
       AND ${ genotypesCommitted.length
               ? sql`genotype IN (${ genotypesCommitted })` : sql`TRUE` }
@@ -768,7 +873,7 @@ const topCandidatesByWindow = peptideWindows.length === 0 ? []
       }
   ),
 
-  /* downstream unchangedâ€¦ */
+  /* downstream unchanged… */
   ex_all AS (
     SELECT p.start, p.len,
            SUBSTR(f.sequence, CAST(p.start AS BIGINT), CAST(p.len AS BIGINT)) AS peptide
@@ -837,20 +942,24 @@ const topCandidatesByWindow = peptideWindows.length === 0 ? []
   FROM   ranked
   WHERE  r_all <= 5 OR r_u <= 5
   ORDER  BY start, len, r_all, r_u, peptide;
-`).toArray();
+`;
+  const arr = await q.toArray();
+  try { console.debug('[IAV2] topCandidates done', { rows: arr.length }); } catch {}
+  return arr;
+}))
 
 ```
 
 ```js
 /* Workset for Class I predictions (per protein):
-   uploaded peptides (8â€“14 aa) âˆª top 5 per window (both All & Unique) */
+   uploaded peptides (8–14 aa) ∪ top 5 per window (both All & Unique) */
 const peptidesIWorkset = (() => {
   const pid = committedProteinId; // reactive
   if (!pid) return [];
 
   const set = new Set();
 
-  // uploaded peptides (scoped to protein), 8â€“14 aa, ungapped
+  // uploaded peptides (scoped to protein), 8–14 aa, ungapped
   for (const r of peptidesClean) {
     if ((r.protein || "").toUpperCase() !== pid) continue;
     const pep = (r.peptide || "").toUpperCase().replace(/-/g,"");
@@ -868,6 +977,10 @@ const peptidesIWorkset = (() => {
 
 ```
 
+```js
+// Perf: size of peptideWindows
+globalThis.__perfUtils?.logArray?.('peptideWindows', peptideWindows);
+```
 <!-- Download Buttons -->
 ```js
 /* Download Alignment Button */
@@ -897,7 +1010,7 @@ function createIAVDashboard({
   margin      = {top:20,right:20,bottom:30,left:40}
 } = {}) {
 
-  /* 1 â–¸ peptide data & colour scale --------------------------- */
+  /* 1 ▸ peptide data & colour scale --------------------------- */
   // inside createIAVDashboard()
   const pepData = peptidesAligned.filter(d => d.protein === proteinCommitted);
 
@@ -912,18 +1025,18 @@ function createIAVDashboard({
   const colourScale = !isAlleleColour ? makePeptideScale(keys.length ? keys : ["dummy"]) : null;
 
 
-  /* 3 â–¸ SHARED X SCALE  (0.5 â€¦ max+0.5) ------------------------ */
+  /* 3 ▸ SHARED X SCALE  (0.5 … max+0.5) ------------------------ */
   const maxPos = Math.max(
     pepData.length ? d3.max(pepData, d => d.start + d.length) : 1,
     d3.max(stackedBars, d => d.position)
   );
-  const domain = [0.5, maxPos + 0.5];                 // â† key change
+  const domain = [0.5, maxPos + 0.5];                 // ← key change
   const svgWidth = width;
   const x0       = d3.scaleLinear(domain,
                    [margin.left, svgWidth - margin.right]);
   let   xCurrent = x0;
 
-  /* 4 â–¸ responsive SVG & slot helper -------------------------- */
+  /* 4 ▸ responsive SVG & slot helper -------------------------- */
   const svg = d3.create("svg")
     .style("width", "100%")
     .attr("font-family", "sans-serif");
@@ -932,14 +1045,14 @@ function createIAVDashboard({
   const slot = () => svg.append("g")
                         .attr("transform", `translate(0,${yOff})`);
 
-  /* 5 â–¸ peptide viewer ---------------------------------------- */
+  /* 5 ▸ peptide viewer ---------------------------------------- */
   const pep = peptideChart(slot(), {
     data       : pepData,
     xScale     : xCurrent,
     rowHeight, gap, sizeFactor, margin,
     colourBy        : colourAttr,
     colourScale     : colourScale,   // null when allele mode
-    isAlleleColour  : isAlleleColour, // â† NEW: pass the boolean
+    isAlleleColour  : isAlleleColour, // ← NEW: pass the boolean
     missingColor    : "#f0f0f0",
     alleleData      : chartRowsI,
     alleles         : Array.from(selectedI || []),
@@ -949,7 +1062,7 @@ function createIAVDashboard({
 
   yOff += pep.height;
 
-  /* 7 â–¸ reference vs consensus cells -------------------------- */
+  /* 7 ▸ reference vs consensus cells -------------------------- */
   const seqcmp = sequenceCompareChart(slot(), {
     refRows   : refRows,
     consRows  : consensusRows,
@@ -961,7 +1074,7 @@ function createIAVDashboard({
   });
   yOff += seqcmp.height;
 
-  /* 6 â–¸ stacked bar chart ------------------------------------- */
+  /* 6 ▸ stacked bar chart ------------------------------------- */
   const stack = stackedChart(slot(), {
     data       : stackedBars,
     tooltipRows: aaFrequencies.map(d => ({
@@ -976,7 +1089,7 @@ function createIAVDashboard({
   });
   yOff += stack.height;
 
-  /* â­ 8 â–¸ area chart -------------------------------------------- */
+  /* ⭐ 8 ▸ area chart -------------------------------------------- */
   const area = areaChart(slot(), {
     data      : areaData,
     xScale    : xCurrent,
@@ -986,7 +1099,7 @@ function createIAVDashboard({
   });
   yOff += area.height;  
 
-  /* 9 â–¸ facet overlays (only if we actually have them) ------------- */
+  /* 9 ▸ facet overlays (only if we actually have them) ------------- */
   const facetUpdaters = [];
 
   if (facetArea.size) {
@@ -1021,11 +1134,11 @@ function createIAVDashboard({
     }
   }
 
-  /* 7 â–¸ finalise SVG ------------------------------------------ */
+  /* 7 ▸ finalise SVG ------------------------------------------ */
   svg.attr("height", yOff)
      .attr("viewBox", `0 0 ${svgWidth} ${yOff}`);
 
-  /* 8 â–¸ shared zoom (integer ticks preserved) ----------------- */
+  /* 8 ▸ shared zoom (integer ticks preserved) ----------------- */
   const updaters = [pep.update, stack.update, seqcmp.update, area.update, ...facetUpdaters];
   const EPS      = 1e-6;
   const zoom = d3.zoom()
@@ -1036,7 +1149,7 @@ function createIAVDashboard({
       /* --- 1. snap to identity when user is fully zoomed out --- */
       if (Math.abs(ev.transform.k - 1) < EPS &&
           (Math.abs(ev.transform.x) > EPS)) {
-        // force-reset â€” affects every chart simultaneously
+        // force-reset — affects every chart simultaneously
         svg.call(zoom.transform, d3.zoomIdentity);
         return;                              // skip stale update
       }
@@ -1095,7 +1208,7 @@ const isAlleleColour = (() => {
   selectedI; colourAttr; // dependencies
 
   const attr = normAllele(colourAttr);
-  if (/^ATTRIBUTE_\d+$/i.test(attr)) return false;   // attribute_1/2/3 â†’ not allele
+  if (/^ATTRIBUTE_\d+$/i.test(attr)) return false;   // attribute_1/2/3 → not allele
 
   // Ensure we can map even if selectedI is a Set or Array
   const picked = new Set(Array.from(selectedI || []).map(normAllele));
@@ -1121,7 +1234,7 @@ const peptideKeyEl = (() => {
   // reactive deps
   colourAttr; percMode; proteinCommitted;
 
-  // SIMPLE RULE: if the radio is NOT attribute_1/2/3 â‡’ allele mode
+  // SIMPLE RULE: if the radio is NOT attribute_1/2/3 ⇒ allele mode
   const inAlleleMode = !/^attribute_[123]$/i.test(String(colourAttr));
 
   if (inAlleleMode) {
@@ -1129,7 +1242,7 @@ const peptideKeyEl = (() => {
       label        : "Peptide colour key",
       isAllele     : true,
       mode         : percMode,   // EL/BA
-      includeNoData: true,       // always show â€œNo dataâ€ (per your #2)
+      includeNoData: true,       // always show “No data” (per your #2)
       missingColor : "#f0f0f0"
     });
   }
@@ -1151,6 +1264,23 @@ const peptideKeyEl = (() => {
 
 ```
 
+```js
+// Keep proteins temp table/view in sync with the committed protein selection, with debounce
+{
+  const pid = committedProteinId ?? DEFAULT_PROTEIN; // reactive dep
+  const state = (globalThis.__proteinViewState ??= { last: null });
+  if (state.last === pid) {
+    try { console.info('[IAV2] proteins table reuse', { protein: pid }); } catch {}
+  } else {
+    const url = `https://gbxc45oychilox63.public.blob.vercel-storage.com/${encodeURIComponent(pid)}.parquet`;
+    await db.sql`CREATE OR REPLACE TABLE proteins_cache AS
+      SELECT * FROM read_parquet('${url}')`;
+    await db.sql`CREATE OR REPLACE VIEW proteins AS SELECT * FROM proteins_cache`;
+    state.last = pid;
+    try { console.info('[IAV2] proteins table materialised', { protein: pid }); } catch {}
+  }
+}
+```
 
 ```js
 /* Sequence set */
@@ -1277,7 +1407,7 @@ const positionStats = (
           }
         ),
 
-        /* downstream identicalâ€¦ */
+        /* downstream identical… */
         parsed AS ( SELECT sequence, LENGTH(sequence) AS len FROM filtered ),
         pos    AS ( SELECT p.sequence, gs.position
                     FROM parsed p CROSS JOIN generate_series(1, p.len) AS gs(position) ),
@@ -1314,7 +1444,7 @@ const positionStats = (
 ```js
 /* JS Array for Plotting */
 const aaFrequencies = (
-  await positionStats.toArray()
+  await (globalThis.__perfUtils?.perfAsync?.('sql: positionStats -> aaFrequencies', async () => await positionStats.toArray()))
 ).map(r => {
   const all  = Number(r.value       );
   const uniq = Number(r.value_unique);
@@ -1361,13 +1491,13 @@ const areaData = Array.from(
   }
 ).sort((a, b) => d3.ascending(a.position, b.position));
 
-/* â”€â”€â”€ reference (aligned) sequence rows â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ─── reference (aligned) sequence rows ───────────────────── */
 const refAligned = fastaAligned.find(d => d.protein === proteinCommitted )
                      ?.aligned_sequence ?? "";               // empty string if none
 const refRows = refAligned.split("")
   .map((aa,i)=>({ position:i+1, aminoacid:aa }));
 
-/* â”€â”€â”€ consensus rows (respecting the All / Unique toggle) â”€â”€â”€ */
+/* ─── consensus rows (respecting the All / Unique toggle) ─── */
 const consensusRows = Array.from(
   d3.rollups(
     aaFrequencies,
@@ -1377,12 +1507,12 @@ const consensusRows = Array.from(
   ([pos, r]) => ({ position:+pos, aminoacid:r.aminoacid })
 ).sort((a,b)=>d3.ascending(a.position,b.position));
 
-/* facetArea :  Map<facetKey â†’ [{position,value,aminoacid}]> */
+/* facetArea :  Map<facetKey → [{position,value,aminoacid}]> */
 const facetArea = new Map();
 
 
 if (positionFacetStats !== null) {
-  const rows = await positionFacetStats.toArray();
+  const rows = await (globalThis.__perfUtils?.perfAsync?.('sql: positionFacetStats', async () => await positionFacetStats.toArray()));
 
   /* choose the right value column once */
   const valueField = (seqSet === "Unique sequences" ? "value_unique" : "value");
@@ -1402,7 +1532,7 @@ if (positionFacetStats !== null) {
       }
     ).sort((a,b)=>d3.ascending(a.position,b.position));
 
-    facetArea.set(facetKey ?? "Unknown", areaRows);   // null â†’ "Unknown"
+    facetArea.set(facetKey ?? "Unknown", areaRows);   // null → "Unknown"
   }
 }
 
@@ -1492,7 +1622,7 @@ filtered AS (
     }
 ),
 
-/* downstream unchanged â€¦ */
+/* downstream unchanged … */
 extracted_all AS ( SELECT SUBSTR(sequence, params.start, params.len) AS peptide FROM filtered, params ),
 counts_all    AS ( SELECT peptide, COUNT(*) AS cnt_all FROM extracted_all GROUP BY peptide ),
 total_all     AS ( SELECT SUM(cnt_all) AS total_all FROM counts_all ),
@@ -1544,7 +1674,7 @@ WHERE NOT EXISTS (SELECT 1 FROM combined WHERE peptide = (SELECT sel_peptide FRO
 
 ```js
 /* Peptide JS Array */
-const rowsRaw = await peptideProps.toArray();
+const rowsRaw = await (globalThis.__perfUtils?.perfAsync?.('sql: peptideProps', async () => await peptideProps.toArray()));
 
 /* Peptide Unique vs All Switcher */
 const useUnique = seqSet === "Unique sequences";
@@ -1566,7 +1696,7 @@ const heatmapSVG = peptideHeatmap({
   data        : heatmapData,                        // peptides (ungapped)
   selected    : selectedPeptide,                    // may include '-'
   colourMode  : colourMode,
-  // â”€â”€ NEW overlay props:
+  // ── NEW overlay props:
   alleleData  : chartRowsI,                         // cache + API (snake_case)
   alleles     : Array.from(selectedI || []),
   mode        : percMode,                           // "EL" | "BA"
@@ -1576,6 +1706,11 @@ const heatmapSVG = peptideHeatmap({
   margin      : { top:20, right:150, bottom:20, left:4 }
 });
 
+```
+
+```js
+// Perf: size of aaFrequencies for plotting
+globalThis.__perfUtils?.logArray?.('aaFrequencies', aaFrequencies);
 ```
 
 ```js
@@ -1591,7 +1726,7 @@ const heatmapSVG = peptideHeatmap({
 
 
 ```js
-/* -------- facetChoices  â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+/* -------- facetChoices  ────────────────────────────────────────────
    Re-evaluates automatically whenever any committed filter changes.
    A facet option appears only when the user has at least ONE value
    selected for that attribute.                                        */
@@ -1607,14 +1742,14 @@ const facetChoices = (() => {
 ```
 ```js
 
-/* -------- radio input  â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+/* -------- radio input  ─────────────────────────────────────────────
    Re-created every time `facetChoices` changes, so the UI never
    shows options that would facet the *entire* data set.                */
 const facetSelectInput = Inputs.radio(
   facetChoices,
   {
     label : "Facet by:",
-    value : facetChoices[0]              // whichever is first (â€œNoneâ€)
+    value : facetChoices[0]              // whichever is first (“None”)
   }
 );
 const facetSelect = Generators.input(facetSelectInput);
@@ -1645,7 +1780,7 @@ WITH base AS (
     } AS facet,
     sequence
   FROM proteins
-  /* ðŸ”´ push ALL filters here so we only touch the committed proteinâ€™s rows */
+  /* 🔴 push ALL filters here so we only touch the committed protein’s rows */
   WHERE protein = ${proteinCommitted}
 
     AND ${ genotypesCommitted.length
@@ -1712,7 +1847,7 @@ WITH base AS (
     }
 ),
 
-/* for the â€œUniqueâ€ path, dedupe sequences now to avoid doubling later */
+/* for the “Unique” path, dedupe sequences now to avoid doubling later */
 b AS (
   ${ useUnique
       ? sql`SELECT DISTINCT facet, sequence FROM base`
@@ -1796,7 +1931,7 @@ const joinSql = (arr, sep = sql`, `) =>
   arr.reduce((acc, cur, i) => (i === 0 ? cur : sql`${acc}${sep}${cur}`), sql``);
 
 /*****************************************************************
- * 2 Â· build VALUES rows for every uploaded peptide
+ * 2 · build VALUES rows for every uploaded peptide
  *****************************************************************/
 const peptideValues = peptidesAligned
   .filter(d => d.peptide_aligned && d.start)          // skip unusable rows
@@ -1808,7 +1943,7 @@ const peptideValues = peptidesAligned
 
 ```js
 /* ------------------------------------------------------------------
-   Create a SINGLE memoâ€‘cache on the global object (survives reloads)
+   Create a SINGLE memo‑cache on the global object (survives reloads)
    ------------------------------------------------------------------*/
 if (!globalThis.__peptideCache) {
   globalThis.__peptideCache = { key: null, table: null };
@@ -1820,10 +1955,10 @@ if (!globalThis.__peptideCache) {
 
 ```js
 /********************************************************************
- * getPeptidePropsAll()    Â·Â v2                                      *
- * â€‘ reâ€‘runs only when:                                              *
- *     â€¢ any nonâ€‘protein filter changes, OR                          *
- *     â€¢ the uploaded peptide set changes (length)                   *
+ * getPeptidePropsAll()    · v2                                      *
+ * ‑ re‑runs only when:                                              *
+ *     • any non‑protein filter changes, OR                          *
+ *     • the uploaded peptide set changes (length)                   *
  ********************************************************************/
 function getPeptidePropsAll() {
 
@@ -1835,13 +1970,13 @@ function getPeptidePropsAll() {
     countries       : [...countriesCommitted].sort(),
     collectionDates : collectionDatesCommitted,
     releaseDates    : releaseDatesCommitted,
-    nPeptides       : peptideValues.length            // â† NEW
+    nPeptides       : peptideValues.length            // ← NEW
   });
 
   /* 2. return cached table when key matches ----------------------- */
   if (globalThis.__peptideCache?.key === filterKey &&
       globalThis.__peptideCache.table) {
-    return globalThis.__peptideCache.table;              // âš¡ hit
+    return globalThis.__peptideCache.table;              // ⚡ hit
   }
 
   /* 3. if still no peptides, return an empty table ---------------- */
@@ -1920,7 +2055,7 @@ function getPeptidePropsAll() {
         }
     ),
 
-    /* 3. allâ€‘sequence tallies ------------------------------------ */
+    /* 3. all‑sequence tallies ------------------------------------ */
     ex_all AS (
       SELECT p.protein, p.peptide, COUNT(*) AS cnt_all
       FROM   filtered f
@@ -1937,7 +2072,7 @@ function getPeptidePropsAll() {
       GROUP  BY protein
     ),
 
-    /* 4. uniqueâ€‘sequence tallies --------------------------------- */
+    /* 4. unique‑sequence tallies --------------------------------- */
     filtered_u AS ( SELECT DISTINCT protein, sequence FROM filtered ),
     ex_u AS (
       SELECT p.protein, p.peptide, COUNT(*) AS cnt_unique
@@ -1996,27 +2131,27 @@ function getPeptidePropsAll() {
 
 
 ```js
-/* Keeps the old name so downstream cells donâ€™t change */
+/* Keeps the old name so downstream cells don’t change */
 const peptidePropsAll = getPeptidePropsAll();
 ```
 
 ```js
 const histEl = histogramChart({
-  data      : await peptidePropsAll.toArray(),
+  data      : await (globalThis.__perfUtils?.perfAsync?.('sql: peptidePropsAll (histogram)', async () => await peptidePropsAll.toArray())),
   useUnique : seqSet === "Unique sequences"
 })
 ```
 
 ```js
-/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-   NetMHC-pan integration â€“ Class I & II
+/* ────────────────────────────────────────────────────────────────
+   NetMHC-pan integration – Class I & II
    - Appears *below* the existing dashboard cards for now
-â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+──────────────────────────────────────────────────────────────── */
 
 const statusBanner = html`<div style="margin:0.5rem 0; font-style:italic;"></div>`;
 function setBanner(msg) { statusBanner.textContent = msg; }
 
-/* â–¸ RUN buttons -------------------------------------------------- */
+/* ▸ RUN buttons -------------------------------------------------- */
 const runBtnI  = runButton("Run Class I (EL + BA)");
 const runBtnII = runButton("Run Class II (EL + BA)");
 
@@ -2028,7 +2163,7 @@ const trigII = Generators.input(runBtnII);
 
 ```js
 // Snapshot `getValue()` right now and again every time `view` fires.
-// No addEventListener anywhere â€” we rely purely on Generators.input(view).
+// No addEventListener anywhere — we rely purely on Generators.input(view).
 function snapshotOn(view, getValue) {
   return Generators.observe(change => {
     const push = () => change(getValue());
@@ -2046,7 +2181,7 @@ function snapshotOn(view, getValue) {
 ```
 
 ```js
-/* â–¸ state holders ------------------------------------------------ */
+/* ▸ state holders ------------------------------------------------ */
 const resultsArrayI = Mutable([]);
 const resultsArrayII = Mutable([]);
 
@@ -2055,7 +2190,7 @@ const excludedII = Mutable([]);     // peptides <11 or >30
 ```
 
 ```js
-/* â–¸ helpers to talk to IEDB -------------------------------------- */
+/* ▸ helpers to talk to IEDB -------------------------------------- */
 function buildBodyI(alleles, fasta) {
   return {
     run_stage_range: [1,1],
@@ -2127,7 +2262,7 @@ function rowsFromTable(tbl) {
   return tbl.table_data.map(r => Object.fromEntries(r.map((v,i)=>[keys[i],v])));
 }
 
-/* â–¸ peptide-upload helper (re-uses existing peptideFile) ---------- */
+/* ▸ peptide-upload helper (re-uses existing peptideFile) ---------- */
 async function parsePeptides(file) {
   if (!file) return [];
   const text = await file.text();
@@ -2140,7 +2275,7 @@ async function parsePeptides(file) {
     .filter(Boolean);
 }
 
-/* â–¸ parse uploaded peptide table with protein column ------------- */
+/* ▸ parse uploaded peptide table with protein column ------------- */
 async function parsePeptideTable(file) {
   if (!file) return [];
   const text = await file.text();
@@ -2167,7 +2302,7 @@ async function parsePeptideTable(file) {
 ```
 
 ```js
-/* committed protein id â€” reactive */
+/* committed protein id — reactive */
 function normalizeProteinId(v) {
   if (!v) return null;
   if (typeof v === "string") return v;
@@ -2176,7 +2311,7 @@ function normalizeProteinId(v) {
 }
 
 const committedProteinId = (() => {
-  const raw = proteinCommitted;        // â† establish reactive dependency
+  const raw = proteinCommitted;        // ← establish reactive dependency
   const id  = normalizeProteinId(raw);
   const out = id ? String(id).trim().toUpperCase() : null;
   return out;
@@ -2187,7 +2322,7 @@ const committedProteinId = (() => {
 ```
 
 ```js
-/* â”€â”€ Unified schema (snake_case) for Class I rows â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ── Unified schema (snake_case) for Class I rows ─────────────── */
 const keyMapI = {
   "peptide": "peptide",
   "allele": "allele",
@@ -2195,9 +2330,16 @@ const keyMapI = {
   "netmhcpan_ba percentile": "netmhcpan_ba_percentile"
 };
 // Cache rows already come in these 4 columns.
-// removed normalizeRowI_cache
+function normalizeRowI_cache(r) {
+  return {
+    allele: String(r.allele).toUpperCase(),    // keep HLA- prefix; pushdown uses exact match
+    peptide: String(r.peptide).toUpperCase(),
+    netmhcpan_el_percentile: +r.netmhcpan_el_percentile,  // already 2dp in slim file
+    netmhcpan_ba_percentile: +r.netmhcpan_ba_percentile
+  };
+}
 
-/* API table rows (display headers) â†’ only the 4 fields we keep */
+/* API table rows (display headers) → only the 4 fields we keep */
 function normalizeRowI_api(r) {
   return {
     allele: String(r["allele"] ?? r.allele).toUpperCase(),
@@ -2219,24 +2361,43 @@ const peptidesI = await (async () => {
 ```
 
 ```js
-console.groupCollapsed("ðŸ”Ž Alt window lengths");
+console.groupCollapsed("🔎 Alt window lengths");
 const winLens = peptideWindows.map(w => w.len);
 console.log("Total windows:", winLens.length);
-console.log("Len â‰¤7:",  winLens.filter(n => n<=7).length);
-console.log("8â€“14:",   winLens.filter(n => n>=8 && n<=14).length);
-console.log("â‰¥15:",    winLens.filter(n => n>=15).length);
+console.log("Len ≤7:",  winLens.filter(n => n<=7).length);
+console.log("8–14:",   winLens.filter(n => n>=8 && n<=14).length);
+console.log("≥15:",    winLens.filter(n => n>=15).length);
 console.groupEnd();
 
 ```
 
 ```js
-/* Class I cache preview for the committed protein â€” uses WORKSET */
-// removed cachePreviewI
+/* Class I cache preview for the committed protein — uses WORKSET */
+const cachePreviewI = await (async () => {
+  selectedI;
+  committedProteinId;
+
+  const allelesRaw = Array.from(alleleCtrl1.value || []);   // e.g. "HLA-A*01:01"
+  const pepsRaw    = peptidesIWorkset;
+
+  if (!committedProteinId || !allelesRaw.length || !pepsRaw.length) return [];
+
+  // Keep exact strings for pushdown; uppercase later in JS for merging
+  const cacheRows = await (globalThis.__perfUtils?.perfAsync?.('sql: cachePreviewI (netmhccalc)', async () => (await db.sql`
+      SELECT allele, peptide,
+             netmhcpan_el_percentile, netmhcpan_ba_percentile
+      FROM   netmhccalc
+      WHERE  allele  IN (${allelesRaw})
+        AND  peptide IN (${pepsRaw})
+    `).toArray()));
+
+  return cacheRows.map(normalizeRowI_cache);
+})();
 
 ```
 
 ```js
-/* merged rows for the chart â€” STRICT to workset */
+/* merged rows for the chart — STRICT to workset */
 const chartRowsI = (() => {
   selectedI;
   committedProteinId;
@@ -2247,6 +2408,13 @@ const chartRowsI = (() => {
 
   const map = new Map();
 
+  for (const r of cachePreviewI) {
+    const al = String(r.allele || "").toUpperCase();
+    const pp = String(r.peptide|| "").toUpperCase();
+    if (allowed.has(pp) && allelesNow.has(al)) {
+      map.set(`${al}|${pp}`, r);
+    }
+  }
   const apiRows = Array.isArray(runResultsI) ? runResultsI : [];
   for (const r of apiRows) {
     const al = String(r.allele || "").toUpperCase();
@@ -2267,7 +2435,7 @@ const NETMHC_CHUNK_SIZE = 1000;   // was ~25 before; now 1000 as requested
 ```
 
 ```js
-/* â–¸ RUN results â€“ Class I (per-protein workset; batch missing by 1000) */
+/* ▸ RUN results – Class I (per-protein workset; batch missing by 1000) */
 const runResultsI = await (async () => {
   trigI;
 
@@ -2277,16 +2445,41 @@ const runResultsI = await (async () => {
   if (!allelesSel.length) { setBanner("Class I: no alleles selected."); return []; }
   if (!pepsSel.length)    { setBanner("Class I: no peptides to run.");  return []; }
 
-  setBanner(`Class I: preparing ${pepsSel.length} peptides.`);
+  setBanner(`Class I: checking cache for ${pepsSel.length} peptides…`);
 
   // Exact match (no UPPER/REPLACE) to enable pushdown
-  const cacheRows = [];
+  const cacheRows = await (globalThis.__perfUtils?.perfAsync?.('sql: cache check (netmhccalc)', async () => (await db.sql`
+      SELECT allele, peptide,
+             netmhcpan_el_percentile, netmhcpan_ba_percentile
+      FROM   netmhccalc
+      WHERE  allele  IN (${allelesSel})
+        AND  peptide IN (${pepsSel})
+    `).toArray()));
 
+  const normCache = cacheRows.map(normalizeRowI_cache);
+  const cacheKey  = r => `${r.allele}|${r.peptide}`;
+  const cacheSet  = new Set(normCache.map(cacheKey));
 
+  const missingByAllele = new Map();
+  for (const al of allelesSel) {
+    const alU = String(al).toUpperCase();
+    const miss = [];
+    for (const p of pepsSel) {
+      const pU = String(p).toUpperCase();
+      if (!cacheSet.has(`${alU}|${pU}`)) miss.push(p);
+    }
+    if (miss.length) missingByAllele.set(al, miss);
+  }
 
+  if (missingByAllele.size === 0) {
+    const merged = [...new Map(normCache.map(r => [cacheKey(r), r])).values()];
+    resultsArrayI.value = merged;
+    setBanner(`Class I: all ${merged.length} rows from cache ✅`);
+    return merged;
+  }
 
-  const allelesToQuery = allelesSel;
-  const unionMissing   = pepsSel;
+  const allelesToQuery = [...missingByAllele.keys()];
+  const unionMissing   = [...new Set([].concat(...allelesToQuery.map(al => missingByAllele.get(al))))];
 
   const chunks = [];
   for (let i = 0; i < unionMissing.length; i += NETMHC_CHUNK_SIZE) {
@@ -2297,11 +2490,11 @@ const runResultsI = await (async () => {
   for (let i = 0; i < chunks.length; i++) {
     const chunk = chunks[i];
     try {
-      setBanner(`Class I: submitting chunk ${i+1}/${chunks.length} (${chunk.length} peptides)â€¦`);
+      setBanner(`Class I: submitting chunk ${i+1}/${chunks.length} (${chunk.length} peptides)…`);
       const fasta = chunk.map((p,idx)=>`>p${idx+1}\n${p}`).join("\n");
 
       const id  = await submit(buildBodyI(allelesToQuery, fasta));
-      setBanner(`Class I: polling chunk ${i+1}/${chunks.length}â€¦`);
+      setBanner(`Class I: polling chunk ${i+1}/${chunks.length}…`);
       const tbl = await poll(id);
       const apiRows = rowsFromTable(tbl);
 
@@ -2313,30 +2506,32 @@ const runResultsI = await (async () => {
       await new Promise(res => setTimeout(res, 150));
     } catch (err) {
       console.error(`Chunk ${i+1} failed:`, err);
-      setBanner(`Class I: chunk ${i+1} failed (${err.message}). Continuingâ€¦`);
+      setBanner(`Class I: chunk ${i+1} failed (${err.message}). Continuing…`);
       await new Promise(res => setTimeout(res, 250));
     }
   }
 
   // merge cache + API (API wins)
   const map = new Map();
+  for (const r of normCache) map.set(`${r.allele}|${r.peptide}`, r);
   for (const r of apiRowsAll) map.set(`${r.allele}|${r.peptide}`, r);
 
-  const out     = [...map.values()];
-  resultsArrayI.value = out;
+  const merged = [...map.values()];
+  resultsArrayI.value = merged;
 
-  setBanner(`Class I done - ${out.length} rows.`);
-  return out;
+  const uniqueApi = new Set(apiRowsAll.map(r => `${r.allele}|${r.peptide}`)).size;
+  setBanner(`Class I done — ${merged.length} rows (cache ${cacheSet.size} + new ${uniqueApi}).`);
+  return merged;
 })();
 
 ```
 
 ```js
-/* â–¸ RUN pipeline â€“ Class II -------------------------------------- */
+/* ▸ RUN pipeline – Class II -------------------------------------- */
 trigII;                     // make cell reactive
 (async () => {
   if (!peptideFile) return;
-  setBanner("Class II: startingâ€¦");
+  setBanner("Class II: starting…");
 
   const alleles = Array.from(alleleCtrl2.value || []);  // Class II
   const allPeps = await parsePeptides(peptideFile);
@@ -2349,10 +2544,10 @@ trigII;                     // make cell reactive
   const fasta = okPeps.map((p,i)=>`>p${i+1}\n${p}`).join("\n");
   try {
     const id  = await submit(buildBodyII(alleles, fasta));
-    setBanner("Class II: pollingâ€¦");
+    setBanner("Class II: polling…");
     const tbl = await poll(id);
     resultsArrayII.value = rowsFromTable(tbl);
-    setBanner(`Class II done â€” ${resultsArrayII.value.length} rows.`);
+    setBanner(`Class II done — ${resultsArrayII.value.length} rows.`);
   } catch (err) {
     setBanner(`Class II error: ${err.message}`);
   }
@@ -2360,7 +2555,7 @@ trigII;                     // make cell reactive
 ```
 
 ```js
-/* â–¸ CSV download helpers ----------------------------------------- */
+/* ▸ CSV download helpers ----------------------------------------- */
 function makeDownloadButton(label, rowsMut, filename) {
   const btn = Inputs.button(label);
   btn.onclick = () => {
@@ -2394,13 +2589,13 @@ const downloadCSVII = downloadButton({
 ```
 
 ```js
-/* â–¸ uploaded peptides table + committed-protein slice (Class I) -- */
+/* ▸ uploaded peptides table + committed-protein slice (Class I) -- */
 const uploadedPeptidesTable = await parsePeptideTable(peptideFile);
 
 
 /* peptides for Class I, scoped to committed protein (reactive) */
 const peptidesICommitted = (() => {
-  const pid = committedProteinId;         // â† dependency
+  const pid = committedProteinId;         // ← dependency
   if (!pid) return [];
   return peptidesClean
     .filter(r => (r.protein || "").toUpperCase() === pid)
@@ -2420,7 +2615,7 @@ const peptidesICommitted = (() => {
 
 
 ```js
-/* external radios â€“ place these with your other controls */
+/* external radios – place these with your other controls */
 const percentileModeInput = Inputs.radio(["EL","BA"], {
   label : "Percentile type:",
   value : "EL"
@@ -2432,7 +2627,7 @@ const mhcClassInput = Inputs.radio(["Class I","Class II"], {
 const percMode = Generators.input(percentileModeInput);
 const mhcClass = Generators.input(mhcClassInput);
 
-/* allele plot â€” reactive to allele picks and Apply (protein) */
+/* allele plot — reactive to allele picks and Apply (protein) */
 selectedI;
 committedProteinId;
 
@@ -2455,7 +2650,7 @@ import {comboSelectLazy} from "./components/comboSelectLazy.js";
 
 ```js
 /* HLA fetchers (on-demand from DuckDB) -------------------------- */
-const PAGE_LIMIT_DEFAULT = 50;  // when searching (â‰¥2 chars)
+const PAGE_LIMIT_DEFAULT = 50;  // when searching (≥2 chars)
 const PAGE_LIMIT_INITIAL = 20;  // first display when q === ""
 
 /* cls: "I" | "II"; q: string; offset/limit: paging */
@@ -2464,7 +2659,7 @@ async function fetchAlleles(cls, q = "", offset = 0, limit = PAGE_LIMIT_DEFAULT)
 
   if (!q || q.trim().length < 2) {
     // Initial list (no filter): fast DISTINCT over the pre-trimmed set
-    const rows = (await db.sql`
+    const rows = await (globalThis.__perfUtils?.perfAsync?.(`sql: fetchAlleles initial ${clsNorm}`, async () => (await db.sql`
       WITH base AS (
         SELECT 'I'  AS class, TRIM("Class I")  AS allele FROM hla
         WHERE "Class I" IS NOT NULL AND LENGTH(TRIM("Class I")) > 0
@@ -2480,14 +2675,14 @@ async function fetchAlleles(cls, q = "", offset = 0, limit = PAGE_LIMIT_DEFAULT)
       WHERE class = ${clsNorm}
       ORDER BY allele
       LIMIT ${PAGE_LIMIT_INITIAL} OFFSET ${offset}
-    `).toArray();
+    `).toArray()))
 
     return rows.map(r => r.allele).filter(s => s && s.trim().length);
   }
 
   // Search path (q.length >= 2)
   const like = `%${q}%`;
-  const rows = (await db.sql`
+  const rows = await (globalThis.__perfUtils?.perfAsync?.(`sql: fetchAlleles search ${clsNorm}`, async () => (await db.sql`
     WITH base AS (
       SELECT 'I'  AS class, TRIM("Class I")  AS allele FROM hla
       WHERE "Class I" IS NOT NULL AND LENGTH(TRIM("Class I")) > 0
@@ -2503,7 +2698,7 @@ async function fetchAlleles(cls, q = "", offset = 0, limit = PAGE_LIMIT_DEFAULT)
     WHERE class = ${clsNorm} AND allele ILIKE ${like}
     ORDER BY allele
     LIMIT ${limit} OFFSET ${offset}
-  `).toArray();
+  `).toArray()))
 
   return rows.map(r => r.allele).filter(s => s && s.trim().length);
 }
@@ -2511,10 +2706,10 @@ async function fetchAlleles(cls, q = "", offset = 0, limit = PAGE_LIMIT_DEFAULT)
 ```
 
 ```js
-/* â–¸ allele lists (lazy) ----------------------------------------- */
+/* ▸ allele lists (lazy) ----------------------------------------- */
 const alleleCtrl1 = comboSelectLazy({
   label: "Class I alleles (MHCI)",
-  placeholder: "Type class-I alleleâ€¦",
+  placeholder: "Type class-I allele…",
   fontFamily: "'Roboto', sans-serif",
   initialLimit: 20,
   pageLimit: 50,
@@ -2524,7 +2719,7 @@ const selectedI = Generators.input(alleleCtrl1);
 
 const alleleCtrl2 = comboSelectLazy({
   label: "Class II alleles (MHCII)",
-  placeholder: "Type class-II alleleâ€¦",
+  placeholder: "Type class-II allele…",
   fontFamily: "'Roboto', sans-serif",
   initialLimit: 20,
   pageLimit: 50,
