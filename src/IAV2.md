@@ -229,7 +229,6 @@ const db = await getOrCreateDB(() =>
   DuckDBClient.of({
     // Keep local attachments for these tables
     sequencecalc: FileAttachment("data/IAV8_sequencecalc.parquet").parquet(),
-    netmhccalc: FileAttachment("data/iedb_netmhc_slim.parquet").parquet(),
     hla: FileAttachment("data/HLAlistClassI.parquet").parquet()
   })
 );
@@ -2382,14 +2381,8 @@ const cachePreviewI = await (async () => {
 
   if (!committedProteinId || !allelesRaw.length || !pepsRaw.length) return [];
 
-  // Keep exact strings for pushdown; uppercase later in JS for merging
-  const cacheRows = await (globalThis.__perfUtils?.perfAsync?.('sql: cachePreviewI (netmhccalc)', async () => (await db.sql`
-      SELECT allele, peptide,
-             netmhcpan_el_percentile, netmhcpan_ba_percentile
-      FROM   netmhccalc
-      WHERE  allele  IN (${allelesRaw})
-        AND  peptide IN (${pepsRaw})
-    `).toArray()));
+  // No local cache; skip DB lookup
+  const cacheRows = [];
 
   return cacheRows.map(normalizeRowI_cache);
 })();
@@ -2447,14 +2440,8 @@ const runResultsI = await (async () => {
 
   setBanner(`Class I: checking cache for ${pepsSel.length} peptides…`);
 
-  // Exact match (no UPPER/REPLACE) to enable pushdown
-  const cacheRows = await (globalThis.__perfUtils?.perfAsync?.('sql: cache check (netmhccalc)', async () => (await db.sql`
-      SELECT allele, peptide,
-             netmhcpan_el_percentile, netmhcpan_ba_percentile
-      FROM   netmhccalc
-      WHERE  allele  IN (${allelesSel})
-        AND  peptide IN (${pepsSel})
-    `).toArray()));
+  // No local cache available
+  const cacheRows = [];
 
   const normCache = cacheRows.map(normalizeRowI_cache);
   const cacheKey  = r => `${r.allele}|${r.peptide}`;
