@@ -182,10 +182,7 @@ banner.className = "banner__bg";
   </div>
 
   <!-- Row 3 Â· 80 % Â· two equal cards -->
-  <div style="display:grid; grid-template-columns:repeat(2,1fr); gap:1rem;">
-    <div class="card">${heatmapSVG}</div>
-    <div class="card">${histEl}</div>
-  </div>
+  <div class="card">${heatmapSVG}</div>
 
   <!-- Row 4 Â· 80 % Â· single wide card -->
   <div class="card" style="min-height:200px;">
@@ -214,7 +211,6 @@ import {makePeptideScale, colourAA} from "./components/palettes.js";
 import { peptideHeatmap } from "./components/peptideHeatmap.js";
 import {areaChart} from "./components/areaChart.js";
 import {sequenceCompareChart} from "./components/sequenceCompareChart.js";
-import {histogramChart} from "./components/histogramChart.js";
 import {alleleChart} from "./components/alleleChart.js";
 import {aaColourKey} from "./components/aaColourKey.js";
 import {runButton} from "./components/runButton.js";
@@ -2237,12 +2233,7 @@ function getPeptidePropsAll() {
 const peptidePropsAll = getPeptidePropsAll();
 ```
 
-```js
-const histEl = histogramChart({
-  data      : await (globalThis.__perfUtils?.perfAsync?.('sql: peptidePropsAll (histogram)', async () => await peptidePropsAll.toArray())),
-  useUnique : seqSet === "Unique sequences"
-})
-```
+ 
 
 ```js
 /* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
