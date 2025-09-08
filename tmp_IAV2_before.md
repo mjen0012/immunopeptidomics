@@ -1,4 +1,4 @@
----
+﻿---
 theme: [wide, air, alt]
 title: Influenza A (IAV) with netMHC
 slug: IAVnew
@@ -220,44 +220,6 @@ import {aaColourKey} from "./components/aaColourKey.js";
 import {runButton} from "./components/runButton.js";
 import {peptideColourKey} from "./components/peptideColourKey.js";
 import * as d3 from "npm:d3";
-```
-
-```js
-/* Peptide Query Data (unified tallies) */
-const peptideProps = {
-  toArray: async () => {
-    const start = Number(selectedStart);
-    const len   = Number(selectedLength);
-    if (!(start > 0 && len > 0)) return [];
-
-    const rows = await getWindowTalliesRows([{ start, len }]);
-
-    const sel = selectedPeptide;
-    if (sel && !rows.some(r => String(r.peptide).toUpperCase() === String(sel).toUpperCase())) {
-      const tA = rows[0]?.total_all ?? 0;
-      const tU = rows[0]?.total_unique ?? 0;
-      rows.push({
-        peptide           : sel,
-        frequency_all     : 0,
-        total_all         : tA,
-        proportion_all    : 0.0,
-        frequency_unique  : 0,
-        total_unique      : tU,
-        proportion_unique : 0.0
-      });
-    }
-
-    return rows.map(r => ({
-      peptide            : r.peptide,
-      frequency_all      : Number(r.frequency_all),
-      total_all          : Number(r.total_all),
-      proportion_all     : Number(r.proportion_all),
-      frequency_unique   : Number(r.frequency_unique),
-      total_unique       : Number(r.total_unique),
-      proportion_unique  : Number(r.proportion_unique)
-    }));
-  }
-};
 ```
 
 ```js
@@ -801,180 +763,6 @@ const peptideWindows = (() => {
 ```
 
 ```js
-/* ------------------------------------------------------------------
-   Unified cached window tallies (per (start,len) over filtered set)
-   - Returns rows: start,len,peptide, frequency_all/unique, total_all/unique,
-                   proportion_all/unique
-   - Cached by committed protein, active filters, and windows
--------------------------------------------------------------------*/
-if (!globalThis.__windowTalliesCache) {
-  globalThis.__windowTalliesCache = { key: null, rows: [] };
-}
-
-async function getWindowTalliesRows(windows) {
-  const pid = committedProteinId; // reactive dep
-  const wins = (windows || [])
-    .map(w => ({ start: Math.trunc(w.start), len: Math.trunc(w.len) }))
-    .filter(w => Number.isFinite(w.start) && w.start > 0 && Number.isFinite(w.len) && w.len > 0);
-
-  const winsKey = wins
-    .map(w => `${w.start}|${w.len}`)
-    .sort((a,b)=>a.localeCompare(b))
-    .join(",");
-
-  const filterKey = JSON.stringify({
-    protein         : pid,
-    genotypes       : [...genotypesCommitted].sort(),
-    hosts           : [...hostsCommitted].sort(),
-    hostCategory    : [...hostCategoryCommitted].sort(),
-    countries       : [...countriesCommitted].sort(),
-    collectionDates : collectionDatesCommitted,
-    releaseDates    : releaseDatesCommitted,
-    windowsKey      : winsKey
-  });
-
-  if (globalThis.__windowTalliesCache?.key === filterKey) {
-    return globalThis.__windowTalliesCache.rows || [];
-  }
-
-  if (!wins.length) {
-    globalThis.__windowTalliesCache = { key: filterKey, rows: [] };
-    return [];
-  }
-
-  const q = await db.sql`
-    WITH
-    params(start, len) AS (
-      VALUES ${joinSql(wins.map(w => sql`(${w.start}, ${w.len})`))}
-    ),
-
-    filtered AS (
-      /* Sequences scoped to committed protein via 'proteins' view */
-      SELECT sequence
-      FROM   proteins
-      WHERE  1=1
-        AND ${ genotypesCommitted.length
-                ? sql`genotype IN (${ genotypesCommitted })` : sql`TRUE` }
-        AND ${ hostsCommitted.length
-                ? sql`host IN (${ hostsCommitted })` : sql`TRUE` }
-        AND ${
-              hostCategoryCommitted.includes('Human') &&
-              !hostCategoryCommitted.includes('Non-human')
-                ? sql`host = 'Homo sapiens'`
-                : (!hostCategoryCommitted.includes('Human') &&
-                   hostCategoryCommitted.includes('Non-human'))
-                    ? sql`host <> 'Homo sapiens'`
-                    : sql`TRUE`
-            }
-        AND ${ countriesCommitted.length
-                ? sql`country IN (${ countriesCommitted })` : sql`TRUE` }
-
-        AND ${
-          collectionDatesCommitted.from || collectionDatesCommitted.to
-            ? sql`
-                TRY_CAST(
-                  CASE
-                    WHEN collection_date IS NULL OR collection_date = '' THEN NULL
-                    WHEN LENGTH(collection_date)=4  THEN collection_date || '-01-01'
-                    WHEN LENGTH(collection_date)=7  THEN collection_date || '-01'
-                    ELSE collection_date
-                  END AS DATE
-                )
-                ${
-                  collectionDatesCommitted.from && collectionDatesCommitted.to
-                    ? sql`BETWEEN CAST(${collectionDatesCommitted.from} AS DATE)
-                             AND   CAST(${collectionDatesCommitted.to  } AS DATE)`
-                    : collectionDatesCommitted.from
-                        ? sql`>= CAST(${collectionDatesCommitted.from} AS DATE)`
-                        : sql`<= CAST(${collectionDatesCommitted.to   } AS DATE)`
-                }
-              ` : sql`TRUE`
-        }
-
-        AND ${
-          releaseDatesCommitted.from || releaseDatesCommitted.to
-            ? sql`
-                TRY_CAST(
-                  CASE
-                    WHEN release_date IS NULL OR release_date = '' THEN NULL
-                    WHEN LENGTH(release_date)=4 THEN release_date || '-01-01'
-                    WHEN LENGTH(release_date)=7 THEN release_date || '-01'
-                    ELSE release_date
-                  END AS DATE
-                )
-                ${
-                  releaseDatesCommitted.from && releaseDatesCommitted.to
-                    ? sql`BETWEEN CAST(${releaseDatesCommitted.from} AS DATE)
-                             AND   CAST(${releaseDatesCommitted.to  } AS DATE)`
-                    : releaseDatesCommitted.from
-                        ? sql`>= CAST(${releaseDatesCommitted.from} AS DATE)`
-                        : sql`<= CAST(${releaseDatesCommitted.to   } AS DATE)`
-                }
-              ` : sql`TRUE`
-        }
-    ),
-
-    ex_all AS (
-      SELECT p.start, p.len,
-             SUBSTR(f.sequence, CAST(p.start AS BIGINT), CAST(p.len AS BIGINT)) AS peptide
-      FROM filtered f
-      CROSS JOIN params p
-    ),
-    cnt_all AS (
-      SELECT start, len, peptide, COUNT(*) AS cnt_all
-      FROM   ex_all
-      GROUP  BY start, len, peptide
-    ),
-    tot_all AS (
-      SELECT start, len, SUM(cnt_all) AS total_all
-      FROM   cnt_all
-      GROUP  BY start, len
-    ),
-
-    filtered_u AS ( SELECT DISTINCT sequence FROM filtered ),
-    ex_u AS (
-      SELECT p.start, p.len,
-             SUBSTR(u.sequence, CAST(p.start AS BIGINT), CAST(p.len AS BIGINT)) AS peptide
-      FROM filtered_u u
-      CROSS JOIN params p
-    ),
-    cnt_u AS (
-      SELECT start, len, peptide, COUNT(*) AS cnt_unique
-      FROM   ex_u
-      GROUP  BY start, len, peptide
-    ),
-    tot_u AS (
-      SELECT start, len, SUM(cnt_unique) AS total_unique
-      FROM   cnt_u
-      GROUP  BY start, len
-    )
-
-    SELECT
-      COALESCE(a.start, u.start)      AS start,
-      COALESCE(a.len,   u.len)        AS len,
-      COALESCE(a.peptide, u.peptide)  AS peptide,
-      COALESCE(a.cnt_all,   0)::INT   AS frequency_all,
-      COALESCE(tA.total_all,0)::INT   AS total_all,
-      CASE WHEN tA.total_all IS NULL OR tA.total_all = 0
-           THEN 0.0 ELSE a.cnt_all * 1.0 / tA.total_all END AS proportion_all,
-      COALESCE(u.cnt_unique,0)::INT   AS frequency_unique,
-      COALESCE(tU.total_unique,0)::INT AS total_unique,
-      CASE WHEN tU.total_unique IS NULL OR tU.total_unique = 0
-           THEN 0.0 ELSE u.cnt_unique * 1.0 / tU.total_unique END AS proportion_unique
-    FROM        cnt_all a
-    FULL  JOIN  cnt_u   u USING (start, len, peptide)
-    LEFT  JOIN  tot_all tA USING (start, len)
-    LEFT  JOIN  tot_u   tU USING (start, len)
-  `;
-
-  const rows = await q.toArray();
-  globalThis.__windowTalliesCache = { key: filterKey, rows };
-  return rows;
-}
-
-```
-
-```js
 // Debug: inputs to topCandidatesByWindow
 try {
   const pid = committedProteinId;
@@ -1010,43 +798,154 @@ try {
 } catch (e) { try { console.warn('[IAV2] debug inputs failed', e); } catch {} }
 
 const topCandidatesByWindow = peptideWindows.length === 0 ? []
-: await (globalThis.__perfUtils?.perfAsync?.('sql: topCandidatesByWindow (tallies->rank)', async () => {
-  const rows = await getWindowTalliesRows(peptideWindows);
+: await (globalThis.__perfUtils?.perfAsync?.('sql: topCandidatesByWindow', async () => {
+  const q = await db.sql`
+  WITH
+  params(start, len) AS (
+    VALUES ${joinSql(peptideWindows.map(w => sql`(${Math.trunc(w.start)}, ${Math.trunc(w.len)})`))}
+  ),
 
-  // Group by window and compute ranks by proportion_all and proportion_unique
-  const byWin = d3.group(rows, r => `${r.start}|${r.len}`);
-  const out = [];
-  for (const [k, arr] of byWin) {
-    const orderAll = [...arr].sort((a,b) => d3.descending(+a.proportion_all, +b.proportion_all) || d3.ascending(String(a.peptide), String(b.peptide)));
-    const rAll = new Map(orderAll.map((r,i)=>[r.peptide, i+1]));
-    const orderU = [...arr].sort((a,b) => d3.descending(+a.proportion_unique, +b.proportion_unique) || d3.ascending(String(a.peptide), String(b.peptide)));
-    const rU = new Map(orderU.map((r,i)=>[r.peptide, i+1]));
+  filtered AS (
+    /* We only need sequence after filtering; 'proteins' is already scoped to the committed protein */
+    SELECT sequence
+    FROM   proteins
+    WHERE  1=1  -- protein scoped by proteins_cache
 
-    for (const r of arr) {
-      const rrAll = rAll.get(r.peptide) ?? Number.POSITIVE_INFINITY;
-      const rrU   = rU.get(r.peptide)   ?? Number.POSITIVE_INFINITY;
-      if (rrAll <= 5 || rrU <= 5) {
-        out.push({
-          start : Number(r.start),
-          len   : Number(r.len),
-          peptide: r.peptide,
-          r_all : rrAll,
-          r_u   : rrU,
-          proportion_all   : Number(r.proportion_all),
-          proportion_unique: Number(r.proportion_unique),
-          frequency_all    : Number(r.frequency_all),
-          total_all        : Number(r.total_all),
-          frequency_unique : Number(r.frequency_unique),
-          total_unique     : Number(r.total_unique)
-        });
+      AND ${ genotypesCommitted.length
+              ? sql`genotype IN (${ genotypesCommitted })` : sql`TRUE` }
+      AND ${ hostsCommitted.length
+              ? sql`host IN (${ hostsCommitted })` : sql`TRUE` }
+      AND ${
+            hostCategoryCommitted.includes('Human') &&
+            !hostCategoryCommitted.includes('Non-human')
+              ? sql`host = 'Homo sapiens'`
+              : (!hostCategoryCommitted.includes('Human') &&
+                 hostCategoryCommitted.includes('Non-human'))
+                  ? sql`host <> 'Homo sapiens'`
+                  : sql`TRUE`
+          }
+      AND ${ countriesCommitted.length
+              ? sql`country IN (${ countriesCommitted })` : sql`TRUE` }
+
+      AND ${
+        collectionDatesCommitted.from || collectionDatesCommitted.to
+          ? sql`
+              TRY_CAST(
+                CASE
+                  WHEN collection_date IS NULL OR collection_date = '' THEN NULL
+                  WHEN LENGTH(collection_date)=4  THEN collection_date || '-01-01'
+                  WHEN LENGTH(collection_date)=7  THEN collection_date || '-01'
+                  ELSE collection_date
+                END AS DATE
+              )
+              ${
+                collectionDatesCommitted.from && collectionDatesCommitted.to
+                  ? sql`BETWEEN CAST(${collectionDatesCommitted.from} AS DATE)
+                           AND   CAST(${collectionDatesCommitted.to  } AS DATE)`
+                  : collectionDatesCommitted.from
+                      ? sql`>= CAST(${collectionDatesCommitted.from} AS DATE)`
+                      : sql`<= CAST(${collectionDatesCommitted.to   } AS DATE)`
+              }
+            ` : sql`TRUE`
       }
-    }
-  }
-  out.sort((a,b) => (a.start-b.start) || (a.len-b.len) || (a.r_all-b.r_all) || (a.r_u-b.r_u) || a.peptide.localeCompare(b.peptide));
-  try { console.debug('[IAV2] topCandidates done', { rows: out.length }); } catch {}
-  return out;
-}))
 
+      AND ${
+        releaseDatesCommitted.from || releaseDatesCommitted.to
+          ? sql`
+              TRY_CAST(
+                CASE
+                  WHEN release_date IS NULL OR release_date = '' THEN NULL
+                  WHEN LENGTH(release_date)=4 THEN release_date || '-01-01'
+                  WHEN LENGTH(release_date)=7 THEN release_date || '-01'
+                  ELSE release_date
+                END AS DATE
+              )
+              ${
+                releaseDatesCommitted.from && releaseDatesCommitted.to
+                  ? sql`BETWEEN CAST(${releaseDatesCommitted.from} AS DATE)
+                           AND   CAST(${releaseDatesCommitted.to  } AS DATE)`
+                  : releaseDatesCommitted.from
+                      ? sql`>= CAST(${releaseDatesCommitted.from} AS DATE)`
+                      : sql`<= CAST(${releaseDatesCommitted.to   } AS DATE)`
+              }
+            ` : sql`TRUE`
+      }
+  ),
+
+  /* downstream unchanged… */
+  ex_all AS (
+    SELECT p.start, p.len,
+           SUBSTR(f.sequence, CAST(p.start AS BIGINT), CAST(p.len AS BIGINT)) AS peptide
+    FROM filtered f
+    CROSS JOIN params p
+  ),
+  cnt_all AS (
+    SELECT start, len, peptide, COUNT(*) AS cnt_all
+    FROM   ex_all
+    GROUP  BY start, len, peptide
+  ),
+  tot_all AS (
+    SELECT start, len, SUM(cnt_all) AS total_all
+    FROM   cnt_all
+    GROUP  BY start, len
+  ),
+
+  filtered_u AS ( SELECT DISTINCT sequence FROM filtered ),
+  ex_u AS (
+    SELECT p.start, p.len,
+           SUBSTR(u.sequence, CAST(p.start AS BIGINT), CAST(p.len AS BIGINT)) AS peptide
+    FROM filtered_u u
+    CROSS JOIN params p
+  ),
+  cnt_u AS (
+    SELECT start, len, peptide, COUNT(*) AS cnt_unique
+    FROM   ex_u
+    GROUP  BY start, len, peptide
+  ),
+  tot_u AS (
+    SELECT start, len, SUM(cnt_unique) AS total_unique
+    FROM   cnt_u
+    GROUP  BY start, len
+  ),
+
+  combined AS (
+    SELECT
+      COALESCE(a.start, u.start)      AS start,
+      COALESCE(a.len,   u.len)        AS len,
+      COALESCE(a.peptide, u.peptide)  AS peptide,
+      COALESCE(a.cnt_all,   0)::INT   AS frequency_all,
+      COALESCE(tA.total_all,0)::INT   AS total_all,
+      CASE WHEN tA.total_all IS NULL OR tA.total_all = 0
+           THEN 0.0 ELSE a.cnt_all * 1.0 / tA.total_all END AS proportion_all,
+      COALESCE(u.cnt_unique,0)::INT   AS frequency_unique,
+      COALESCE(tU.total_unique,0)::INT AS total_unique,
+      CASE WHEN tU.total_unique IS NULL OR tU.total_unique = 0
+           THEN 0.0 ELSE u.cnt_unique * 1.0 / tU.total_unique END AS proportion_unique
+    FROM        cnt_all a
+    FULL  JOIN  cnt_u   u USING (start, len, peptide)
+    LEFT  JOIN  tot_all tA USING (start, len)
+    LEFT  JOIN  tot_u   tU USING (start, len)
+  ),
+
+  ranked AS (
+    SELECT *,
+           ROW_NUMBER() OVER (PARTITION BY start, len ORDER BY proportion_all DESC, peptide)   AS r_all,
+           ROW_NUMBER() OVER (PARTITION BY start, len ORDER BY proportion_unique DESC, peptide) AS r_u
+    FROM combined
+  )
+
+  SELECT start, len, peptide, r_all, r_u,
+         proportion_all,  proportion_unique,
+         frequency_all,   total_all,
+         frequency_unique,total_unique
+  FROM   ranked
+  WHERE  r_all <= 5 OR r_u <= 5
+  ORDER  BY start, len, r_all, r_u, peptide;
+`;
+  const arr = await q.toArray();
+  try { console.debug('[IAV2] topCandidates done', { rows: arr.length }); } catch {}
+  return arr;
+}))
 
 ```
 
@@ -1652,7 +1551,7 @@ const setSelectedLength = x => selectedLength.value = x;
 
 ```js
 /* Peptide Query Data */
-const peptideProps_sqlDeprecated = db.sql`
+const peptideProps = db.sql`
 WITH
 params AS (
   SELECT
@@ -2017,7 +1916,7 @@ ORDER BY facet, position, aminoacid
  * 1.  Prepare an in-memory table of all aligned peptides
  *****************************************************************/
 const peptideParams = peptidesAligned
-  .filter(d => d.peptide_aligned && d.start && String(d.protein || '').toUpperCase() === committedProteinId)   // only usable rows (committed protein only)
+  .filter(d => d.peptide_aligned && d.start)   // only usable rows
   .map(d => ({
     protein : d.protein,
     peptide : d.peptide_aligned,
@@ -2034,7 +1933,7 @@ const joinSql = (arr, sep = sql`, `) =>
  * 2 · build VALUES rows for every uploaded peptide
  *****************************************************************/
 const peptideValues = peptidesAligned
-  .filter(d => d.peptide_aligned && d.start && String(d.protein || '').toUpperCase() === committedProteinId)          // skip unusable rows (committed protein only)
+  .filter(d => d.peptide_aligned && d.start)          // skip unusable rows
   .map(r =>
     sql`(${r.protein}, ${r.peptide_aligned},
          ${r.start}, ${r.aligned_length})`
@@ -2060,7 +1959,7 @@ if (!globalThis.__peptideCache) {
  *     • any non‑protein filter changes, OR                          *
  *     • the uploaded peptide set changes (length)                   *
  ********************************************************************/
-function getPeptidePropsAll_old() {
+function getPeptidePropsAll() {
 
   /* 1. build a key that now ALSO tracks the peptide list size */
   const filterKey = JSON.stringify({
@@ -2224,77 +2123,6 @@ function getPeptidePropsAll_old() {
   `;
 
   /* ----- update cache & return ----------------------------------- */
-  globalThis.__peptideCache = { key: filterKey, table };
-  return table;
-}
-
-``` 
-
-```js
-/* New: getPeptidePropsAll using unified tallies (single protein) */
-function getPeptidePropsAll() {
-  const pid = committedProteinId; // reactive
-
-  // uploaded peptides for committed protein only
-  const uploaded = peptidesAligned
-    .filter(d => d.peptide_aligned && d.start && String(d.protein || '').toUpperCase() === pid);
-  const uploadedSet = new Set(uploaded.map(d => String(d.peptide_aligned).toUpperCase()));
-
-  // windows set from uploaded peptides
-  const windows = [...new Map(
-    uploaded.map(r => [`${r.start}|${r.aligned_length}`, { start: +r.start, len: +r.aligned_length }])
-  ).values()];
-
-  const filterKey = JSON.stringify({
-    protein         : pid,
-    genotypes       : [...genotypesCommitted].sort(),
-    hosts           : [...hostsCommitted].sort(),
-    hostCategory    : [...hostCategoryCommitted].sort(),
-    countries       : [...countriesCommitted].sort(),
-    collectionDates : collectionDatesCommitted,
-    releaseDates    : releaseDatesCommitted,
-    nPeptides       : uploadedSet.size,
-    windowsKey      : windows.map(w => `${w.start}|${w.len}`).sort().join(',')
-  });
-
-  if (globalThis.__peptideCache?.key === filterKey && globalThis.__peptideCache.table) {
-    return globalThis.__peptideCache.table;
-  }
-
-  if (!uploadedSet.size || !windows.length) {
-    const empty = { toArray: async () => [] };
-    globalThis.__peptideCache = { key: filterKey, table: empty };
-    return empty;
-  }
-
-  const table = {
-    toArray: async () => {
-      const tallies = await getWindowTalliesRows(windows);
-      const wanted = uploadedSet;
-
-      const byPep = d3.group(tallies.filter(r => wanted.has(String(r.peptide).toUpperCase())), r => r.peptide);
-      const out = [];
-      for (const [pep, arr] of byPep) {
-        const frequency_all   = d3.sum(arr, r => +r.frequency_all);
-        const frequency_unique= d3.sum(arr, r => +r.frequency_unique);
-        const total_all       = arr[0]?.total_all ?? 0;
-        const total_unique    = arr[0]?.total_unique ?? 0;
-        out.push({
-          protein            : proteinCommitted,
-          peptide            : pep,
-          frequency_all,
-          total_all,
-          proportion_all     : total_all ? (frequency_all / total_all) : 0,
-          frequency_unique,
-          total_unique,
-          proportion_unique  : total_unique ? (frequency_unique / total_unique) : 0
-        });
-      }
-      out.sort((a,b) => d3.descending(+a.proportion_all, +b.proportion_all) || a.peptide.localeCompare(b.peptide));
-      return out;
-    }
-  };
-
   globalThis.__peptideCache = { key: filterKey, table };
   return table;
 }
@@ -2896,3 +2724,4 @@ const committedII       = snapshotOn(runBtnII, () => Array.from(alleleCtrl2.valu
 
 
 ```
+
