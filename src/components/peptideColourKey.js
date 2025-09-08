@@ -29,7 +29,10 @@ export function peptideColourKey({
   isAllele     = false,       // true → show percentile blocks
   mode         = "EL",        // "EL" | "BA" or an Observable input with .value
   categories   = [],          // attribute mode: strings, sorted & present
-  colourScale  = null,        // d3.ordinal for categories (matches chart)
+  colourScale  = null,        // d3.ordinal for categories OR numeric → color function
+  gradient     = false,       // continuous gradient bar (e.g., Proportion)
+  interpolator = null,        // d3.interpolateBlues by default when gradient=true
+  ticks        = null,        // tick values (e.g., [0, 0.5, 1]) for gradient
   includeNoData= false,       // show a "No data" chip/swatch
   missingColor = "#f0f0f0"    // neutral (also used by chart)
 } = {}) {
@@ -73,6 +76,13 @@ export function peptideColourKey({
 .pep-cat-label {
   font-size:13px; color:#222; white-space:nowrap;
 }
+
+/* gradient bar */
+.pep-grad-wrap { display:flex; flex-direction:column; gap:6px; }
+.pep-grad-bar { height: 14px; border-radius: 6px; border:1px solid rgba(0,0,0,.12); position: relative; }
+.pep-grad-axis { position: relative; height: 18px; font-size:12px; color:#222; }
+.pep-grad-tick { position: absolute; top:0; transform: translateX(-50%); text-align:center; }
+.pep-grad-tick::before { content:""; display:block; width:1px; height:6px; background:#555; margin:0 auto 2px auto; }
 `;
   root.appendChild(style);
 
@@ -111,6 +121,40 @@ export function peptideColourKey({
       row.appendChild(sw);
     }
     root.appendChild(row);
+    return root;
+  }
+
+  // Gradient (continuous) mode
+  if (gradient) {
+    const interp = interpolator || d3.interpolateBlues;
+    const bar = document.createElement("div");
+    bar.className = "pep-grad-bar";
+    // simple two-stop gradient (linear in t)
+    bar.style.background = `linear-gradient(to right, ${interp(0)} 0%, ${interp(1)} 100%)`;
+
+    const axis = document.createElement("div");
+    axis.className = "pep-grad-axis";
+    const tks = Array.isArray(ticks) && ticks.length ? ticks : [0, 0.5, 1];
+    for (const t of tks) {
+      const pos = Math.max(0, Math.min(1, Number(t))) * 100;
+      const el = document.createElement("div");
+      el.className = "pep-grad-tick";
+      el.style.left = `${pos}%`;
+      el.textContent = String(t);
+      axis.appendChild(el);
+    }
+
+    const wrap = document.createElement("div");
+    wrap.className = "pep-grad-wrap";
+    wrap.appendChild(bar);
+    wrap.appendChild(axis);
+    if (label) {
+      const lbl = document.createElement("div");
+      lbl.className = "pep-key-label";
+      lbl.textContent = label;
+      root.appendChild(lbl);
+    }
+    root.appendChild(wrap);
     return root;
   }
 
