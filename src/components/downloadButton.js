@@ -1,13 +1,16 @@
 export function downloadButton({
-  label      = "",
+  label        = "",
   tooltipTitle = "Download",
   tooltipBody  = "",
-  data       = [],
-  filename   = "data.csv",
-  color      = "#006DAE",
-  textColor  = "#fff",
-  radius     = 8,
-  fontFamily = "'Roboto', sans-serif"
+  data         = [],
+  filename     = "data.csv",
+  color        = "#006DAE",
+  textColor    = "#fff",
+  radius       = 8,
+  fontFamily   = "'Roboto', sans-serif",
+  /* NEW */
+  format       = "csv",            // "csv" | "fasta" | (rows)=>({content,mime})
+  fasta        = {}                // { header: fn|key, sequence: fn|key, lineWidth: 60 }
 } = {}) {
   const toCSV = (rows) => {
     const arr = typeof rows === "function" ? rows() : rows;
@@ -18,6 +21,32 @@ export function downloadButton({
       cols.map(esc).join(","),
       ...arr.map(r => cols.map(c => esc(r[c])).join(","))
     ].join("\r\n");
+  };
+
+  /* NEW: FASTA serializer */
+  const toFASTA = (rows, opts = {}) => {
+    const arr = typeof rows === "function" ? rows() : rows;
+    if (!arr?.length && typeof arr !== "string") return "";
+    if (typeof arr === "string") return arr; // already a FASTA string
+
+    const { header, sequence, lineWidth = 60 } = opts;
+    const pick = (k, fallbacks=[]) => (r) =>
+      (typeof k === "function" ? k(r)
+       : k ? r?.[k]
+       : undefined) ??
+      fallbacks.reduce((v, key) => v ?? r?.[key], undefined);
+
+    const getHeader = pick(header, ["header","protein","id","name"]);
+    const getSeq    = pick(sequence, ["aligned","aligned_sequence","sequence","seq","peptide_aligned"]);
+
+    const wrap = (s="") => String(s).replace(/\s+/g,"")
+      .match(new RegExp(`.{1,${lineWidth}}`,"g"))?.join("\n") ?? "";
+
+    return arr.map((r,i) => {
+      const h = String(getHeader(r) ?? `seq_${i+1}`).replace(/^>/,"");
+      const s = wrap(getSeq(r) ?? "");
+      return `> ${h}\n${s}`;
+    }).join("\n");
   };
 
   // scoped wrapper + unique scope token
@@ -121,16 +150,31 @@ export function downloadButton({
 .dl-wrap[data-scope="${scope}"] .dl-tip-body { font:400 12px/1.4 ${fontFamily}; opacity:.95; }
   `;
 
-  // download handler
+  // download handler (supports CSV or FASTA)
   btn.onclick = () => {
     const rows = typeof data === "function" ? data() : data;
-    if (!rows?.length) {
+
+    let content = "";
+    let mime    = "text/csv";
+
+    if (typeof format === "function") {
+      const out = format(rows) || {};
+      content = out.content ?? "";
+      mime    = out.mime ?? "text/plain";
+    } else if (format === "fasta") {
+      content = toFASTA(rows, fasta);
+      mime    = "text/x-fasta";
+    } else {
+      content = toCSV(rows);
+      mime    = "text/csv";
+    }
+
+    if (!content || content.length === 0) {
       btn.animate([{transform:"scale(1)"},{transform:"scale(0.98)"},{transform:"scale(1)"}],
                   {duration:120, easing:"ease-out"});
       return;
     }
-    const csv  = toCSV(rows);
-    const blob = new Blob([csv], { type: "text/csv" });
+    const blob = new Blob([content], { type: mime });
     const href = URL.createObjectURL(blob);
     const a    = Object.assign(document.createElement("a"), { href, download: filename });
     document.body.appendChild(a);

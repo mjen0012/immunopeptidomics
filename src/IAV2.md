@@ -566,10 +566,13 @@ const nonaligned_count = peptidesAligned.length - aligned_count;
 <!-- Input Reference FASTA Alignment -->
 ```js
 /* Input FASTA Button */
+/* Reference FASTA Button */
 const referencefasta = uploadButton({
   label: "Upload Reference",
   accept: ".fasta",
-  required: false
+  required: false,
+  tooltipTitle: "Upload Reference Sequence",
+  tooltipBody: "Upload a reference sequence set to use for peptide alignment, and matching. Format accepted: .fasta"
 });
 const referenceFile = Generators.input(referencefasta);
 ```
@@ -709,25 +712,42 @@ function nwAffineBanded(ref, freqs, baseBandWidth = 75, gOpen = -5, gExt = -2) {
 
 ```js
 /* The alignment table now pulls the profile only for the committed protein */
-const fastaAligned = referenceFile
-  ? (await referenceFile.text())
-      .trim()
-      .split(/\r?\n>(?=[^\n])/g)
-      .map(block => block.replace(/^>/, ""))
-      .map(s => {
-        const [head, ...seqLines] = s.split(/\r?\n/);
-        const protein     = head.split("|")[0].trim();
-        const canon       = normProtein(protein);
-        const raw_sequence= seqLines.join("").trim();
+/* Align every protein in the uploaded reference FASTA (on file input) */
+const allAlignedFromReference = referenceFile ? await (async () => {
+  // --- parse FASTA text → [{protein, raw_sequence}]
+  const txt = await referenceFile.text();
+  const entries = (() => {
+    const out = [];
+    let header = null, seq = [];
+    for (const line of txt.split(/\r?\n/)) {
+      if (line.startsWith(">")) {
+        if (header) out.push({ protein: header.replace(/^>\s*/, "").trim(), raw_sequence: seq.join("").replace(/\s+/g, "") });
+        header = line;
+        seq = [];
+      } else if (line.trim()) {
+        seq.push(line.trim());
+      }
+    }
+    if (header) out.push({ protein: header.replace(/^>\s*/, "").trim(), raw_sequence: seq.join("").replace(/\s+/g, "") });
+    return out;
+  })();
 
-        // Use profile only if it matches the currently committed protein
-        const freqs = (canon === normProtein(proteinCommitted))
-          ? undefined                                   // placeholder; set below
-          : null;
+  // --- build a profile for every distinct protein header found
+  const ids = [...new Set(entries.map(d => normProtein?.(d.protein) ?? d.protein))].filter(Boolean);
+  const profilePairs = await Promise.all(ids.map(async id => [id, await loadSeqProfileFor(id)]));
+  const profileMap = new Map(profilePairs); // id -> profile|null
 
-        return { protein, raw_sequence, _needsProfile: (freqs === undefined) };
-      })
-  : [];
+  // --- align all rows (skip those with no profile by leaving null)
+  return entries.map(e => {
+    const id   = (normProtein?.(e.protein) ?? e.protein);
+    const prof = profileMap.get(id);
+    const aln  = prof ? nwAffineBanded(e.raw_sequence, prof) : null;
+    return { protein: e.protein, aligned_sequence: aln };
+  });
+})() : [];
+
+/* Optional: keep the old name so downstream code continues to work */
+const fastaAligned = allAlignedFromReference;
 
 /* Resolve the profile once (reactive to committed protein) and finalise alignment */
 const __profileForCommitted = await loadSeqProfileFor(proteinCommitted);
@@ -751,7 +771,9 @@ for (const row of fastaAligned) {
 const peptideinput = uploadButton({
   label: "Upload Peptides",
   accept: ".csv",
-  required: false
+  required: false,
+  tooltipTitle: "Upload Peptide Set",
+  tooltipBody: "Upload a set of peptides to align and compare. Format accepted: .csv"
 });
 const peptideFile = Generators.input(peptideinput);
 ```
@@ -1154,15 +1176,28 @@ const peptidesIWorkset = (() => {
 // Perf: size of peptideWindows
 globalThis.__perfUtils?.logArray?.('peptideWindows', peptideWindows);
 ```
+
+
+
+
 <!-- Download Buttons -->
 ```js
 /* Download Alignment Button */
+/* Download Alignment Button (multi-FASTA, aligned only) */
 const downloadFastaBtn = downloadButton({
-  // icon-only by default (no label)
-  filename: "fastaAligned.csv",
-  data    : () => fastaAligned,
-  tooltipTitle: "Download Aligned FASTA",
-  tooltipBody : "Inputted user .fasta sequence, aligned to total multiple sequence alignment. Outputs as .csv"
+  filename: "aligned_sequences.fasta",
+  format: "fasta",
+  data: () => (fastaAligned ?? []).filter(
+    d => typeof d.aligned_sequence === "string" && d.aligned_sequence.length > 0
+  ),
+  fasta: {
+    // defaults map header→protein, sequence→aligned_sequence
+    // header: "protein",
+    // sequence: "aligned_sequence",
+    lineWidth: 60
+  },
+  tooltipTitle: "Download Aligned Reference Set",
+  tooltipBody : "Aligned sequences for all proteins found in the uploaded reference."
 });
 
 const downloadPeptideBtn = downloadButton({
