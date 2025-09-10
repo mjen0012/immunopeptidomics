@@ -216,6 +216,7 @@ import {aaColourKey} from "./components/aaColourKey.js";
 import {runButton} from "./components/runButton.js";
 import {peptideColourKey} from "./components/peptideColourKey.js";
 import * as d3 from "npm:d3";
+import {comboSelectLazy} from "./components/comboSelectLazy.js";
 ```
 
 ```js
@@ -344,25 +345,124 @@ const proteinOptions = [
 
 const { perfAsync, logArray } = globalThis.__perfUtils ?? {};
 
-const allGenotypes = (await perfAsync?.('sql: allGenotypes', async () => (await db.sql`
-  SELECT DISTINCT genotype
-  FROM proteins
-  WHERE genotype IS NOT NULL
-`).toArray()))
-  .map(d => d.genotype)
-  .sort();
 
-const allHosts = (await perfAsync?.('sql: allHosts', async () => (await db.sql`
-  SELECT DISTINCT host
-  FROM   proteins
-  WHERE  host IS NOT NULL
-`).toArray())).map(d => d.host).sort();
+```
 
-const allCountries = (await perfAsync?.('sql: allCountries', async () => (await db.sql`
-  SELECT DISTINCT country
-  FROM   proteins
-  WHERE  country IS NOT NULL
-`).toArray())).map(d => d.country).sort();
+```js
+/* Lazy fetchers for genotype / host / country (paged + searchable) */
+const PAGE_INIT_LAZY  = 20;  // on focus when q === ""
+const PAGE_LIMIT_LAZY = 50;  // when q.length >= 2
+
+async function fetchGenotypes({ q = "", offset = 0, limit = PAGE_LIMIT_LAZY } = {}) {
+  if (!q || q.trim().length < 2) {
+    const rows = await (globalThis.__perfUtils?.perfAsync?.("sql: genotypes initial", async () => (await db.sql`
+      SELECT TRIM(genotype) AS val, COUNT(*) AS n
+      FROM proteins
+      WHERE genotype IS NOT NULL AND LENGTH(TRIM(genotype)) > 0
+      GROUP BY 1
+      ORDER BY n DESC, val ASC
+      LIMIT ${PAGE_INIT_LAZY} OFFSET ${offset}
+    `).toArray()));
+    return rows.map(r => r.val);
+  }
+  const like = `%${q}%`;
+  const rows = await (globalThis.__perfUtils?.perfAsync?.("sql: genotypes search", async () => (await db.sql`
+    SELECT TRIM(genotype) AS val
+    FROM proteins
+    WHERE genotype IS NOT NULL AND LENGTH(TRIM(genotype)) > 0
+      AND genotype ILIKE ${like}
+    GROUP BY 1
+    ORDER BY val ASC
+    LIMIT ${limit} OFFSET ${offset}
+  `).toArray()));
+  return rows.map(r => r.val);
+}
+
+async function fetchHosts({ q = "", offset = 0, limit = PAGE_LIMIT_LAZY } = {}) {
+  if (!q || q.trim().length < 2) {
+    const rows = await (globalThis.__perfUtils?.perfAsync?.("sql: hosts initial", async () => (await db.sql`
+      SELECT TRIM(host) AS val, COUNT(*) AS n
+      FROM proteins
+      WHERE host IS NOT NULL AND LENGTH(TRIM(host)) > 0
+      GROUP BY 1
+      ORDER BY n DESC, val ASC
+      LIMIT ${PAGE_INIT_LAZY} OFFSET ${offset}
+    `).toArray()));
+    return rows.map(r => r.val);
+  }
+  const like = `%${q}%`;
+  const rows = await (globalThis.__perfUtils?.perfAsync?.("sql: hosts search", async () => (await db.sql`
+    SELECT TRIM(host) AS val
+    FROM proteins
+    WHERE host IS NOT NULL AND LENGTH(TRIM(host)) > 0
+      AND host ILIKE ${like}
+    GROUP BY 1
+    ORDER BY val ASC
+    LIMIT ${limit} OFFSET ${offset}
+  `).toArray()));
+  return rows.map(r => r.val);
+}
+
+async function fetchCountries({ q = "", offset = 0, limit = PAGE_LIMIT_LAZY } = {}) {
+  if (!q || q.trim().length < 2) {
+    const rows = await (globalThis.__perfUtils?.perfAsync?.("sql: countries initial", async () => (await db.sql`
+      SELECT TRIM(country) AS val, COUNT(*) AS n
+      FROM proteins
+      WHERE country IS NOT NULL AND LENGTH(TRIM(country)) > 0
+      GROUP BY 1
+      ORDER BY n DESC, val ASC
+      LIMIT ${PAGE_INIT_LAZY} OFFSET ${offset}
+    `).toArray()));
+    return rows.map(r => r.val);
+  }
+  const like = `%${q}%`;
+  const rows = await (globalThis.__perfUtils?.perfAsync?.("sql: countries search", async () => (await db.sql`
+    SELECT TRIM(country) AS val
+    FROM proteins
+    WHERE country IS NOT NULL AND LENGTH(TRIM(country)) > 0
+      AND country ILIKE ${like}
+    GROUP BY 1
+    ORDER BY val ASC
+    LIMIT ${limit} OFFSET ${offset}
+  `).toArray()));
+  return rows.map(r => r.val);
+}
+
+```
+
+```js
+const genotypeInput = comboSelectLazy({
+  label: "Genotype",
+  placeholder: "e.g. H5N1",
+  fontFamily: "'Roboto', sans-serif",
+  initialLimit: 20,
+  pageLimit: 50,
+  fetch: ({ q, offset, limit }) => fetchGenotypes({ q, offset, limit })
+});
+const selectedGenotypes = Generators.input(genotypeInput);
+
+const hostInput = comboSelectLazy({
+  label: "Host",
+  placeholder: "e.g. Gallus gallus",
+  fontFamily: "'Roboto', sans-serif",
+  initialLimit: 20,
+  pageLimit: 50,
+  fetch: ({ q, offset, limit }) => fetchHosts({ q, offset, limit })
+});
+const selectedHosts = Generators.input(hostInput);
+
+const safe = arr => Array.isArray(arr) ? arr : [];
+
+const countryInput = comboSelectLazy({
+  label: "Country",
+  placeholder: "e.g. Antarctica",
+  fontFamily: "'Roboto', sans-serif",
+  initialLimit: 20,
+  pageLimit: 50,
+  fetch: ({ q, offset, limit }) => fetchCountries({ q, offset, limit })
+});
+const selectedCountries = Generators.input(countryInput);
+
 ```
 
 ```js
@@ -372,29 +472,6 @@ const proteinInput = dropSelect(proteinOptions, {
   fontFamily: "'Roboto', sans-serif"
 });
 const selectedProtein = Generators.input(proteinInput);
-
-const genotypeInput = comboSelect(allGenotypes, {
-  label: "Genotype",
-  placeholder: "Type genotypeâ€¦",
-  fontFamily: "'Roboto', sans-serif"
-});
-const selectedGenotypes = Generators.input(genotypeInput);
-
-const hostInput = comboSelect(allHosts, {
-  label: "Host",
-  placeholder: "Type hostâ€¦",
-  fontFamily: "'Roboto', sans-serif"
-});
-const selectedHosts = Generators.input(hostInput);
-
-const safe = arr => Array.isArray(arr) ? arr : [];
-
-const countryInput = comboSelect(allCountries, {
-  label: "Country",
-  placeholder: "Type countryâ€¦",
-  fontFamily: "'Roboto', sans-serif"
-});
-const selectedCountries = Generators.input(countryInput);
 
 const hostCategoryBox = checkboxSelect(["Human", "Non-human"]);
 const hostCategory = Generators.input(hostCategoryBox);
@@ -2721,12 +2798,6 @@ const allelePlot = alleleChart({
   margin    : { top: 40, right: 20, bottom: 20, left: 140 },
   showNumbers: false
 });
-```
-
-
-```js
-import {comboSelectLazy} from "./components/comboSelectLazy.js";
-
 ```
 
 ```js
