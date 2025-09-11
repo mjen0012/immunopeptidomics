@@ -122,7 +122,7 @@ banner.className = "banner__bg";
 
 <div class="layout-20-80">
 
-  <!-- Row 1 Â· 20 % Â· Select files -->
+  <!-- Row 1· 20 %· Select files -->
   <div class="card" style="display:flex; flex-direction:column; gap:1rem;">
     <div class="file-heading">1. Select Files</div>
     ${referencefasta}
@@ -130,11 +130,9 @@ banner.className = "banner__bg";
     <div class="download-row">
       ${downloadFastaBtn}
       ${downloadPeptideBtn}
-      ${downloadCSVI}
-      ${downloadCSVII}
     </div>
   </div>
-  <!-- Row 1 Â· 80 % Â· Filters -->
+  <!-- Row 1· 80 %· Filters -->
   <div class="card" style="display:flex; flex-direction:column; gap:1rem;">
     <div class="file-heading">2. Filter</div>
     <div style="display:grid; grid-template-columns:repeat(6,1fr); gap:1rem;">
@@ -154,7 +152,7 @@ banner.className = "banner__bg";
     </div>
   </div>
 
-  <!-- Row 2-4 Â· 20 % Â· continuous sidebar card -->
+  <!-- Row 2-4· 20 %· continuous sidebar card -->
   <div class="card" style="grid-row: 2 / span 3;">
     <div class="file-heading">3. Control Panel</div>
     <br>${facetSelectInput}</br>
@@ -170,21 +168,23 @@ banner.className = "banner__bg";
     ${mhcClassInput}
     <br>${runBtnI}</br>
     <br>${runBtnII}</br>
+    <br>${downloadCSVI}
+    ${downloadCSVII}
 
   </div>
 
-  <!-- Row 2 Â· 80 % Â· metric cards -->
+  <!-- Row 2· 80 %· metric cards -->
   <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:1rem;">
-    ${metricCard({title:"All sequences",     current: total_all_count,    previous: total_count_previous})}
-    ${metricCard({title:"Unique sequences",  current: total_unique_count, previous: total_unique_previous})}
-    ${metricCard({title:"Aligned peptides",  current: aligned_count,      previous: nonaligned_count, hideDelta:true})}
-    ${metricCard({title:"Conserved peptides",current: aligned_count,      previous: nonaligned_count, hideDelta:true})}
+    ${allSeqCard}
+    ${uniqueSeqCard}
+    ${alignedPepsCard}
+    ${conservedCard}
   </div>
 
-  <!-- Row 3 Â· 80 % Â· two equal cards -->
+  <!-- Row 3· 80 %· two equal cards -->
   <div class="card">${heatmapSVG}</div>
 
-  <!-- Row 4 Â· 80 % Â· single wide card -->
+  <!-- Row 4· 80 %· single wide card -->
   <div class="card" style="min-height:200px;">
     ${createIAVDashboard()}
   </div>
@@ -749,6 +749,10 @@ const allAlignedFromReference = referenceFile ? await (async () => {
 /* Optional: keep the old name so downstream code continues to work */
 const fastaAligned = allAlignedFromReference;
 
+// after computing `const fastaAligned = allAlignedFromReference;`
+globalThis.__alignedSequences = fastaAligned;        // stash for non-reactive access
+dispatchEvent(new Event("aligned-ready"));           // notify listeners
+
 /* Resolve the profile once (reactive to committed protein) and finalise alignment */
 const __profileForCommitted = await loadSeqProfileFor(proteinCommitted);
 
@@ -867,6 +871,10 @@ const peptidesAligned = peptidesClean.map(d => {
     aligned_length   : aligned ? aligned.length : null // kept for legacy
   };
 });
+
+// wherever peptidesAligned is produced:
+globalThis.__peptidesAligned = peptidesAligned;   // stash for non-reactive access
+dispatchEvent(new Event("peptides-ready"));       // notify button enabler
 ```
 ```js
 // Perf: size of peptidesAligned array and NW totals
@@ -1177,34 +1185,300 @@ const peptidesIWorkset = (() => {
 globalThis.__perfUtils?.logArray?.('peptideWindows', peptideWindows);
 ```
 
+```js
+// Reactive enabler — re-runs when fastaAligned changes
+{
+  const ready = (fastaAligned ?? []).some(d => typeof d.aligned_sequence === "string" && d.aligned_sequence.length > 0);
+
+  const fallbackSetDisabled = (el, flag) => {
+    const btn = el?.querySelector?.(".dl-btn");
+    const tip = el?.querySelector?.(".dl-tip");
+    if (btn) {
+      btn.disabled = !!flag;
+      btn.setAttribute("aria-disabled", flag ? "true" : "false");
+    }
+    if (tip) {
+      const title = tip.querySelector(".dl-tip-title");
+      const body  = tip.querySelector(".dl-tip-body");
+      if (title) title.textContent = flag ? "Upload a reference" : "Download Aligned FASTA";
+      if (body)  body.textContent  = flag
+        ? "Upload a reference FASTA and wait for alignment to finish to enable this download."
+        : "Aligned sequences for all proteins in the uploaded reference.";
+    }
+  };
+
+  (downloadFastaBtn.setDisabled ?? ((flag) => fallbackSetDisabled(downloadFastaBtn, flag)))(!ready);
+}
+```
+
+```js
+{
+  allSeqCard.set({
+    title: "All sequences",
+    current: Number.isFinite(total_all_count) ? total_all_count : "--",
+    previous: Number.isFinite(total_count_previous) ? total_count_previous : undefined,
+    hideDelta: false
+  });
+
+  uniqueSeqCard.set({
+    title: "Unique sequences",
+    current: Number.isFinite(total_unique_count) ? total_unique_count : "--",
+    previous: Number.isFinite(total_unique_previous) ? total_unique_previous : undefined,
+    hideDelta: false
+  });
+}
+```
+
+```js
+// All sequences — renders immediately
+const allSeqCard = metricCard({
+  title: "All sequences",
+  current: Number.isFinite(total_all_count) ? total_all_count : "--",
+  previous: Number.isFinite(total_count_previous) ? total_count_previous : undefined,
+  hideDelta: false
+});
+
+// Unique sequences — renders immediately
+const uniqueSeqCard = metricCard({
+  title: "Unique sequences",
+  current: Number.isFinite(total_unique_count) ? total_unique_count : "--",
+  previous: Number.isFinite(total_unique_previous) ? total_unique_previous : undefined,
+  hideDelta: false
+});
+
+// Renders instantly; shows placeholder values until data exists
+const alignedPepsCard = metricCard({
+  title: `Aligned peptides (${proteinCommitted ?? "—"})`,
+  current: "--",
+  previous: undefined,   // hide pill initially
+  hideDelta: true
+});
 
 
+// Renders right away with placeholders
+const conservedCard = metricCard({
+  title: `Conserved peptides (${proteinCommitted ?? "—"}) >95%`,
+  current: "--",
+  previous: undefined,
+  hideDelta: true
+});
+```
+
+```js
+{
+  const normProt = s => (typeof normProtein === "function" ? normProtein(s) : (s ?? "")).trim();
+  const normPep  = s => String(s ?? "").toUpperCase().replace(/\s+/g, "");
+
+  // prefer 'proportion_all', fall back to 'proportion_unique'
+  const getProp = (r) => {
+    let p = r?.proportion_all;
+    if (!Number.isFinite(p)) p = r?.proportion_unique;
+    return Number.isFinite(p) ? p : NaN;
+  };
+
+  const compute = async () => {
+    const protein = proteinCommitted ?? "";
+
+    // 1) USER PEPTIDES for the selected protein (deduped)
+    const pepRows = Array.isArray(globalThis.__peptidesAligned) ? globalThis.__peptidesAligned : [];
+    const userPeps = new Set(
+      pepRows
+        .filter(r => {
+          const rp = r?.protein ?? r?.gene ?? r?.header ?? r?.name;
+          return normProt(rp) === normProt(protein);
+        })
+        .map(r => normPep(r?.peptide ?? r?.peptide_seq ?? r?.pep ?? r?.sequence ?? r?.seq))
+        .filter(s => s.length > 0)
+    );
+
+    // If no user peptides yet, show placeholders
+    if (userPeps.size === 0) {
+      conservedCard.set({
+        title: `Conserved peptides (${protein || "—"}) >95%`,
+        current: "--",
+        previous: undefined,
+        hideDelta: true
+      });
+      return;
+    }
+
+    // 2) TALLIES ROWS (await if promise)
+    let rows = globalThis.__windowTalliesRows;
+    if (rows && typeof rows.then === "function") {
+      try { rows = await rows; } catch { rows = []; }
+    }
+    if (!Array.isArray(rows) || rows.length === 0) {
+      conservedCard.set({
+        title: `Conserved peptides (${protein || "—"}) >95%`,
+        current: "--",
+        previous: undefined,
+        hideDelta: true
+      });
+      return;
+    }
+
+    // Rows should already be for committed protein; keep a strict match if a field exists
+    const protMatch = r => {
+      const rp = r?.protein ?? r?.gene ?? r?.header ?? r?.name;
+      return rp == null || normProt(rp) === normProt(protein);
+    };
+    const subset = rows.filter(protMatch);
+
+    // 3) Build peptide → proportion map (use MAX across windows for safety)
+    const pepToProp = new Map();
+    for (const r of subset) {
+      const pep = normPep(r?.peptide);
+      if (!pep || !userPeps.has(pep)) continue; // only user's peptides
+      const p = getProp(r);
+      if (!Number.isFinite(p)) continue;
+      const prev = pepToProp.get(pep);
+      pepToProp.set(pep, prev == null ? p : Math.max(prev, p));
+    }
+
+    // 4) Count >0.95 (conserved) and <0.95 (non) across only the user's peptides.
+    // Missing peptides are treated as 0 (non).
+    let conserved = 0, non = 0;
+    for (const pep of userPeps) {
+      const p = Number.isFinite(pepToProp.get(pep)) ? pepToProp.get(pep) : 0;
+      if (p > 0.95) conserved++;
+      else if (p < 0.95) non++;
+      // exactly 0.95 is counted as neither, per your spec (> or < only)
+    }
+
+    conservedCard.set({
+      title: `Conserved peptides (${protein || "—"}) >95%`,
+      current: conserved,
+      previous: non,
+      hideDelta: true
+    });
+  };
+
+  await compute();                                // initial
+  addEventListener("peptides-ready", compute);    // when user CSV parsed
+  addEventListener("tallies-ready", compute);     // when tallies refreshed
+  invalidation.then(() => {
+    removeEventListener("peptides-ready", compute);
+    removeEventListener("tallies-ready", compute);
+  });
+}
+
+```
+
+```js
+// Build & stash tallies for the committed protein and current windows
+{
+  // empty first so downstream sees "not ready"
+  globalThis.__windowTalliesRows = [];
+
+  // getWindowTalliesRows is async and expects windows
+  const rows = await getWindowTalliesRows(peptideWindows);
+
+  globalThis.__windowTalliesRows = rows;
+  dispatchEvent(new Event("tallies-ready"));
+}
+
+
+```
+
+```js
+{
+  // heuristic: what counts as "aligned" in your rows
+  const isAligned = (d) => {
+    if (!d || typeof d !== "object") return false;
+    if (typeof d.status === "string") {
+      // treat "misaligned" as not aligned, anything else containing 'aligned' as aligned
+      if (/misalign/i.test(d.status)) return false;
+      if (/align/i.test(d.status)) return true;
+    }
+    if (typeof d.peptide_aligned === "string" && d.peptide_aligned.length) return true;
+    const num = k => Number.isFinite(d?.[k]);
+    if (num("aligned_start") || num("aligned_end") || num("aln_start") || num("aln_end")) return true;
+    return false;
+  };
+
+  const norm = s => (typeof normProtein === "function" ? normProtein(s) : (s ?? "")).trim();
+
+  const update = () => {
+    const protein = proteinCommitted ?? "";
+    const arr = Array.isArray(globalThis.__peptidesAligned) ? globalThis.__peptidesAligned : [];
+
+    const filtered = arr.filter(r => norm(r.protein) === norm(protein));
+    const aligned  = filtered.filter(isAligned).length;
+    const mis      = filtered.length - aligned;
+
+    // title always reflects current selection
+    const title = `Aligned peptides (${protein || "—"})`;
+
+    // if no peptide file yet, keep placeholders
+    if (!arr.length) {
+      alignedPepsCard.set({ title, current: "--", previous: undefined, hideDelta: true });
+      return;
+    }
+
+    // if we have peptides for this protein but none aligned, show the requested message
+    const currentVal = filtered.length > 0
+      ? (aligned === 0 ? "0 - peptides misaligned" : aligned)
+      : "--";
+
+    alignedPepsCard.set({
+      title,
+      current: currentVal,
+      previous: (filtered.length > 0 ? mis : undefined),
+      hideDelta: true
+    });
+  };
+
+  update(); // run now
+  addEventListener("peptides-ready", update);           // when the stash is filled
+  invalidation.then(() => removeEventListener("peptides-ready", update));
+}
+
+```
 
 <!-- Download Buttons -->
 ```js
-/* Download Alignment Button */
 /* Download Alignment Button (multi-FASTA, aligned only) */
+// NOTE: no reference to `fastaAligned` in this cell
 const downloadFastaBtn = downloadButton({
   filename: "aligned_sequences.fasta",
   format: "fasta",
-  data: () => (fastaAligned ?? []).filter(
-    d => typeof d.aligned_sequence === "string" && d.aligned_sequence.length > 0
-  ),
-  fasta: {
-    // defaults map header→protein, sequence→aligned_sequence
-    // header: "protein",
-    // sequence: "aligned_sequence",
-    lineWidth: 60
-  },
-  tooltipTitle: "Download Aligned Reference Set",
-  tooltipBody : "Aligned sequences for all proteins found in the uploaded reference."
+  data: () => (globalThis.__alignedSequences ?? [])
+              .filter(d => typeof d.aligned_sequence === "string" && d.aligned_sequence.length > 0),
+  fasta: { lineWidth: 60 },
+  tooltipTitle: "Download Aligned Reference Sequence",
+  tooltipBody : "Aligned sequences for all proteins in the uploaded reference.",
+  disabled: true,
+  disabledTooltipTitle: "Upload a reference",
+  disabledTooltipBody : "Upload a reference FASTA and wait for alignment to finish to enable this download."
 });
+```
 
+```js
+{
+  const update = () => {
+    const arr = globalThis.__peptidesAligned;
+    const ready = Array.isArray(arr) && arr.length > 0;
+    downloadPeptideBtn.setDisabled(!ready);
+  };
+
+  update(); // set initial state on page load
+  addEventListener("peptides-ready", update);
+  invalidation.then(() => removeEventListener("peptides-ready", update));
+}
+```
+
+
+```js
+/* Download Peptides Button — renders immediately, locked until data exists */
 const downloadPeptideBtn = downloadButton({
   filename: "peptidesAligned.csv",
-  data    : () => peptidesAligned,
-  tooltipTitle: "Download Peptides",
-  tooltipBody : "Uploaded peptides with aligned coordinates and any attributes. Outputs as .csv"
+  // NOTE: no reference to `peptidesAligned` here
+  data: () => (globalThis.__peptidesAligned ?? []),
+  tooltipTitle: "Download Aligned Peptides",
+  tooltipBody : "Uploaded peptides with aligned coordinates and any attributes. Outputs as .csv",
+  disabled: true,
+  disabledTooltipTitle: "Upload a peptide set",
+  disabledTooltipBody : "Upload a peptide .csv and wait for parsing/alignment to enable this download."
 });
 ```
 
@@ -1226,8 +1500,10 @@ const setSelectedLength = x => selectedLength.value = x;
 function createIAVDashboard({
   rowHeight   = 18,
   gap         = 2,
-  sizeFactor  = 1.2,
-  margin      = {top:20,right:20,bottom:30,left:40}
+  // scale up visuals by default
+  sizeFactor  = 1.8,
+  // tighter vertical padding to avoid excess whitespace
+  margin      = {top:8,right:20,bottom:32,left:56}
 } = {}) {
 
   /* 1 — peptide data & colour scale --------------------------- */
@@ -1275,11 +1551,47 @@ function createIAVDashboard({
   const slot = () => svg.append("g")
                         .attr("transform", `translate(0,${yOff})`);
 
-  /* 5 — peptide viewer ---------------------------------------- */
-  const pep = peptideChart(slot(), {
+  // helper: add a slim vertical y-axis label within left margin
+  const addYLabel = (g, h, text) => {
+    const x = Math.max(8, margin.left * 0.5);     // centered within left margin
+    const y = h / 2;
+    g.append("text")
+      .attr("transform", `translate(${x},${y}) rotate(-90)`)  // vertical label
+      .attr("text-anchor", "middle")
+      .attr("dominant-baseline", "middle")
+      .attr("font-family", "'Roboto', sans-serif")
+      .attr("font-weight", "bold")               // Roboto Bold
+      .attr("font-size", 22)
+      .attr("fill", "#222")                      // off-black
+      .style("pointer-events", "none")            // avoid blocking hovers
+      .text(text);
+  };
+
+  // unified per-chart height so all charts are equal height
+  const perChartHeight = Math.max(140, Math.round(140 * sizeFactor));
+
+  // compute peptide levels to fit peptideChart to the same height
+  const computeLevels = rows => {
+    const arr = Array.isArray(rows) ? rows.slice().sort((a,b)=>d3.ascending(a.start,b.start)) : [];
+    const levels = [];
+    for (const p of arr) {
+      let lvl = levels.findIndex(end => p.start >= end);
+      if (lvl === -1) { lvl = levels.length; levels.push(0); }
+      levels[lvl] = p.start + p.length;
+    }
+    return Math.max(1, levels.length);
+  };
+
+  /* 5 - peptide viewer ---------------------------------------- */
+  const gPep = slot();
+  // derive rowHeight to fit equal height across charts
+  const nLevels = computeLevels(pepDataForChart);
+  const pepRowHeight = Math.max(12, (perChartHeight - margin.top - margin.bottom) / nLevels);
+  const pep = peptideChart(gPep, {
     data       : pepDataForChart,
     xScale     : xCurrent,
-    rowHeight, gap, sizeFactor, margin,
+    rowHeight  : pepRowHeight,
+    gap, sizeFactor, margin,
     colourBy        : colourByForChart,
     colourScale     : colourScale,   // null when allele mode
     isAlleleColour  : isAlleleColour,
@@ -1289,23 +1601,31 @@ function createIAVDashboard({
     percentileMode  : percMode,
     onClick    : d => { setSelectedPeptide(d.peptide_aligned); setSelectedStart(d.start); setSelectedLength(d.length); }
   });
-
-  yOff += pep.height;
+  addYLabel(gPep, perChartHeight, "Peptides");
+  // ensure we allocate the unified height regardless of internal rounding
+  yOff += perChartHeight;
 
   /* 7 â–¸ reference vs consensus cells -------------------------- */
-  const seqcmp = sequenceCompareChart(slot(), {
+  const gSeq = slot();
+  // derive cell size to fit equal height across charts
+  const seqGapRows = Math.max(20, Math.round(28 * sizeFactor));
+  const seqCell    = Math.max(12, Math.floor((perChartHeight - margin.top - margin.bottom - seqGapRows) / 2));
+  const seqcmp = sequenceCompareChart(gSeq, {
     refRows   : (typeof refRows !== "undefined" ? refRows : []),
     consRows  : (typeof consensusRows !== "undefined" ? consensusRows : []),
     xScale    : xCurrent,
     colourMode,
     sizeFactor,
     margin,
-    cell      : 24*sizeFactor
+    gapRows   : seqGapRows,
+    cell      : seqCell
   });
-  yOff += seqcmp.height;
+  addYLabel(gSeq, perChartHeight, "Sequences");
+  yOff += perChartHeight;
 
   /* 6 â–¸ stacked bar chart ------------------------------------- */
-  const stack = stackedChart(slot(), {
+  const gStack = slot();
+  const stack = stackedChart(gStack, {
     data       : stackedBarsSafe,
     tooltipRows: (typeof aaFrequencies !== "undefined" ? aaFrequencies.map(d => ({
                   position : d.position,
@@ -1315,19 +1635,22 @@ function createIAVDashboard({
     xScale     : xCurrent,
     sizeFactor,
     margin,
-    height     : 90 * sizeFactor
+    height     : perChartHeight
   });
-  yOff += stack.height;
+  addYLabel(gStack, perChartHeight, "Diversity");
+  yOff += perChartHeight;
 
   /* â­ 8 â–¸ area chart -------------------------------------------- */
-  const area = areaChart(slot(), {
+  const gArea = slot();
+  const area = areaChart(gArea, {
     data      : (typeof areaData !== "undefined" ? areaData : []),
     xScale    : xCurrent,
     sizeFactor,
     margin,
-    height    : 90 * sizeFactor
+    height    : perChartHeight
   });
-  yOff += area.height;  
+  addYLabel(gArea, perChartHeight, "Conservation");
+  yOff += perChartHeight;  
 
   /* 9 â–¸ facet overlays (only if we actually have them) ------------- */
   const facetUpdaters = [];
@@ -2090,185 +2413,6 @@ if (!globalThis.__peptideCache) {
 
 ```
 
-
-
-```js
-/********************************************************************
- * getPeptidePropsAll()    Â·Â v2                                      *
- * â€‘ reâ€‘runs only when:                                              *
- *     â€¢ any nonâ€‘protein filter changes, OR                          *
- *     â€¢ the uploaded peptide set changes (length)                   *
- ********************************************************************/
-function getPeptidePropsAll_old() {
-
-  /* 1. build a key that now ALSO tracks the peptide list size */
-  const filterKey = JSON.stringify({
-    genotypes       : [...genotypesCommitted].sort(),
-    hosts           : [...hostsCommitted].sort(),
-    hostCategory    : [...hostCategoryCommitted].sort(),
-    countries       : [...countriesCommitted].sort(),
-    collectionDates : collectionDatesCommitted,
-    releaseDates    : releaseDatesCommitted,
-    nPeptides       : peptideValues.length            // â† NEW
-  });
-
-  /* 2. return cached table when key matches ----------------------- */
-  if (globalThis.__peptideCache?.key === filterKey &&
-      globalThis.__peptideCache.table) {
-    return globalThis.__peptideCache.table;              // âš¡ hit
-  }
-
-  /* 3. if still no peptides, return an empty table ---------------- */
-  if (peptideValues.length === 0) {
-    const empty = db.sql`SELECT NULL::VARCHAR AS protein LIMIT 0`;
-    globalThis.__peptideCache = { key: filterKey, table: empty };
-    return empty;
-  }
-
-  /* 4. heavy query (exact body unchanged) ------------------------ */
-  const table = db.sql`
-    WITH
-      params(protein, peptide, start, len) AS (
-        VALUES ${joinSql(peptideValues)}
-      ),
-
-    /* 2. filtered proteins (all active filters EXCEPT protein) ---- */
-    /* In getPeptidePropsAll(): replace the filtered CTE */
-    filtered AS (
-      SELECT protein, sequence
-      FROM   proteins
-      WHERE  1 = 1
-        AND (${genotypesCommitted.length
-                ? sql`genotype IN (${genotypesCommitted})` : sql`TRUE`})
-        AND (${hostsCommitted.length
-                ? sql`host IN (${hostsCommitted})` : sql`TRUE`})
-        AND (${hostCategoryCommitted.includes('Human') &&
-              !hostCategoryCommitted.includes('Non-human')
-                ? sql`host = 'Homo sapiens'`
-                : (!hostCategoryCommitted.includes('Human') &&
-                  hostCategoryCommitted.includes('Non-human'))
-                    ? sql`host <> 'Homo sapiens'` : sql`TRUE`})
-        AND (${countriesCommitted.length
-                ? sql`country IN (${countriesCommitted})` : sql`TRUE`})
-
-        AND ${
-          collectionDatesCommitted.from || collectionDatesCommitted.to
-            ? sql`TRY_CAST(
-                    CASE
-                      WHEN collection_date IS NULL OR collection_date = '' THEN NULL
-                      WHEN LENGTH(collection_date)=4  THEN collection_date || '-01-01'
-                      WHEN LENGTH(collection_date)=7  THEN collection_date || '-01'
-                      ELSE collection_date
-                    END AS DATE
-                  )
-                  ${
-                    collectionDatesCommitted.from && collectionDatesCommitted.to
-                      ? sql`BETWEEN CAST(${collectionDatesCommitted.from} AS DATE)
-                              AND   CAST(${collectionDatesCommitted.to  } AS DATE)`
-                      : collectionDatesCommitted.from
-                          ? sql`>= CAST(${collectionDatesCommitted.from} AS DATE)`
-                          : sql`<= CAST(${collectionDatesCommitted.to   } AS DATE)`
-                  }`
-            : sql`TRUE`
-        }
-
-        AND ${
-          releaseDatesCommitted.from || releaseDatesCommitted.to
-            ? sql`TRY_CAST(
-                    CASE
-                      WHEN release_date IS NULL OR release_date = '' THEN NULL
-                      WHEN LENGTH(release_date)=4 THEN release_date || '-01-01'
-                      WHEN LENGTH(release_date)=7 THEN release_date || '-01'
-                      ELSE release_date
-                    END AS DATE
-                  )
-                  ${
-                    releaseDatesCommitted.from && releaseDatesCommitted.to
-                      ? sql`BETWEEN CAST(${releaseDatesCommitted.from} AS DATE)
-                              AND   CAST(${releaseDatesCommitted.to  } AS DATE)`
-                      : releaseDatesCommitted.from
-                          ? sql`>= CAST(${releaseDatesCommitted.from} AS DATE)`
-                          : sql`<= CAST(${releaseDatesCommitted.to   } AS DATE)`
-                  }`
-            : sql`TRUE`
-        }
-    ),
-
-    /* 3. allâ€‘sequence tallies ------------------------------------ */
-    ex_all AS (
-      SELECT p.protein, p.peptide, COUNT(*) AS cnt_all
-      FROM   filtered f
-      JOIN   params   p
-        ON   f.protein = p.protein
-       AND   SUBSTR(f.sequence,
-                    CAST(p.start AS BIGINT),
-                    CAST(p.len   AS BIGINT)) = p.peptide
-      GROUP BY p.protein, p.peptide
-    ),
-    tot_all AS (
-      SELECT protein, COUNT(*) AS total_all
-      FROM   filtered
-      GROUP  BY protein
-    ),
-
-    /* 4. uniqueâ€‘sequence tallies --------------------------------- */
-    filtered_u AS ( SELECT DISTINCT protein, sequence FROM filtered ),
-    ex_u AS (
-      SELECT p.protein, p.peptide, COUNT(*) AS cnt_unique
-      FROM   filtered_u fu
-      JOIN   params     p
-        ON   fu.protein = p.protein
-       AND   SUBSTR(fu.sequence,
-                    CAST(p.start AS BIGINT),
-                    CAST(p.len   AS BIGINT)) = p.peptide
-      GROUP BY p.protein, p.peptide
-    ),
-    tot_u AS (
-      SELECT protein, COUNT(*) AS total_unique
-      FROM   filtered_u
-      GROUP  BY protein
-    ),
-
-    /* 5. merge ---------------------------------------------------- */
-    combined AS (
-      SELECT
-        p.protein,
-        p.peptide,
-
-        /* all sequences */
-        CAST(COALESCE(a.cnt_all,0)  AS INT) AS frequency_all,
-        CAST(ta.total_all           AS INT) AS total_all,
-        CASE WHEN ta.total_all = 0
-             THEN 0.0
-             ELSE COALESCE(a.cnt_all,0)*1.0/ta.total_all
-        END                                 AS proportion_all,
-
-        /* unique sequences */
-        CAST(COALESCE(u.cnt_unique,0) AS INT) AS frequency_unique,
-        CAST(tu.total_unique          AS INT) AS total_unique,
-        CASE WHEN tu.total_unique = 0
-             THEN 0.0
-             ELSE COALESCE(u.cnt_unique,0)*1.0/tu.total_unique
-        END                                 AS proportion_unique
-      FROM   params        p
-      LEFT   JOIN ex_all   a  USING (protein, peptide)
-      LEFT   JOIN tot_all  ta USING (protein)
-      LEFT   JOIN ex_u     u  USING (protein, peptide)
-      LEFT   JOIN tot_u    tu USING (protein)
-    )
-
-    SELECT *
-    FROM   combined
-    ORDER  BY protein, proportion_all DESC;
-  `;
-
-  /* ----- update cache & return ----------------------------------- */
-  globalThis.__peptideCache = { key: filterKey, table };
-  return table;
-}
-
-``` 
-
 ```js
 /* New: getPeptidePropsAll using unified tallies (single protein) */
 function getPeptidePropsAll() {
@@ -2348,10 +2492,9 @@ const peptidePropsAll = getPeptidePropsAll();
  
 
 ```js
-/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+/* 
    NetMHC-pan integration â€“ Class I & II
-   - Appears *below* the existing dashboard cards for now
-â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+   - Appears *below* the existing dashboard cards for now */
 
 const statusBanner = html`<div style="margin:0.5rem 0; font-style:italic;"></div>`;
 function setBanner(msg) { statusBanner.textContent = msg; }
