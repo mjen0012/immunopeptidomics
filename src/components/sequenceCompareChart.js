@@ -155,30 +155,36 @@ export function sequenceCompareChart(
   /* initial render */
   position(xScale); adaptLabels(xScale);
 
-  /* x-axis */
-  const tickLen  = Math.min(6 * sizeFactor, 8);
-  const fontSize = Math.min(12 * sizeFactor, 14);
-  const strokeW  = Math.min(1.2 * sizeFactor, 2);
+  /* x-axis (unified styling) */
+  function axisStyling(sel){
+    sel.selectAll("path,line").attr("stroke", "#94a3b8").attr("stroke-width", 1);
+    sel.selectAll("text")
+      .attr("fill", "#334155")
+      .attr("font-family", "'Roboto', sans-serif")
+      .attr("font-size", 11);
+  }
+  const [rx0, rx1] = xScale.range();
   const ax = d3.axisBottom(xScale)
     .tickFormat(d3.format("d"))
-    .tickSizeOuter(0)
-    .tickSize(tickLen);
+    .ticks(Math.min(15, (rx1 - rx0) / 60))
+    .tickSizeOuter(0);
   const axisG = slotG.append("g")
     .attr("class","x-axis")
-    .attr("font-size",fontSize)
     .attr("transform",`translate(0,${margin.top+cell*2+gapRows})`)
     .call(ax);
-  axisG.selectAll("path, line").attr("stroke-width", strokeW);
+  axisG.call(axisStyling);
 
   /* ── public updater for shared zoom ────────────────────────── */
   function update(s){
     position(s); adaptLabels(s);
+    const rng = s.range();
+    const w   = Math.max(1, (rng[1] - rng[0]) | 0);
     const ax2 = d3.axisBottom(s)
       .tickFormat(d3.format("d"))
-      .tickSizeOuter(0)
-      .tickSize(tickLen);
+      .ticks(Math.min(15, w / 60))
+      .tickSizeOuter(0);
     axisG.call(ax2);
-    axisG.selectAll("path, line").attr("stroke-width", strokeW);
+    axisG.call(axisStyling);
   }
 
   return {update, height};

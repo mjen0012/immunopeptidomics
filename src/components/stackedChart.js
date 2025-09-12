@@ -71,6 +71,25 @@ export function stackedChart(
     .call(ax);
   axisG.selectAll("path, line").attr("stroke-width", strokeW);
 
+  // unified axis styling (match peptideScanChart)
+  function axisStyling(sel){
+    sel.selectAll("path,line").attr("stroke", "#94a3b8").attr("stroke-width", 1);
+    sel.selectAll("text")
+      .attr("fill", "#334155")
+      .attr("font-family", "'Roboto', sans-serif")
+      .attr("font-size", 11);
+  }
+  { // apply unified ticks and styling once initially
+    const rng = xScale.range();
+    const w   = Math.max(1, (rng[1] - rng[0]) | 0);
+    const axU = d3.axisBottom(xScale)
+      .tickFormat(d3.format("d"))
+      .ticks(Math.min(15, w / 60))
+      .tickSizeOuter(0);
+    axisG.call(axU);
+    axisG.call(axisStyling);
+  }
+
   /* ——— bars (no horizontal gap) ——————————— */
   const bars = slotG.append("g")
     .attr("clip-path",`url(#${clipId})`)
@@ -157,12 +176,14 @@ export function stackedChart(
   function update(scale){
     positionBars(scale);
     positionHover(scale);
+    const rng = scale.range();
+    const w   = Math.max(1, (rng[1] - rng[0]) | 0);
     const ax2 = d3.axisBottom(scale)
       .tickFormat(d3.format("d"))
-      .tickSizeOuter(0)
-      .tickSize(tickLen);
+      .ticks(Math.min(15, w / 60))
+      .tickSizeOuter(0);
     axisG.call(ax2);
-    axisG.selectAll("path, line").attr("stroke-width", strokeW);
+    axisG.call(axisStyling);
   }
 
   return {update, height};

@@ -127,21 +127,27 @@ export function peptideChart(
       .attr("stroke-width", 0.5 * sizeFactor)
       .on("click", (_, d) => onClick(d));
 
+  /* ---------- axis styling helper (unified with peptideScanChart) --- */
+  function axisStyling(sel){
+    sel.selectAll("path,line").attr("stroke", "#94a3b8").attr("stroke-width", 1);
+    sel.selectAll("text")
+      .attr("fill", "#334155")
+      .attr("font-family", "'Roboto', sans-serif")
+      .attr("font-size", 11);
+  }
+
   /* ---------- x-axis ------------------------------------------- */
-  const axisY     = height - margin.bottom;
-  const tickLen   = Math.min(6 * sizeFactor, 8);
-  const fontSize  = Math.min(12 * sizeFactor, 14);
-  const strokeW   = Math.min(1.2 * sizeFactor, 2);
-  const axis      = d3.axisBottom(xScale)
-                      .tickFormat(d3.format("d"))
-                      .tickSizeOuter(0)
-                      .tickSize(tickLen);
+  const axisY = height - margin.bottom;
+  const [rx0, rx1] = xScale.range();
+  const axis = d3.axisBottom(xScale)
+    .tickFormat(d3.format("d"))
+    .ticks(Math.min(15, (rx1 - rx0) / 60))
+    .tickSizeOuter(0);
   const axisG = slotG.append("g")
     .attr("class", "x-axis")
-    .attr("font-size", fontSize)
     .attr("transform", `translate(0,${axisY})`)
     .call(axis);
-  axisG.selectAll("path, line").attr("stroke-width", strokeW);
+  axisG.call(axisStyling);
 
   /* ---------- layout helper ------------------------------------ */
   const posBars = scale => {
@@ -211,12 +217,14 @@ export function peptideChart(
   /* ---------- public update (for zoom rescale) ----------------- */
   function update(newScale) {
     posBars(newScale);
+    const rng = newScale.range();
+    const w   = Math.max(1, (rng[1] - rng[0]) | 0);
     const ax = d3.axisBottom(newScale)
       .tickFormat(d3.format("d"))
-      .tickSizeOuter(0)
-      .tickSize(tickLen);
+      .ticks(Math.min(15, w / 60))
+      .tickSizeOuter(0);
     axisG.call(ax);
-    axisG.selectAll("path, line").attr("stroke-width", strokeW);
+    axisG.call(axisStyling);
   }
 
   return { update, height };

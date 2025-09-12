@@ -101,12 +101,16 @@ function createIAVDashboardResponsive({
     const computeLevels = rows => { const arr = Array.isArray(rows) ? rows.slice().sort((a,b)=>d3.ascending(a.start,b.start)) : []; const levels=[]; for (const p of arr){ let lvl = levels.findIndex(end => p.start >= end); if (lvl === -1){ lvl = levels.length; levels.push(0); } levels[lvl] = p.start + p.length; } return Math.max(1, levels.length); };
 
     // Peptides (cap row height for consistency)
+    // Use smaller top margin on the first chart to reduce top card gap
+    const marginFirst = { ...margin, top: 4 };
+    const marginMid   = { ...margin };
+    const marginLast  = { ...margin, bottom: 6 };
     const gPep = slot();
     const nLevels = computeLevels(pepDataForChart);
-    const pepAvailH   = Math.max(24, perH - margin.top - margin.bottom);
+    const pepAvailH   = Math.max(24, perH - marginFirst.top - marginFirst.bottom);
     const pepTargetRH = 18 * sizeFactor;
     const pepRowHeight = Math.max(12, Math.min(pepTargetRH, pepAvailH / Math.max(1, nLevels)));
-    const pep = peptideChart(gPep, { data:pepDataForChart, xScale:xCurrent, rowHeight:pepRowHeight, gap, sizeFactor, margin,
+    const pep = peptideChart(gPep, { data:pepDataForChart, xScale:xCurrent, rowHeight:pepRowHeight, gap, sizeFactor, margin: marginFirst,
       colourBy:colourByForChart, colourScale, isAlleleColour, missingColor:'#f0f0f0', alleleData:chartRowsI,
       alleles:Array.from(selectedI || []), percentileMode:percMode,
       onClick:d=>{ setSelectedPeptide(d.peptide_aligned); setSelectedStart(d.start); setSelectedLength(d.length); } });
@@ -117,20 +121,20 @@ function createIAVDashboardResponsive({
     // Sequences
     const gSeq = slot(); const seqGapRows = Math.max(20, Math.round(28 * sizeFactor));
     const seqCell = Math.max(12, Math.floor((perH - margin.top - margin.bottom - seqGapRows)/2));
-    const seqcmp = sequenceCompareChart(gSeq, { refRows:(typeof refRows!=="undefined"?refRows:[]), consRows:(typeof consensusRows!=="undefined"?consensusRows:[]), xScale:xCurrent, colourMode, sizeFactor, margin, gapRows:seqGapRows, cell:seqCell });
+    const seqcmp = sequenceCompareChart(gSeq, { refRows:(typeof refRows!=="undefined"?refRows:[]), consRows:(typeof consensusRows!=="undefined"?consensusRows:[]), xScale:xCurrent, colourMode, sizeFactor, margin: marginMid, gapRows:seqGapRows, cell:seqCell });
     const seqBlockH = Math.max(perH, seqcmp.height);
     addYLabel(gSeq, seqBlockH, 'Sequences');
     yOff += seqBlockH;
 
     // Diversity
     const gStack = slot();
-    const stack = stackedChart(gStack, { data: stackedBarsSafe, tooltipRows:(typeof aaFrequencies!=="undefined"?aaFrequencies.map(d=>({position:d.position, aminoacid:d.aminoacid, value:d.value_selected})):[]), xScale:xCurrent, sizeFactor, margin, height:perH });
+    const stack = stackedChart(gStack, { data: stackedBarsSafe, tooltipRows:(typeof aaFrequencies!=="undefined"?aaFrequencies.map(d=>({position:d.position, aminoacid:d.aminoacid, value:d.value_selected})):[]), xScale:xCurrent, sizeFactor, margin: marginMid, height:perH });
     const stackBlockH = Math.max(perH, stack.height);
     addYLabel(gStack, stackBlockH, 'Diversity');
     yOff += stackBlockH;
 
     // Conservation
-    const gArea = slot(); const area = areaChart(gArea, { data:(typeof areaData!=="undefined"?areaData:[]), xScale:xCurrent, sizeFactor, margin, height:perH });
+    const gArea = slot(); const area = areaChart(gArea, { data:(typeof areaData!=="undefined"?areaData:[]), xScale:xCurrent, sizeFactor, margin: marginLast, height:perH });
     const areaBlockH = Math.max(perH, area.height);
     addYLabel(gArea, areaBlockH, 'Conservation');
     yOff += areaBlockH;
@@ -2367,8 +2371,17 @@ const heatmapSVG = peptideHeatmap({
   alleles     : Array.from(selectedI || []),
   mode        : percMode,                           // "EL" | "BA"
   showAlleles : true,
-  baseCell    : 28,
-  height0     : 280,
+  baseCell    : (() => { let px=16; try{ const h2=document.querySelector('.metric-card h2'); if(h2) px=parseFloat(getComputedStyle(h2).fontSize)||16; }catch{} return Math.max(22, Math.round(px*2.0)); })(),
+  height0     : (() => {
+    // Choose height so the rendered text height ≈ metric-card title size
+    // Approx model: displayedFont = (cell*0.5) * (height0 / (basePad + nRows*cell)) ⇒ height0
+    let px=16; try{ const h2=document.querySelector('.metric-card h2'); if(h2) px=parseFloat(getComputedStyle(h2).fontSize)||16; }catch{}
+    const nRows   = 5;                    // head + topN (default 4)
+    const cell    = Math.max(22, Math.round(px*2.0));
+    const basePad = 36;                   // approx = (margins + labels)
+    const h0      = Math.round((px*2) * (basePad + nRows*cell) / cell);
+    return Math.max(160, Math.min(360, h0));
+  })(),
   margin      : { top:20, right:150, bottom:20, left:4 }
 });
 
