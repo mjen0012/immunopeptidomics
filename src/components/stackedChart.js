@@ -57,11 +57,19 @@ export function stackedChart(
          .attr("height", height - margin.top - margin.bottom);
 
   /* ——— axis (integer ticks) —————————————— */
+  const tickLen  = Math.min(6 * sizeFactor, 8);
+  const fontSize = Math.min(12 * sizeFactor, 14);
+  const strokeW  = Math.min(1.2 * sizeFactor, 2);
+  const ax = d3.axisBottom(xScale)
+    .tickFormat(d3.format("d"))
+    .tickSizeOuter(0)
+    .tickSize(tickLen);
   const axisG = slotG.append("g")
     .attr("class","x-axis")
-    .attr("font-size",10*sizeFactor)
+    .attr("font-size",fontSize)
     .attr("transform",`translate(0,${height - margin.bottom})`)
-    .call(d3.axisBottom(xScale).tickFormat(d3.format("d")));
+    .call(ax);
+  axisG.selectAll("path, line").attr("stroke-width", strokeW);
 
   /* ——— bars (no horizontal gap) ——————————— */
   const bars = slotG.append("g")
@@ -149,7 +157,12 @@ export function stackedChart(
   function update(scale){
     positionBars(scale);
     positionHover(scale);
-    axisG.call(d3.axisBottom(scale).tickFormat(d3.format("d")));
+    const ax2 = d3.axisBottom(scale)
+      .tickFormat(d3.format("d"))
+      .tickSizeOuter(0)
+      .tickSize(tickLen);
+    axisG.call(ax2);
+    axisG.selectAll("path, line").attr("stroke-width", strokeW);
   }
 
   return {update, height};

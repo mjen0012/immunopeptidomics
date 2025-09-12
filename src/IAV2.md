@@ -12,6 +12,165 @@ banner.alt = "";
 banner.className = "banner__bg";
 ```
 
+```js
+// Responsive dashboard renderer (fills the card height and resizes on layout changes)
+function createIAVDashboardResponsive({
+  rowHeight   = 18,
+  gap         = 2,
+  sizeFactor  = 1.8,
+  margin      = {top:20,right:20,bottom:12,left:56}
+} = {}){
+  const root = document.createElement('div');
+  root.style.width  = '100%';
+  root.style.height = '100%';
+  root.style.display = 'block';
+
+  // ===== TUNABLE CONSTANTS (adjust to tweak behaviour) =====
+  // Per-chart height bounds (px)
+  const MIN_PER_CHART   = 90;        // minimum height a chart can shrink to
+  const MAX_PER_CHART   = 360;       // cap so charts don't get too tall
+  // Extra offsets inside the SVG stack (px)
+  const SVG_TOP_OFFSET    = 0;       // base space before the first (peptide) chart
+  const SVG_BOTTOM_OFFSET = 0;       // base space after the last (conservation) chart
+  
+  // schedule renders to avoid thrash when many observers fire at once
+  let framePending = false;
+  const scheduleRender = () => {
+    if (framePending) return;
+    framePending = true;
+    requestAnimationFrame(() => { framePending = false; render(); });
+  };
+
+  const render = () => {
+    root.innerHTML = '';
+
+    // Derive per-chart height from available container space (4 primary charts)
+    const nPrimary = 4;
+    // Prefer actual space the dashboard root currently has (fills the card)
+    let avail = Math.floor(root.getBoundingClientRect().height);
+    if (!(avail > 0)) {
+      // Fallback until ResizeObserver ticks
+      avail = Math.round(140*sizeFactor*nPrimary);
+    }
+
+    const availAdj = Math.max(0, avail - SVG_TOP_OFFSET - SVG_BOTTOM_OFFSET);
+    const perRaw   = Math.floor(availAdj / nPrimary) || Math.round(140*sizeFactor);
+    const perH     = Math.max(MIN_PER_CHART, Math.min(perRaw, MAX_PER_CHART));
+
+    // --- Build a fresh dashboard SVG (re-using existing chart components) ---
+    const pepData = peptidesAligned.filter(d => d.protein === proteinCommitted);
+    const inProportionMode = (String(colourAttr) === 'Proportion');
+    const useProp = inProportionMode && (typeof getPeptideProportion !== 'undefined');
+    const pepDataForChart = useProp ? pepData.map(d => ({...d, attribute_1: getPeptideProportion(d)})) : pepData;
+    const colourByForChart = useProp ? 'attribute_1' : colourAttr;
+    let colourScale = null;
+    if (!isAlleleColour) {
+      if (useProp) {
+        colourScale = v => d3.interpolateBlues(Math.max(0, Math.min(1, Number(v))));
+      } else {
+        const vals = pepData.map(d => d?.[colourAttr]);
+        const keys = [...new Set(vals.filter(v => v != null && String(v).trim() !== "").map(String))].sort();
+        colourScale = makePeptideScale(keys.length ? keys : ["dummy"]);
+      }
+    }
+
+    const stackedBarsSafe = (typeof stackedBars !== "undefined" ? stackedBars : []);
+    const maxPos = Math.max(
+      pepData.length ? d3.max(pepData, d => d.start + d.length) : 1,
+      (stackedBarsSafe.length ? d3.max(stackedBarsSafe, d => d.position) : 1)
+    );
+    const svgWidth = width;
+    const x0       = d3.scaleLinear([0.5, maxPos + 0.5], [margin.left, svgWidth - margin.right]);
+    let   xCurrent = x0;
+
+    const svg = d3.create('svg').style('width','100%').attr('font-family','sans-serif');
+    const content = svg.append('g'); // charts live under this group so we can shift them
+    let yOff = 0; // accumulate chart heights only; we will add top/bottom pad later
+    const slot = () => content.append('g').attr('transform',`translate(0,${yOff})`);
+
+    const addYLabel = (g,h,text) => {
+      const x = Math.max(8, margin.left * 0.5); const y = h/2;
+      let ff = 'Roboto, sans-serif', fw = 500, fs = 18, fc = '#222';
+      try { const t = document.querySelector('.metric-card h2'); if (t){ const cs = getComputedStyle(t); ff = cs.fontFamily||ff; fw = cs.fontWeight||fw; fs = parseFloat(cs.fontSize)||fs; fc = cs.color||fc; } } catch {}
+      g.append('text')
+        .attr('transform',`translate(${x},${y}) rotate(-90)`).attr('text-anchor','middle').attr('dominant-baseline','middle')
+        .style('font-family',ff).attr('font-weight',fw).attr('font-size',fs).attr('fill',fc)
+        .style('pointer-events','none').text(text);
+    };
+
+    const computeLevels = rows => { const arr = Array.isArray(rows) ? rows.slice().sort((a,b)=>d3.ascending(a.start,b.start)) : []; const levels=[]; for (const p of arr){ let lvl = levels.findIndex(end => p.start >= end); if (lvl === -1){ lvl = levels.length; levels.push(0); } levels[lvl] = p.start + p.length; } return Math.max(1, levels.length); };
+
+    // Peptides (cap row height for consistency)
+    const gPep = slot();
+    const nLevels = computeLevels(pepDataForChart);
+    const pepAvailH   = Math.max(24, perH - margin.top - margin.bottom);
+    const pepTargetRH = 18 * sizeFactor;
+    const pepRowHeight = Math.max(12, Math.min(pepTargetRH, pepAvailH / Math.max(1, nLevels)));
+    const pep = peptideChart(gPep, { data:pepDataForChart, xScale:xCurrent, rowHeight:pepRowHeight, gap, sizeFactor, margin,
+      colourBy:colourByForChart, colourScale, isAlleleColour, missingColor:'#f0f0f0', alleleData:chartRowsI,
+      alleles:Array.from(selectedI || []), percentileMode:percMode,
+      onClick:d=>{ setSelectedPeptide(d.peptide_aligned); setSelectedStart(d.start); setSelectedLength(d.length); } });
+    const pepBlockH = Math.max(perH, pep.height);
+    addYLabel(gPep, pepBlockH, 'Peptides');
+    yOff += pepBlockH;
+
+    // Sequences
+    const gSeq = slot(); const seqGapRows = Math.max(20, Math.round(28 * sizeFactor));
+    const seqCell = Math.max(12, Math.floor((perH - margin.top - margin.bottom - seqGapRows)/2));
+    const seqcmp = sequenceCompareChart(gSeq, { refRows:(typeof refRows!=="undefined"?refRows:[]), consRows:(typeof consensusRows!=="undefined"?consensusRows:[]), xScale:xCurrent, colourMode, sizeFactor, margin, gapRows:seqGapRows, cell:seqCell });
+    const seqBlockH = Math.max(perH, seqcmp.height);
+    addYLabel(gSeq, seqBlockH, 'Sequences');
+    yOff += seqBlockH;
+
+    // Diversity
+    const gStack = slot();
+    const stack = stackedChart(gStack, { data: stackedBarsSafe, tooltipRows:(typeof aaFrequencies!=="undefined"?aaFrequencies.map(d=>({position:d.position, aminoacid:d.aminoacid, value:d.value_selected})):[]), xScale:xCurrent, sizeFactor, margin, height:perH });
+    const stackBlockH = Math.max(perH, stack.height);
+    addYLabel(gStack, stackBlockH, 'Diversity');
+    yOff += stackBlockH;
+
+    // Conservation
+    const gArea = slot(); const area = areaChart(gArea, { data:(typeof areaData!=="undefined"?areaData:[]), xScale:xCurrent, sizeFactor, margin, height:perH });
+    const areaBlockH = Math.max(perH, area.height);
+    addYLabel(gArea, areaBlockH, 'Conservation');
+    yOff += areaBlockH;
+
+    // Distribute any leftover space equally above and below charts so the block fills the card neatly
+    const spare      = Math.max(0, availAdj - yOff);
+    // Keep top padding minimal and consistent; push remaining space below
+    const dynTopPad  = SVG_TOP_OFFSET;
+    const dynBotPad  = SVG_BOTTOM_OFFSET + spare;
+    content.attr('transform', `translate(0,${dynTopPad})`);
+
+    // Finalize & zoom
+    const totalH = yOff + dynTopPad + dynBotPad;
+    svg.attr('height', totalH).attr('viewBox', `0 0 ${svgWidth} ${totalH}`);
+    const updaters = [pep.update, stack.update, seqcmp.update, area.update];
+    const EPS=1e-6; const zoom = d3.zoom().scaleExtent([1,15]).translateExtent([[margin.left,0],[svgWidth-margin.right,totalH]]).on('zoom', ev => { if (Math.abs(ev.transform.k-1)<EPS && Math.abs(ev.transform.x)>EPS){ svg.call(zoom.transform, d3.zoomIdentity); return; } xCurrent = ev.transform.rescaleX(x0); updaters.forEach(fn=>fn(xCurrent)); });
+    svg.call(zoom);
+
+    root.appendChild(svg.node());
+  };
+
+  // Re-render on container or left-panel changes without forcing explicit heights
+  const ro = new ResizeObserver(() => scheduleRender());
+  queueMicrotask(()=> ro.observe(root));
+  const leftPanel = Array.from(document.querySelectorAll('.layout-20-80 .card'))
+    .find(el => el.querySelector('.file-heading')?.textContent?.includes('Control Panel'));
+  let roLeft = null;
+  if (leftPanel && 'ResizeObserver' in window){
+    roLeft = new ResizeObserver(() => scheduleRender());
+    roLeft.observe(leftPanel);
+  }
+  window.addEventListener('resize', scheduleRender);
+  if (typeof invalidation !== 'undefined' && invalidation?.then) invalidation.then(()=> { ro.disconnect(); if (roLeft) roLeft.disconnect(); window.removeEventListener('resize', scheduleRender);} );
+
+  // initial paint
+  render();
+  return root;
+}
+```
+
 <style>
 @import url("https://fonts.googleapis.com/css2?family=Roboto+Condensed:wght@300;400;700&display=swap");
 
@@ -173,23 +332,52 @@ banner.className = "banner__bg";
 
   </div>
 
-  <!-- Row 2· 80 %· metric cards -->
-  <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:1rem;">
-    ${allSeqCard}
-    ${uniqueSeqCard}
-    ${alignedPepsCard}
-    ${conservedCard}
-  </div>
-
-  <!-- Row 3· 80 %· two equal cards -->
-  <div class="card">${heatmapSVG}</div>
-
-  <!-- Row 4· 80 %· single wide card -->
-  <div class="card" style="min-height:200px;">
-    ${createIAVDashboard()}
+  <!-- Right column wrapper spans rows 2–4 so left panel sizing does not bloat the metric-row -->
+  <div class="right-stack">
+    <!-- Row 2· 80 %· metric cards (fit to content) -->
+    <div class="metric-row" style="display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:1rem;">
+      ${allSeqCard}
+      ${uniqueSeqCard}
+      ${alignedPepsCard}
+      ${conservedCard}
+    </div>
+    <!-- Row 3· 80 %· two equal cards -->
+    <div class="card">${heatmapSVG}</div>
+    <!-- Row 4· 80 %· single wide card (flex-fills remainder) -->
+    <div class="card dashboard-card">
+      ${createIAVDashboardResponsive()}
+    </div>
   </div>
 
 </div>
+
+<style>
+/* dashboard (charts) card: equal padding and top-aligned content */
+.dashboard-card {
+  padding: 1rem;               /* equal padding on all sides */
+  display: flex;
+  align-items: flex-start;     /* start at top */
+  align-self: start;           /* don't stretch to tall grid row */
+}
+.dashboard-card svg {
+  display: block;              /* remove inline svg gaps */
+  margin: 0;
+}
+
+/* right column wrapper spans rows 2–4, manages its own vertical flow */
+.right-stack {
+  grid-column: 2 / 3;
+  grid-row: 2 / span 3;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  align-self: stretch;
+  height: 100%;
+  min-height: 0; /* allow children to size without forcing overflow */
+}
+.right-stack .dashboard-card { flex: 1 1 0; min-height: 0; }
+.right-stack > * { margin: 0; }
+</style>
 
 <!-- Imports and Loading Data -->
 ```js
@@ -1502,8 +1690,8 @@ function createIAVDashboard({
   gap         = 2,
   // scale up visuals by default
   sizeFactor  = 1.8,
-  // tighter vertical padding to avoid excess whitespace
-  margin      = {top:8,right:20,bottom:32,left:56}
+  // equal top/bottom padding inside charts to match card
+  margin      = {top:12,right:20,bottom:12,left:56}
 } = {}) {
 
   /* 1 — peptide data & colour scale --------------------------- */
@@ -1555,14 +1743,28 @@ function createIAVDashboard({
   const addYLabel = (g, h, text) => {
     const x = Math.max(8, margin.left * 0.5);     // centered within left margin
     const y = h / 2;
+
+    // match metricCard title styling when available
+    let ff = "Roboto, sans-serif", fw = 500, fs = 18, fc = "#222";
+    try {
+      const t = document.querySelector('.metric-card h2');
+      if (t) {
+        const cs = getComputedStyle(t);
+        ff = cs.fontFamily || ff;
+        fw = cs.fontWeight || fw;
+        fs = parseFloat(cs.fontSize) || fs;
+        fc = cs.color || fc;
+      }
+    } catch {}
+
     g.append("text")
       .attr("transform", `translate(${x},${y}) rotate(-90)`)  // vertical label
       .attr("text-anchor", "middle")
       .attr("dominant-baseline", "middle")
-      .attr("font-family", "'Roboto', sans-serif")
-      .attr("font-weight", "bold")               // Roboto Bold
-      .attr("font-size", 22)
-      .attr("fill", "#222")                      // off-black
+      .style("font-family", ff)
+      .attr("font-weight", fw)
+      .attr("font-size", fs)
+      .attr("fill", fc)
       .style("pointer-events", "none")            // avoid blocking hovers
       .text(text);
   };
@@ -1586,7 +1788,9 @@ function createIAVDashboard({
   const gPep = slot();
   // derive rowHeight to fit equal height across charts
   const nLevels = computeLevels(pepDataForChart);
-  const pepRowHeight = Math.max(12, (perChartHeight - margin.top - margin.bottom) / nLevels);
+  const pepAvailH   = Math.max(24, perChartHeight - margin.top - margin.bottom);
+  const pepTargetRH = 18 * sizeFactor;                // preferred bar thickness
+  const pepRowHeight = Math.max(12, Math.min(pepTargetRH, pepAvailH / Math.max(1, nLevels)));
   const pep = peptideChart(gPep, {
     data       : pepDataForChart,
     xScale     : xCurrent,

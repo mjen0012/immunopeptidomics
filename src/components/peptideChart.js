@@ -128,12 +128,20 @@ export function peptideChart(
       .on("click", (_, d) => onClick(d));
 
   /* ---------- x-axis ------------------------------------------- */
-  const axisY = height - margin.bottom;
+  const axisY     = height - margin.bottom;
+  const tickLen   = Math.min(6 * sizeFactor, 8);
+  const fontSize  = Math.min(12 * sizeFactor, 14);
+  const strokeW   = Math.min(1.2 * sizeFactor, 2);
+  const axis      = d3.axisBottom(xScale)
+                      .tickFormat(d3.format("d"))
+                      .tickSizeOuter(0)
+                      .tickSize(tickLen);
   const axisG = slotG.append("g")
     .attr("class", "x-axis")
-    .attr("font-size", 10 * sizeFactor)
+    .attr("font-size", fontSize)
     .attr("transform", `translate(0,${axisY})`)
-    .call(d3.axisBottom(xScale).tickFormat(d3.format("d")));
+    .call(axis);
+  axisG.selectAll("path, line").attr("stroke-width", strokeW);
 
   /* ---------- layout helper ------------------------------------ */
   const posBars = scale => {
@@ -203,7 +211,12 @@ export function peptideChart(
   /* ---------- public update (for zoom rescale) ----------------- */
   function update(newScale) {
     posBars(newScale);
-    axisG.call(d3.axisBottom(newScale).tickFormat(d3.format("d")));
+    const ax = d3.axisBottom(newScale)
+      .tickFormat(d3.format("d"))
+      .tickSizeOuter(0)
+      .tickSize(tickLen);
+    axisG.call(ax);
+    axisG.selectAll("path, line").attr("stroke-width", strokeW);
   }
 
   return { update, height };
