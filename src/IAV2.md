@@ -2374,13 +2374,15 @@ const heatmapSVG = peptideHeatmap({
   baseCell    : (() => { let px=16; try{ const h2=document.querySelector('.metric-card h2'); if(h2) px=parseFloat(getComputedStyle(h2).fontSize)||16; }catch{} return Math.max(22, Math.round(px*2.0)); })(),
   height0     : (() => {
     // Choose height so the rendered text height ≈ metric-card title size
-    // Approx model: displayedFont = (cell*0.5) * (height0 / (basePad + nRows*cell)) ⇒ height0
+    // Approx model: displayedFont = (cell*0.5) * (height0 / (basePad + reserve + nRows*cell)) ⇒ height0
+    // Reserve extra vertical band for allele labels so adding alleles does not shrink text.
     let px=16; try{ const h2=document.querySelector('.metric-card h2'); if(h2) px=parseFloat(getComputedStyle(h2).fontSize)||16; }catch{}
     const nRows   = 5;                    // head + topN (default 4)
     const cell    = Math.max(22, Math.round(px*2.0));
-    const basePad = 36;                   // approx = (margins + labels)
-    const h0      = Math.round((px*2) * (basePad + nRows*cell) / cell);
-    return Math.max(160, Math.min(360, h0));
+    const basePad = 36;                   // approx = (margins + misc labels)
+    const reserve = Math.round(cell * 1.8); // reserve for diagonal allele labels (xLabelBand)
+    const h0      = Math.round((px*2) * (basePad + reserve + nRows*cell) / cell);
+    return Math.max(200, Math.min(440, h0));
   })(),
   margin      : { top:20, right:150, bottom:20, left:4 }
 });
