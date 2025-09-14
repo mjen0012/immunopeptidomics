@@ -29,7 +29,7 @@ function createIAVDashboardResponsive({
   // ===== TUNABLE CONSTANTS (adjust to tweak behaviour) =====
   // Per-chart height bounds (px)
   const MIN_PER_CHART   = 90;        // minimum height a chart can shrink to
-  const MAX_PER_CHART   = 360;       // cap so charts don't get too tall
+  const MAX_PER_CHART   = 200;       // cap so charts don't get too tall
   // Extra offsets inside the SVG stack (px)
   const SVG_TOP_OFFSET    = 0;       // base space before the first (peptide) chart
   const SVG_BOTTOM_OFFSET = 0;       // base space after the last (conservation) chart
@@ -71,8 +71,16 @@ function createIAVDashboardResponsive({
     const selI = Array.isArray(globalThis.__selectedI) ? globalThis.__selectedI : [];
     const percModeNow = (globalThis.__percMode != null ? globalThis.__percMode : 'EL');
     const inProportionMode = (String(colourAttrNow) === 'Proportion');
-    const useProp = inProportionMode && (typeof globalThis.__getPeptideProportion === 'function');
-    const pepDataForChart = useProp ? pepData.map(d => ({...d, attribute_1: globalThis.__getPeptideProportion(d)})) : pepData;
+    // Always use Proportion mode immediately; if the getter isn't ready yet, fall back to 0 so bars are light (not grey)
+    const useProp = inProportionMode;
+    const pepDataForChart = useProp
+      ? pepData.map(d => ({
+          ...d,
+          attribute_1: (typeof globalThis.__getPeptideProportion === 'function')
+                        ? globalThis.__getPeptideProportion(d)
+                        : (typeof d.proportion === 'number' ? d.proportion : 0)
+        }))
+      : pepData;
     const colourByForChart = useProp ? 'attribute_1' : colourAttrNow;
     let colourScale = null;
     const normAllele = s => String(s || '').toUpperCase().replace(/^HLA-/, '').trim();
@@ -182,7 +190,8 @@ function createIAVDashboardResponsive({
 
     // Finalize & zoom
     const totalH = yOff + dynTopPad + dynBotPad;
-    svg.attr('height', totalH).attr('viewBox', `0 0 ${svgWidth} ${totalH}`);
+    const svgH = Math.max(1, Math.min(avail, totalH));
+    svg.style('height','100%').attr('height', svgH).attr('viewBox', `0 0 ${svgWidth} ${totalH}`);
     const updaters = [pep.update, stack.update, seqcmp.update, area.update];
     const EPS=1e-6; const zoom = d3.zoom().scaleExtent([1,15]).translateExtent([[margin.left,0],[svgWidth-margin.right,totalH]]).on('zoom', ev => { if (Math.abs(ev.transform.k-1)<EPS && Math.abs(ev.transform.x)>EPS){ svg.call(zoom.transform, d3.zoomIdentity); return; } xCurrent = ev.transform.rescaleX(x0); updaters.forEach(fn=>fn(xCurrent)); });
     svg.call(zoom);
@@ -210,6 +219,10 @@ function createIAVDashboardResponsive({
   addEventListener('aa-ready',       scheduleRender);
   addEventListener('area-ready',     scheduleRender);
   addEventListener('stacked-ready',  scheduleRender);
+  // UI controls affecting colours/alleles
+  addEventListener('colourAttr-change', scheduleRender);
+  addEventListener('allele-change',     scheduleRender);
+  addEventListener('percMode-change',   scheduleRender);
   if (typeof invalidation !== 'undefined' && invalidation?.then) invalidation.then(()=> {
     ro.disconnect(); if (roLeft) roLeft.disconnect();
     window.removeEventListener('resize', scheduleRender);
@@ -219,6 +232,9 @@ function createIAVDashboardResponsive({
     removeEventListener('aa-ready',       scheduleRender);
     removeEventListener('area-ready',     scheduleRender);
     removeEventListener('stacked-ready',  scheduleRender);
+    removeEventListener('colourAttr-change', scheduleRender);
+    removeEventListener('allele-change',     scheduleRender);
+    removeEventListener('percMode-change',   scheduleRender);
   });
 
   // initial paint
@@ -414,10 +430,12 @@ function createIAVDashboardResponsive({
   display: flex;
   align-items: flex-start;     /* start at top */
   align-self: start;           /* don't stretch to tall grid row */
+  overflow: hidden;            /* prevent content clipping outside card */
 }
 .dashboard-card svg {
   display: block;              /* remove inline svg gaps */
   margin: 0;
+  height: 100%;                /* fit svg to card height */
 }
 
 /* right column wrapper spans rows 2–4, manages its own vertical flow */
@@ -2094,7 +2112,7 @@ const colourAttrInput = (() => {
   });
   try { globalThis.__dbg?.dbg('ui','colourAttrInput:render', { choices: colourChoices, defaultValue }); } catch {}
   el.addEventListener("input", () => { globalThis.__colourByPrev = el.value; });
-  el.addEventListener("input", () => { try { globalThis.__dbg?.dbg('ui','colourAttrInput:change', { value: el.value }); } catch {} });
+  el.addEventListener("input", () => { try { globalThis.__dbg?.dbg('ui','colourAttrInput:change', { value: el.value }); globalThis.__colourAttrNow = el.value; dispatchEvent(new Event('colourAttr-change')); } catch {} });
   return el;
 })();
 const colourAttr = Generators.input(colourAttrInput);
@@ -3520,6 +3538,8 @@ const mhcClassInput = Inputs.radio(["Class I","Class II"], {
 const percMode = Generators.input(percentileModeInput);
 const mhcClass = Generators.input(mhcClassInput);
 try { globalThis.__percMode = percMode; } catch {}
+// react to UI changes immediately
+try { percentileModeInput?.addEventListener?.('input', () => { try { globalThis.__percMode = percentileModeInput.value; dispatchEvent(new Event('percMode-change')); } catch {} }); } catch {}
 ```
 
 ```js

@@ -183,18 +183,31 @@ export function peptideChart(
         const uploaded = d.peptide ?? "";          // ungapped (from CSV)
         const aligned  = d.peptide_aligned ?? "";  // gapped, profile-aligned
 
+        // Conservation (best-effort): from attribute_1 in Proportion mode or global getter
+        let conservation = null;
+        try {
+          if (String(colourBy || '').toLowerCase() === 'attribute_1' && typeof d.attribute_1 === 'number') conservation = d.attribute_1;
+          else if (typeof d.proportion === 'number') conservation = d.proportion;
+          else if (typeof globalThis.__getPeptideProportion === 'function') conservation = globalThis.__getPeptideProportion(d);
+        } catch {}
+
         // If colourBy is an allele (simple rule), include that allele's EL/BA
         let alleleHTML = "";
         if (usingAlleleColour) {
+          // Pick a sensible label for the allele header
+          let alleleLabel = 'Allele';
+          const picked = (Array.isArray(alleles) ? alleles : []);
+          if (picked.length) alleleLabel = normAllele(picked[0]);
+          if (colourByUC && !/^ATTRIBUTE_\d+$/i.test(colourByUC)) alleleLabel = colourByUC;
           const pepKey = normPep(d.peptide_aligned || d.peptide);
           const pair   = `${colourByUC}|${pepKey}`;
           const el = elMap.get(pair);
           const ba = baMap.get(pair);
-          const elStr = (el != null && isFinite(el)) ? fmtPct(el) : "—";
-          const baStr = (ba != null && isFinite(ba)) ? fmtPct(ba) : "—";
+          const elStr = (el != null && isFinite(el)) ? fmtPct(el) : "-";
+          const baStr = (ba != null && isFinite(ba)) ? fmtPct(ba) : "-";
           alleleHTML =
             `<div style="margin:.35rem 0 .2rem; border-top:1px solid #eee;"></div>
-             <div><strong>${colourByUC}</strong> percentiles</div>
+             <div><strong>${alleleLabel}</strong> percentiles</div>
              <div>EL: ${elStr}&nbsp;&nbsp;|&nbsp;&nbsp;BA: ${baStr}</div>`;
         }
 
@@ -205,6 +218,7 @@ export function peptideChart(
            <div><strong>Attribute&nbsp;1:</strong> ${d.attribute_1 ?? ""}</div>
            <div><strong>Attribute&nbsp;2:</strong> ${d.attribute_2 ?? ""}</div>
            <div><strong>Attribute&nbsp;3:</strong> ${d.attribute_3 ?? ""}</div>
+           ${conservation != null && isFinite(conservation) ? `<div><strong>Conservation:</strong> ${(conservation*100).toFixed(1)}%</div>` : ''}
            ${alleleHTML}`
         )
         .style("left", `${e.pageX + 10}px`)
