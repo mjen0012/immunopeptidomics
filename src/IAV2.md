@@ -62,31 +62,37 @@ function createIAVDashboardResponsive({
     try { globalThis.__dbg?.dbg('chart', 'dashboard:measure', { containerH: avail, containerHAdj: availAdj, perRaw, perH }); } catch {}
 
     // --- Build a fresh dashboard SVG (re-using existing chart components) ---
-    // Avoid hard dependency on reactive `peptidesAligned`; use global stash for immediate render.
+    // Avoid hard dependencies; use globals and defaults so we can render immediately.
+    const proteinNow = (globalThis.__committedProteinId || globalThis.DEFAULT_PROTEIN || 'M1');
     const pepData = (Array.isArray(globalThis.__peptidesAligned) ? globalThis.__peptidesAligned : [])
-      .filter(d => d.protein === proteinCommitted);
-    try { globalThis.__dbg?.dbg('data', 'dashboard:pepData', { n: pepData.length, protein: proteinCommitted }); } catch {}
-    const inProportionMode = (String(colourAttr) === 'Proportion');
-    const useProp = inProportionMode && (typeof getPeptideProportion !== 'undefined');
-    const pepDataForChart = useProp ? pepData.map(d => ({...d, attribute_1: getPeptideProportion(d)})) : pepData;
-    const colourByForChart = useProp ? 'attribute_1' : colourAttr;
+      .filter(d => d.protein === proteinNow);
+    try { globalThis.__dbg?.dbg('data', 'dashboard:pepData', { n: pepData.length, protein: proteinNow }); } catch {}
+    const colourAttrNow = (globalThis.__colourAttrNow != null ? globalThis.__colourAttrNow : 'Proportion');
+    const selI = Array.isArray(globalThis.__selectedI) ? globalThis.__selectedI : [];
+    const percModeNow = (globalThis.__percMode != null ? globalThis.__percMode : 'EL');
+    const inProportionMode = (String(colourAttrNow) === 'Proportion');
+    const useProp = inProportionMode && (typeof globalThis.__getPeptideProportion === 'function');
+    const pepDataForChart = useProp ? pepData.map(d => ({...d, attribute_1: globalThis.__getPeptideProportion(d)})) : pepData;
+    const colourByForChart = useProp ? 'attribute_1' : colourAttrNow;
     let colourScale = null;
-    if (!isAlleleColour) {
+    const normAllele = s => String(s || '').toUpperCase().replace(/^HLA-/, '').trim();
+    const isAlleleNow = (!inProportionMode && !/^attribute_[123]$/i.test(String(colourAttrNow)) && selI.some(a => normAllele(a) === normAllele(colourAttrNow)));
+    if (!isAlleleNow) {
       if (useProp) {
         colourScale = v => d3.interpolateBlues(Math.max(0, Math.min(1, Number(v))));
       } else {
-        const vals = pepData.map(d => d?.[colourAttr]);
+        const vals = pepData.map(d => d?.[colourAttrNow]);
         const keys = [...new Set(vals.filter(v => v != null && String(v).trim() !== "").map(String))].sort();
         colourScale = makePeptideScale(keys.length ? keys : ["dummy"]);
       }
     }
 
-    const stackedBarsSafe = (typeof stackedBars !== "undefined" ? stackedBars : []);
+    const stackedBarsSafe = Array.isArray(globalThis.__stackedBars) ? globalThis.__stackedBars : [];
     const maxPos = Math.max(
       pepData.length ? d3.max(pepData, d => d.start + d.length) : 1,
       (stackedBarsSafe.length ? d3.max(stackedBarsSafe, d => d.position) : 1)
     );
-    const svgWidth = width;
+    const svgWidth = (typeof width !== 'undefined' ? width : 900);
     const x0       = d3.scaleLinear([0.5, maxPos + 0.5], [margin.left, svgWidth - margin.right]);
     let   xCurrent = x0;
 
@@ -113,35 +119,56 @@ function createIAVDashboardResponsive({
     const marginMid   = { ...margin };
     const marginLast  = { ...margin, bottom: 6 };
     const gPep = slot();
-    const nLevels = computeLevels(pepDataForChart);
-    const pepAvailH   = Math.max(24, perH - marginFirst.top - marginFirst.bottom);
-    const pepTargetRH = 18 * sizeFactor;
-    const pepRowHeight = Math.max(12, Math.min(pepTargetRH, pepAvailH / Math.max(1, nLevels)));
-    const pep = peptideChart(gPep, { data:pepDataForChart, xScale:xCurrent, rowHeight:pepRowHeight, gap, sizeFactor, margin: marginFirst,
-      colourBy:colourByForChart, colourScale, isAlleleColour, missingColor:'#f0f0f0', alleleData:chartRowsI,
-      alleles:Array.from(selectedI || []), percentileMode:percMode,
-      onClick:d=>{ setSelectedPeptide(d.peptide_aligned); setSelectedStart(d.start); setSelectedLength(d.length); } });
-    const pepBlockH = Math.max(perH, pep.height);
-    addYLabel(gPep, pepBlockH, 'Peptides');
-    yOff += pepBlockH;
+    let pep = { update: () => {}, height: perH };
+    if (!pepDataForChart.length) {
+      gPep.append('text')
+        .attr('x', marginFirst.left)
+        .attr('y', marginFirst.top + 14)
+        .attr('font-style', 'italic')
+        .attr('fill', '#555')
+        .text('Upload peptides to view tracks.');
+      addYLabel(gPep, perH, 'Peptides');
+      yOff += perH;
+    } else {
+      const nLevels = computeLevels(pepDataForChart);
+      const pepAvailH   = Math.max(24, perH - marginFirst.top - marginFirst.bottom);
+      const pepTargetRH = 18 * sizeFactor;
+      const pepRowHeight = Math.max(12, Math.min(pepTargetRH, pepAvailH / Math.max(1, nLevels)));
+      const alleleDataForChart = selI.length ? (globalThis.__chartRowsI || []) : [];
+      pep = peptideChart(gPep, { data:pepDataForChart, xScale:xCurrent, rowHeight:pepRowHeight, gap, sizeFactor, margin: marginFirst,
+        colourBy:colourByForChart, colourScale, isAlleleColour:isAlleleNow, missingColor:'#f0f0f0', alleleData:alleleDataForChart,
+        alleles:selI, percentileMode:percModeNow,
+        onClick:d=>{ setSelectedPeptide(d.peptide_aligned); setSelectedStart(d.start); setSelectedLength(d.length); } });
+      const pepBlockH = Math.max(perH, pep.height);
+      addYLabel(gPep, pepBlockH, 'Peptides');
+      yOff += pepBlockH;
+    }
 
     // Sequences
     const gSeq = slot(); const seqGapRows = Math.max(20, Math.round(28 * sizeFactor));
     const seqCell = Math.max(12, Math.floor((perH - margin.top - margin.bottom - seqGapRows)/2));
-    const seqcmp = sequenceCompareChart(gSeq, { refRows:(typeof refRows!=="undefined"?refRows:[]), consRows:(typeof consensusRows!=="undefined"?consensusRows:[]), xScale:xCurrent, colourMode, sizeFactor, margin: marginMid, gapRows:seqGapRows, cell:seqCell });
+    const refRowsNow = Array.isArray(globalThis.__refRows) ? globalThis.__refRows : [];
+    const consRowsNow = Array.isArray(globalThis.__consensusRows) ? globalThis.__consensusRows : [];
+    try { globalThis.__dbg?.dbg('data','dashboard:seqRows', { ref: refRowsNow.length, cons: consRowsNow.length, placeholder: !(refRowsNow.length && consRowsNow.length) }); } catch {}
+    const seqcmp = sequenceCompareChart(gSeq, { refRows:refRowsNow, consRows:consRowsNow, xScale:xCurrent, colourMode:(typeof colourMode!=='undefined'?colourMode:'Mismatches'), sizeFactor, margin: marginMid, gapRows:seqGapRows, cell:seqCell });
     const seqBlockH = Math.max(perH, seqcmp.height);
     addYLabel(gSeq, seqBlockH, 'Sequences');
     yOff += seqBlockH;
 
     // Diversity
     const gStack = slot();
-    const stack = stackedChart(gStack, { data: stackedBarsSafe, tooltipRows:(typeof aaFrequencies!=="undefined"?aaFrequencies.map(d=>({position:d.position, aminoacid:d.aminoacid, value:d.value_selected})):[]), xScale:xCurrent, sizeFactor, margin: marginMid, height:perH });
+    const aaFreqNow = Array.isArray(globalThis.__aaFrequencies) ? globalThis.__aaFrequencies : [];
+    try { globalThis.__dbg?.dbg('data','dashboard:aaFrequencies', { n: aaFreqNow.length }); } catch {}
+    const stack = stackedChart(gStack, { data: stackedBarsSafe, tooltipRows: aaFreqNow.map(d=>({position:d.position, aminoacid:d.aminoacid, value:d.value_selected})), xScale:xCurrent, sizeFactor, margin: marginMid, height:perH });
     const stackBlockH = Math.max(perH, stack.height);
     addYLabel(gStack, stackBlockH, 'Diversity');
     yOff += stackBlockH;
 
     // Conservation
-    const gArea = slot(); const area = areaChart(gArea, { data:(typeof areaData!=="undefined"?areaData:[]), xScale:xCurrent, sizeFactor, margin: marginLast, height:perH });
+    const gArea = slot();
+    const areaDataNow = Array.isArray(globalThis.__areaData) ? globalThis.__areaData : [];
+    try { globalThis.__dbg?.dbg('data','dashboard:areaData', { n: areaDataNow.length }); } catch {}
+    const area = areaChart(gArea, { data: areaDataNow, xScale:xCurrent, sizeFactor, margin: marginLast, height:perH });
     const areaBlockH = Math.max(perH, area.height);
     addYLabel(gArea, areaBlockH, 'Conservation');
     yOff += areaBlockH;
@@ -179,12 +206,19 @@ function createIAVDashboardResponsive({
   addEventListener('peptides-ready', scheduleRender);
   addEventListener('tallies-ready',  scheduleRender);
   addEventListener('aligned-ready',  scheduleRender);
+  // DB-derived series readiness
+  addEventListener('aa-ready',       scheduleRender);
+  addEventListener('area-ready',     scheduleRender);
+  addEventListener('stacked-ready',  scheduleRender);
   if (typeof invalidation !== 'undefined' && invalidation?.then) invalidation.then(()=> {
     ro.disconnect(); if (roLeft) roLeft.disconnect();
     window.removeEventListener('resize', scheduleRender);
     removeEventListener('peptides-ready', scheduleRender);
     removeEventListener('tallies-ready',  scheduleRender);
     removeEventListener('aligned-ready',  scheduleRender);
+    removeEventListener('aa-ready',       scheduleRender);
+    removeEventListener('area-ready',     scheduleRender);
+    removeEventListener('stacked-ready',  scheduleRender);
   });
 
   // initial paint
@@ -997,6 +1031,7 @@ const allAlignedFromReference = referenceFile ? await (async () => {
     return out;
   })();
 
+try { globalThis.__committedProteinId = committedProteinId; } catch {}
   // --- build a profile for every distinct protein header found
   const ids = [...new Set(entries.map(d => normProtein?.(d.protein) ?? d.protein))].filter(Boolean);
   try { globalThis.__dbg?.dbg('data','ref:profiles:request',{ nHeaders: entries.length, nUniqueIds: ids.length }); } catch {}
@@ -2063,6 +2098,7 @@ const colourAttrInput = (() => {
   return el;
 })();
 const colourAttr = Generators.input(colourAttrInput);
+try { globalThis.__colourAttrNow = colourAttr; } catch {}
 
 /* Are we currently colouring by an allele? (reactive) */
 const normAllele = s =>
@@ -2166,14 +2202,8 @@ const dashboardSlot = Generators.observe(change => {
   let rendered = false;
 
   function canRender() {
-    try {
-      return (typeof createIAVDashboardResponsive === 'function' &&
-              typeof d3 !== 'undefined' &&
-              typeof peptideChart === 'function' &&
-              typeof stackedChart === 'function' &&
-              typeof sequenceCompareChart === 'function' &&
-              typeof areaChart === 'function');
-    } catch { return false; }
+    try { return (typeof createIAVDashboardResponsive === 'function'); }
+    catch { return false; }
   }
 
   function render() {
@@ -2424,6 +2454,9 @@ const aaFrequencies = (
   };
 });
 
+// stash + event for non-reactive dashboard consumers
+try { globalThis.__aaFrequencies = aaFrequencies; dispatchEvent(new Event('aa-ready')); console.debug('[IAV2/data] aaFrequencies:ready', { n: aaFrequencies.length }); } catch {}
+
 /* Stacked Bar Chart Data */
 const stackedBars = (() => {
   const rows = [];
@@ -2445,6 +2478,8 @@ const stackedBars = (() => {
   return rows;
 })();
 
+try { globalThis.__stackedBars = stackedBars; dispatchEvent(new Event('stacked-ready')); console.debug('[IAV2/data] stackedBars:ready', { n: stackedBars.length }); } catch {}
+
 /* Area Chart Data */
 const areaData = Array.from(
   d3.group(aaFrequencies, d => d.position),
@@ -2459,6 +2494,29 @@ const areaData = Array.from(
     };
   }
 ).sort((a, b) => d3.ascending(a.position, b.position));
+
+try { globalThis.__areaData = areaData; dispatchEvent(new Event('area-ready')); console.debug('[IAV2/data] areaData:ready', { n: areaData.length }); } catch {}
+
+```
+
+```js
+// Warm-up: trigger DB-derived series so dashboard can draw immediately
+{
+  try {
+    // Touch deps so Observable computes them now
+    void positionStats;
+    const aa = await (globalThis.__perfUtils?.perfAsync?.('warm:aaFrequencies', async () => aaFrequencies));
+    const sb = stackedBars;
+    const ad = areaData;
+    console.info('[IAV2] warmup done', { aa: Array.isArray(aa) ? aa.length : aa?.length, stack: Array.isArray(sb) ? sb.length : 0, area: Array.isArray(ad) ? ad.length : 0 });
+    // Ensure listeners rerender even if they subscribed late
+    dispatchEvent(new Event('aa-ready'));
+    dispatchEvent(new Event('stacked-ready'));
+    dispatchEvent(new Event('area-ready'));
+  } catch (e) {
+    console.warn('[IAV2] warmup failed', e);
+  }
+}
 
 
 /* Proportion index for peptide colouring (All vs Unique reflects seqSet) */
@@ -2481,6 +2539,7 @@ function getPeptideProportion(d) {
   const v = proportionIndex.get(key);
   return (v != null && isFinite(v)) ? +v : 0;  // treat missing as 0 (lightest blue)
 }
+try { globalThis.__getPeptideProportion = getPeptideProportion; } catch {}
 
 
 /* â”€â”€â”€ reference (aligned) sequence rows â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
@@ -2488,6 +2547,7 @@ const refAligned = fastaAligned.find(d => d.protein === proteinCommitted )
                      ?.aligned_sequence ?? "";               // empty string if none
 const refRows = refAligned.split("")
   .map((aa,i)=>({ position:i+1, aminoacid:aa }));
+try { globalThis.__refRows = refRows; } catch {}
 
 /* â”€â”€â”€ consensus rows (respecting the All / Unique toggle) â”€â”€â”€ */
 const consensusRows = Array.from(
@@ -2498,6 +2558,7 @@ const consensusRows = Array.from(
   ),
   ([pos, r]) => ({ position:+pos, aminoacid:r.aminoacid })
 ).sort((a,b)=>d3.ascending(a.position,b.position));
+try { globalThis.__consensusRows = consensusRows; } catch {}
 
 /* facetArea :  Map<facetKey â†’ [{position,value,aminoacid}]> */
 const facetArea = new Map();
@@ -3458,6 +3519,7 @@ const mhcClassInput = Inputs.radio(["Class I","Class II"], {
 });
 const percMode = Generators.input(percentileModeInput);
 const mhcClass = Generators.input(mhcClassInput);
+try { globalThis.__percMode = percMode; } catch {}
 ```
 
 ```js
@@ -3552,6 +3614,7 @@ const alleleCtrl1 = comboSelectLazy({
   fetch: ({ q, offset, limit }) => fetchAlleles("I", q, offset, limit)
 });
 const selectedI = Generators.input(alleleCtrl1);
+try { globalThis.__selectedI = Array.from(selectedI || []); } catch {}
 
 const alleleCtrl2 = comboSelectLazy({
   label: "Class II alleles (MHCII)",
@@ -3584,3 +3647,5 @@ const committedII       = snapshotOn(runBtnII, () => Array.from(alleleCtrl2.valu
 
 
 ```
+
+
