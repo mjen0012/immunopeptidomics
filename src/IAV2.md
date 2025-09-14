@@ -24,6 +24,7 @@ function createIAVDashboardResponsive({
   root.style.width  = '100%';
   root.style.height = '100%';
   root.style.display = 'block';
+  try { globalThis.__dbg?.dbg('ui', 'dashboard:init', { rowHeight, gap, sizeFactor, margin }); } catch {}
 
   // ===== TUNABLE CONSTANTS (adjust to tweak behaviour) =====
   // Per-chart height bounds (px)
@@ -38,10 +39,12 @@ function createIAVDashboardResponsive({
   const scheduleRender = () => {
     if (framePending) return;
     framePending = true;
+    try { globalThis.__dbg?.dbg('chart', 'dashboard:scheduleRender'); } catch {}
     requestAnimationFrame(() => { framePending = false; render(); });
   };
 
   const render = () => {
+    const t0 = performance.now();
     root.innerHTML = '';
 
     // Derive per-chart height from available container space (4 primary charts)
@@ -56,9 +59,13 @@ function createIAVDashboardResponsive({
     const availAdj = Math.max(0, avail - SVG_TOP_OFFSET - SVG_BOTTOM_OFFSET);
     const perRaw   = Math.floor(availAdj / nPrimary) || Math.round(140*sizeFactor);
     const perH     = Math.max(MIN_PER_CHART, Math.min(perRaw, MAX_PER_CHART));
+    try { globalThis.__dbg?.dbg('chart', 'dashboard:measure', { containerH: avail, containerHAdj: availAdj, perRaw, perH }); } catch {}
 
     // --- Build a fresh dashboard SVG (re-using existing chart components) ---
-    const pepData = peptidesAligned.filter(d => d.protein === proteinCommitted);
+    // Avoid hard dependency on reactive `peptidesAligned`; use global stash for immediate render.
+    const pepData = (Array.isArray(globalThis.__peptidesAligned) ? globalThis.__peptidesAligned : [])
+      .filter(d => d.protein === proteinCommitted);
+    try { globalThis.__dbg?.dbg('data', 'dashboard:pepData', { n: pepData.length, protein: proteinCommitted }); } catch {}
     const inProportionMode = (String(colourAttr) === 'Proportion');
     const useProp = inProportionMode && (typeof getPeptideProportion !== 'undefined');
     const pepDataForChart = useProp ? pepData.map(d => ({...d, attribute_1: getPeptideProportion(d)})) : pepData;
@@ -152,6 +159,7 @@ function createIAVDashboardResponsive({
     const updaters = [pep.update, stack.update, seqcmp.update, area.update];
     const EPS=1e-6; const zoom = d3.zoom().scaleExtent([1,15]).translateExtent([[margin.left,0],[svgWidth-margin.right,totalH]]).on('zoom', ev => { if (Math.abs(ev.transform.k-1)<EPS && Math.abs(ev.transform.x)>EPS){ svg.call(zoom.transform, d3.zoomIdentity); return; } xCurrent = ev.transform.rescaleX(x0); updaters.forEach(fn=>fn(xCurrent)); });
     svg.call(zoom);
+    try { globalThis.__dbg?.dbg('chart', 'dashboard:render:end', { ms: +(performance.now()-t0).toFixed(1) }); } catch {}
 
     root.appendChild(svg.node());
   };
@@ -167,7 +175,17 @@ function createIAVDashboardResponsive({
     roLeft.observe(leftPanel);
   }
   window.addEventListener('resize', scheduleRender);
-  if (typeof invalidation !== 'undefined' && invalidation?.then) invalidation.then(()=> { ro.disconnect(); if (roLeft) roLeft.disconnect(); window.removeEventListener('resize', scheduleRender);} );
+  // React to data readiness events
+  addEventListener('peptides-ready', scheduleRender);
+  addEventListener('tallies-ready',  scheduleRender);
+  addEventListener('aligned-ready',  scheduleRender);
+  if (typeof invalidation !== 'undefined' && invalidation?.then) invalidation.then(()=> {
+    ro.disconnect(); if (roLeft) roLeft.disconnect();
+    window.removeEventListener('resize', scheduleRender);
+    removeEventListener('peptides-ready', scheduleRender);
+    removeEventListener('tallies-ready',  scheduleRender);
+    removeEventListener('aligned-ready',  scheduleRender);
+  });
 
   // initial paint
   render();
@@ -346,10 +364,10 @@ function createIAVDashboardResponsive({
       ${conservedCard}
     </div>
     <!-- Row 3· 80 %· two equal cards -->
-    <div class="card">${heatmapSVG}</div>
+    <div class="card">${heatmapSVG2}</div>
     <!-- Row 4· 80 %· single wide card (flex-fills remainder) -->
     <div class="card dashboard-card">
-      ${createIAVDashboardResponsive()}
+      ${dashboardSlot}
     </div>
   </div>
 
@@ -461,7 +479,7 @@ const db = await getOrCreateDB(() =>
 );
 
 // Initialize proteins temp table/view to a default protein so dependent cells can run
-const DEFAULT_PROTEIN = "M2";
+const DEFAULT_PROTEIN = "M1";
 {
   const url0 = `https://gbxc45oychilox63.public.blob.vercel-storage.com/${encodeURIComponent(DEFAULT_PROTEIN)}.parquet`;
   await db.sql`CREATE OR REPLACE TABLE proteins_cache AS
@@ -475,6 +493,23 @@ const DEFAULT_PROTEIN = "M2";
 ```js
 
 
+```
+
+```js
+// Global lifecycle/event logging
+{
+  const h = (e) => { try { globalThis.__dbg?.dbg('reactive', `event:${e.type}`); } catch {} };
+  addEventListener('peptides-ready', h);
+  addEventListener('tallies-ready',  h);
+  addEventListener('aligned-ready',  h);
+  if (typeof invalidation !== 'undefined' && invalidation?.then) {
+    invalidation.then(() => {
+      removeEventListener('peptides-ready', h);
+      removeEventListener('tallies-ready',  h);
+      removeEventListener('aligned-ready',  h);
+    });
+  }
+}
 ```
 
 ```js
@@ -511,6 +546,33 @@ const DEFAULT_PROTEIN = "M2";
     }
     g.__perfUtils = { perfAsync, logArray };
     console.info('[perf] instrumentation ready');
+  }
+
+  // Debug helpers (category-gated logging)
+  if (!g.__dbg) {
+    const catsDefault = { ui: true, data: true, chart: true, sql: false, reactive: true, network: true };
+    const state = { enabled: true, categories: { ...catsDefault } };
+    function dbg(cat, label, payload) {
+      try {
+        if (!state.enabled || state.categories?.[cat] === false) return;
+        if (payload !== undefined) console.debug(`[IAV2/${cat}] ${label}`, payload);
+        else console.debug(`[IAV2/${cat}] ${label}`);
+      } catch {}
+    }
+    function group(cat, label, fn) {
+      if (!state.enabled || state.categories?.[cat] === false) return fn();
+      console.groupCollapsed(`[IAV2/${cat}] ${label}`);
+      try { return fn(); }
+      finally { console.groupEnd(); }
+    }
+    function time(cat, label, fn) {
+      const id = `[IAV2/${cat}] ${label}`;
+      console.time(id);
+      try { return fn(); }
+      finally { console.timeEnd(id); }
+    }
+    g.__dbg = { dbg, group, time, state };
+    console.info('[IAV2] debug helpers ready');
   }
 }
 ```
@@ -770,6 +832,16 @@ const referenceFile = Generators.input(referencefasta);
 ```
 
 ```js
+// Log reference upload input lifecycle
+try {
+  console.info('[IAV2/ui] render referencefasta');
+  referencefasta?.addEventListener?.('input', () => {
+    try { globalThis.__dbg?.dbg('ui', 'referencefasta:input', { hasFile: !!referencefasta.value }); } catch {}
+  });
+} catch {}
+```
+
+```js
 /* Normaliser (kept from your code) */
 const normProtein = s => String(s ?? "").trim().replace(/\s+/g, "").toUpperCase();
 
@@ -906,6 +978,7 @@ function nwAffineBanded(ref, freqs, baseBandWidth = 75, gOpen = -5, gExt = -2) {
 /* The alignment table now pulls the profile only for the committed protein */
 /* Align every protein in the uploaded reference FASTA (on file input) */
 const allAlignedFromReference = referenceFile ? await (async () => {
+  const __t0 = performance.now();
   // --- parse FASTA text → [{protein, raw_sequence}]
   const txt = await referenceFile.text();
   const entries = (() => {
@@ -926,16 +999,19 @@ const allAlignedFromReference = referenceFile ? await (async () => {
 
   // --- build a profile for every distinct protein header found
   const ids = [...new Set(entries.map(d => normProtein?.(d.protein) ?? d.protein))].filter(Boolean);
+  try { globalThis.__dbg?.dbg('data','ref:profiles:request',{ nHeaders: entries.length, nUniqueIds: ids.length }); } catch {}
   const profilePairs = await Promise.all(ids.map(async id => [id, await loadSeqProfileFor(id)]));
   const profileMap = new Map(profilePairs); // id -> profile|null
 
   // --- align all rows (skip those with no profile by leaving null)
-  return entries.map(e => {
+  const out = entries.map(e => {
     const id   = (normProtein?.(e.protein) ?? e.protein);
     const prof = profileMap.get(id);
     const aln  = prof ? nwAffineBanded(e.raw_sequence, prof) : null;
     return { protein: e.protein, aligned_sequence: aln };
   });
+  try { globalThis.__dbg?.dbg('data','ref:align:done',{ n: out.length, ms: +(performance.now()-__t0).toFixed(1) }); } catch {}
+  return out;
 })() : [];
 
 /* Optional: keep the old name so downstream code continues to work */
@@ -975,6 +1051,16 @@ const peptideFile = Generators.input(peptideinput);
 ```
 
 ```js
+// Log peptide upload input lifecycle
+try {
+  console.info('[IAV2/ui] render peptideinput');
+  peptideinput?.addEventListener?.('input', () => {
+    try { globalThis.__dbg?.dbg('ui', 'peptideinput:input', { hasFile: !!peptideinput.value }); } catch {}
+  });
+} catch {}
+```
+
+```js
 /* Read Peptide File + Normalisation */
 const peptidesRaw = peptideFile
   ? (await (await peptideFile.text()).trim())
@@ -1008,6 +1094,12 @@ const peptidesClean = peptidesRaw.map(d => {
   });
   return o;
 });
+```
+
+```js
+// Peptide raw/clean sizes
+try { globalThis.__dbg?.dbg('data', 'peptidesRaw:size', { n: Array.isArray(peptidesRaw) ? peptidesRaw.length : 0 }); } catch {}
+try { globalThis.__dbg?.dbg('data', 'peptidesClean:size', { n: Array.isArray(peptidesClean) ? peptidesClean.length : 0 }); } catch {}
 ```
 
 ```js
@@ -1128,11 +1220,15 @@ async function getWindowTalliesRows(windows) {
     windowsKey      : winsKey
   });
 
+  try { globalThis.__dbg?.dbg('data', 'tallies:request', { protein: pid, nWindows: wins.length }); } catch {}
+
   if (globalThis.__windowTalliesCache?.key === filterKey) {
+    try { globalThis.__dbg?.dbg('data', 'tallies:cache:hit', { rows: globalThis.__windowTalliesCache.rows?.length ?? 0 }); } catch {}
     return globalThis.__windowTalliesCache.rows || [];
   }
 
   if (!wins.length) {
+    try { globalThis.__dbg?.dbg('data', 'tallies:skip:no-windows'); } catch {}
     globalThis.__windowTalliesCache = { key: filterKey, rows: [] };
     return [];
   }
@@ -1264,6 +1360,7 @@ async function getWindowTalliesRows(windows) {
 
   const rows = await q.toArray();
   globalThis.__windowTalliesCache = { key: filterKey, rows };
+  try { globalThis.__dbg?.dbg('data', 'tallies:ready', { rows: rows.length }); } catch {}
   return rows;
 }
 
@@ -1646,11 +1743,16 @@ const downloadFastaBtn = downloadButton({
 ```
 
 ```js
+try { globalThis.__dbg?.dbg('ui','downloadFastaBtn:init',{ disabled: true }); } catch {}
+```
+
+```js
 {
   const update = () => {
     const arr = globalThis.__peptidesAligned;
     const ready = Array.isArray(arr) && arr.length > 0;
     downloadPeptideBtn.setDisabled(!ready);
+    try { globalThis.__dbg?.dbg('ui','downloadPeptideBtn:state',{ ready, n: Array.isArray(arr) ? arr.length : 0 }); } catch {}
   };
 
   update(); // set initial state on page load
@@ -1677,7 +1779,7 @@ const downloadPeptideBtn = downloadButton({
 ```js
 /* Mutable Peptide Selected (moved earlier so dependents can reference) */
 const selectedPeptide = Mutable(null);
-const setSelectedPeptide = x => selectedPeptide.value = x;
+const setSelectedPeptide = x => { selectedPeptide.value = x; try { dispatchEvent(new Event("peptide-selected")); } catch {} };
 
 const selectedStart = Mutable(null);
 const setSelectedStart = x => selectedStart.value = x;
@@ -1795,20 +1897,22 @@ function createIAVDashboard({
   const pepAvailH   = Math.max(24, perChartHeight - margin.top - margin.bottom);
   const pepTargetRH = 18 * sizeFactor;                // preferred bar thickness
   const pepRowHeight = Math.max(12, Math.min(pepTargetRH, pepAvailH / Math.max(1, nLevels)));
-  const pep = peptideChart(gPep, {
-    data       : pepDataForChart,
-    xScale     : xCurrent,
-    rowHeight  : pepRowHeight,
-    gap, sizeFactor, margin,
-    colourBy        : colourByForChart,
-    colourScale     : colourScale,   // null when allele mode
-    isAlleleColour  : isAlleleColour,
-    missingColor    : "#f0f0f0",
-    alleleData      : chartRowsI,
-    alleles         : Array.from(selectedI || []),
-    percentileMode  : percMode,
-    onClick    : d => { setSelectedPeptide(d.peptide_aligned); setSelectedStart(d.start); setSelectedLength(d.length); }
-  });
+    const selectedIArray = Array.from(selectedI || []);
+    const alleleDataForChart = selectedIArray.length ? (globalThis.__chartRowsI || []) : [];
+    const pep = peptideChart(gPep, {
+      data       : pepDataForChart,
+      xScale     : xCurrent,
+      rowHeight  : pepRowHeight,
+      gap, sizeFactor, margin,
+      colourBy        : colourByForChart,
+      colourScale     : colourScale,   // null when allele mode
+      isAlleleColour  : isAlleleColour,
+      missingColor    : "#f0f0f0",
+      alleleData      : alleleDataForChart,
+      alleles         : selectedIArray,
+      percentileMode  : percMode,
+      onClick    : d => { setSelectedPeptide(d.peptide_aligned); setSelectedStart(d.start); setSelectedLength(d.length); }
+    });
   addYLabel(gPep, perChartHeight, "Peptides");
   // ensure we allocate the unified height regardless of internal rounding
   yOff += perChartHeight;
@@ -1953,7 +2057,9 @@ const colourAttrInput = (() => {
     label: "Colour peptides by:",
     value: defaultValue
   });
+  try { globalThis.__dbg?.dbg('ui','colourAttrInput:render', { choices: colourChoices, defaultValue }); } catch {}
   el.addEventListener("input", () => { globalThis.__colourByPrev = el.value; });
+  el.addEventListener("input", () => { try { globalThis.__dbg?.dbg('ui','colourAttrInput:change', { value: el.value }); } catch {} });
   return el;
 })();
 const colourAttr = Generators.input(colourAttrInput);
@@ -2000,6 +2106,7 @@ const peptideKeyEl = (() => {
 
   const inProportionMode = String(colourAttr) === "Proportion";
   const inAlleleMode = !inProportionMode && !/^attribute_[123]$/i.test(String(colourAttr));
+  try { globalThis.__dbg?.dbg('ui','peptideKeyEl:render', { inProportionMode, inAlleleMode, colourAttr: String(colourAttr), percMode, seqSet }); } catch {}
 
   if (inAlleleMode) {
     return peptideColourKey({
@@ -2026,7 +2133,9 @@ const peptideKeyEl = (() => {
   }
 
   // Attribute mode (categorical)
-  const pepRows = peptidesAligned.filter(d => d.protein === proteinCommitted);
+  // Avoid hard reactive dep on `peptidesAligned`; use global stash for immediate render.
+  const pepRows = (Array.isArray(globalThis.__peptidesAligned) ? globalThis.__peptidesAligned : [])
+    .filter(d => d.protein === proteinCommitted);
   const { cats, hasMissing } = attrCats(pepRows, colourAttr);
   const scale = makePeptideScale(cats.length ? cats : ["dummy"]);
 
@@ -2045,6 +2154,66 @@ const peptideKeyEl = (() => {
 ```js
 // Keep proteins temp table/view in sync with the committed protein selection, with debounce
 {
+  // Dashboard wrapper: render immediately, then inject dashboard when modules are ready
+  const ensure = (pred, fn) => { try { return pred() ? fn() : null; } catch { return null; } };
+}
+```
+
+```js
+// Dashboard slot that loads without waiting for uploads or module timing
+const dashboardSlot = Generators.observe(change => {
+  const mount = document.createElement('div');
+  let rendered = false;
+
+  function canRender() {
+    try {
+      return (typeof createIAVDashboardResponsive === 'function' &&
+              typeof d3 !== 'undefined' &&
+              typeof peptideChart === 'function' &&
+              typeof stackedChart === 'function' &&
+              typeof sequenceCompareChart === 'function' &&
+              typeof areaChart === 'function');
+    } catch { return false; }
+  }
+
+  function render() {
+    if (rendered) return;
+    if (canRender()) {
+      try {
+        const node = createIAVDashboardResponsive();
+        mount.replaceChildren(node);
+        rendered = true;
+        change(mount);
+        return;
+      } catch (e) {
+        // Leave placeholder; will retry on next tick/event
+      }
+    }
+    if (!mount.childNodes.length) {
+      const ph = document.createElement('div');
+      ph.style.fontStyle = 'italic';
+      ph.textContent = 'Rendering dashboard…';
+      mount.appendChild(ph);
+      change(mount);
+    }
+  }
+
+  render();
+  const id = setInterval(render, 200);
+  const onEvt = () => render();
+  addEventListener('peptides-ready', onEvt);
+  addEventListener('tallies-ready',  onEvt);
+  addEventListener('aligned-ready',  onEvt);
+  if (typeof invalidation !== 'undefined' && invalidation?.then) invalidation.then(() => {
+    clearInterval(id);
+    removeEventListener('peptides-ready', onEvt);
+    removeEventListener('tallies-ready',  onEvt);
+    removeEventListener('aligned-ready',  onEvt);
+  });
+});
+```
+
+```js
   const pid = committedProteinId ?? DEFAULT_PROTEIN; // reactive dep
   const state = (globalThis.__proteinViewState ??= { last: null });
   if (state.last === pid) {
@@ -2067,6 +2236,14 @@ const seqSetInput = radioButtons(
   { label: "Sequence set:", value: "All sequences" }
 );
 const seqSet = Generators.input(seqSetInput);
+```
+
+```js
+// Log seqSetInput lifecycle
+try {
+  globalThis.__dbg?.dbg('ui','seqSetInput:render', { value: seqSet });
+  seqSetInput?.addEventListener?.('input', () => { try { globalThis.__dbg?.dbg('ui','seqSetInput:change', { value: seqSetInput.value }); } catch {} });
+} catch {}
 
 /* Cell colouring */
 const colourModeInput = radioButtons(
@@ -2074,6 +2251,14 @@ const colourModeInput = radioButtons(
   { label: "Cell colouring:", value: "Mismatches" }
 );
 const colourMode = Generators.input(colourModeInput);
+```
+
+```js
+// Log colourModeInput lifecycle
+try {
+  globalThis.__dbg?.dbg('ui','colourModeInput:render', { value: colourMode });
+  colourModeInput?.addEventListener?.('input', () => { try { globalThis.__dbg?.dbg('ui','colourModeInput:change', { value: colourModeInput.value }); } catch {} });
+} catch {}
 
 const aaKeyEl = aaColourKey({
   label: "Amino-acid colour key",   // or "" to hide the heading
@@ -2081,6 +2266,10 @@ const aaKeyEl = aaColourKey({
   gap: 6,
   showGroupLabels: true
 });
+```
+
+```js
+try { globalThis.__dbg?.dbg('ui','aaKeyEl:render'); } catch {}
 ```
 
 <!-- Data Source Switcher -->
@@ -2362,13 +2551,17 @@ const heatmapData = rowsRaw.map(r => ({
 }));
 
 /* Create Peptide Plot */
+try { globalThis.__dbg?.dbg('chart','heatmap:render', { nRows: heatmapData?.length ?? 0, mode: colourMode, alleles: (selectedI ? Array.from(selectedI).length : 0) }); } catch {}
+// Prepare allele overlay data lazily to avoid hard dependency on chartRowsI
+const __selI = Array.from(selectedI || []);
+const __chartRows = __selI.length ? (globalThis.__chartRowsI || []) : [];
 const heatmapSVG = peptideHeatmap({
   data        : heatmapData,                        // peptides (ungapped)
   selected    : selectedPeptide,                    // may include '-'
   colourMode  : colourMode,
   // â”€â”€ NEW overlay props:
-  alleleData  : chartRowsI,                         // cache + API (snake_case)
-  alleles     : Array.from(selectedI || []),
+  alleleData  : __chartRows,                        // cache + API (snake_case)
+  alleles     : __selI,
   mode        : percMode,                           // "EL" | "BA"
   showAlleles : true,
   baseCell    : (() => { let px=16; try{ const h2=document.querySelector('.metric-card h2'); if(h2) px=parseFloat(getComputedStyle(h2).fontSize)||16; }catch{} return Math.max(22, Math.round(px*2.0)); })(),
@@ -2403,6 +2596,76 @@ globalThis.__perfUtils?.logArray?.('aaFrequencies', aaFrequencies);
   setSelectedLength(null);
 }
 
+```
+
+```js
+/* Immediate heatmap wrapper (no heavy deps at top-level) */
+const heatmapSVG2 = Generators.observe(change => {
+  const mount = document.createElement('div');
+
+  const baseCellPx = (() => { let px=16; try{ const h2=document.querySelector('.metric-card h2'); if(h2) px=parseFloat(getComputedStyle(h2).fontSize)||16; }catch{} return Math.max(22, Math.round(px*2.0)); })();
+  const height0Px  = (() => {
+    let px=16; try{ const h2=document.querySelector('.metric-card h2'); if(h2) px=parseFloat(getComputedStyle(h2).fontSize)||16; }catch{}
+    const nRows   = 5;
+    const cell    = Math.max(22, Math.round(px*2.0));
+    const basePad = 36;
+    const reserve = Math.round(cell * 1.8);
+    const h0      = Math.round((px*2) * (basePad + reserve + nRows*cell) / cell);
+    return Math.max(200, Math.min(440, h0));
+  })();
+
+  const pickOverlayRows = () => {
+    const selI = Array.from(selectedI || []);
+    const rows = selI.length ? (globalThis.__chartRowsI || []) : [];
+    return { selI, rows };
+  };
+
+  function buildHeatmapRows() {
+    const selStart = Number(selectedStart);
+    const selLen   = Number(selectedLength);
+    const useUnique = (seqSet === "Unique sequences");
+    const propCol = useUnique ? "proportion_unique" : "proportion_all";
+    const freqCol = useUnique ? "frequency_unique"  : "frequency_all";
+    const totCol  = useUnique ? "total_unique"      : "total_all";
+    const src = Array.isArray(globalThis.__windowTalliesRows) ? globalThis.__windowTalliesRows : [];
+    if (!(selStart > 0 && selLen > 0) || !src.length) return [];
+    return src
+      .filter(r => Number(r.start) === selStart && Number(r.len) === selLen)
+      .map(r => ({ peptide: r.peptide, proportion: +r[propCol], frequency: +r[freqCol], total: +r[totCol] }));
+  }
+
+  function render() {
+    const { selI, rows } = pickOverlayRows();
+    const data = buildHeatmapRows();
+    try { globalThis.__dbg?.dbg('chart','heatmap:render', { nRows: data.length, mode: colourMode, alleles: selI.length }); } catch {}
+    const node = peptideHeatmap({
+      data,
+      selected    : selectedPeptide,
+      colourMode  : colourMode,
+      alleleData  : rows,
+      alleles     : selI,
+      mode        : percMode,
+      showAlleles : true,
+      baseCell    : baseCellPx,
+      height0     : height0Px,
+      margin      : { top:20, right:150, bottom:20, left:4 }
+    });
+    mount.replaceChildren(node);
+    change(mount);
+  }
+
+  // initial render
+  render();
+  const onEvt = () => render();
+  addEventListener('peptides-ready', onEvt);
+  addEventListener('tallies-ready',  onEvt);
+  addEventListener('peptide-selected', onEvt);
+  if (typeof invalidation !== 'undefined' && invalidation?.then) invalidation.then(() => {
+    removeEventListener('peptides-ready', onEvt);
+    removeEventListener('tallies-ready',  onEvt);
+    removeEventListener('peptide-selected', onEvt);
+  });
+});
 ```
 
 
@@ -2716,7 +2979,10 @@ const peptidePropsAll = getPeptidePropsAll();
    - Appears *below* the existing dashboard cards for now */
 
 const statusBanner = html`<div style="margin:0.5rem 0; font-style:italic;"></div>`;
-function setBanner(msg) { statusBanner.textContent = msg; }
+function setBanner(msg) {
+  statusBanner.textContent = msg;
+  try { globalThis.__dbg?.dbg('ui','statusBanner', { msg }); } catch {}
+}
 
 /* â–¸ RUN buttons -------------------------------------------------- */
 const runBtnI  = runButton("Run Class I (EL + BA)");
@@ -2800,6 +3066,7 @@ function buildBodyII(alleles, fasta) {
 
 ```js
 async function submit(body) {
+  try { globalThis.__dbg?.dbg('network','submit:iedb-pipeline:req', { alleles: body?.stages?.[0]?.input_parameters?.alleles, tool: body?.stages?.[0]?.tool_group }); } catch {}
   const r = await fetch("/api/iedb-pipeline", {
     method:"POST",
     headers:{"content-type":"application/json"},
@@ -2808,17 +3075,23 @@ async function submit(body) {
   const txt = await r.text();
   const j   = (()=>{try{return JSON.parse(txt);}catch{return txt;}})();
   if (!r.ok) throw new Error(j.errors?.join("; ") || r.statusText);
-  return j.results_uri.split("/").pop();       // result_id
+  const id = j.results_uri.split("/").pop();
+  try { globalThis.__dbg?.dbg('network','submit:iedb-pipeline:ok', { id }); } catch {}
+  return id;       // result_id
 }
 
 async function poll(resultId, timeout = 90_000) {
+  try { globalThis.__dbg?.dbg('network','poll:start', { id: resultId }); } catch {}
   const t0 = Date.now();
   while (Date.now() - t0 < timeout) {
     const r = await fetch(`/api/iedb-result?id=${resultId}`);
     const txt = await r.text();
     const j   = (()=>{try{return JSON.parse(txt);}catch{return txt;}})();
     if (j.status === "done")
-      return j.data?.results?.find(t => t.type === "peptide_table");
+      {
+        try { globalThis.__dbg?.dbg('network','poll:done', { id: resultId }); } catch {}
+        return j.data?.results?.find(t => t.type === "peptide_table");
+      }
     await new Promise(res => setTimeout(res, 1000));
   }
   throw new Error("Timed out");
@@ -2984,7 +3257,9 @@ const chartRowsI = (() => {
       map.set(`${al}|${pp}`, r);
     }
   }
-  return [...map.values()];
+  const out = [...map.values()];
+  try { globalThis.__chartRowsI = out; } catch {}
+  return out;
 })();
 
 ```
@@ -3181,6 +3456,16 @@ const mhcClassInput = Inputs.radio(["Class I","Class II"], {
 });
 const percMode = Generators.input(percentileModeInput);
 const mhcClass = Generators.input(mhcClassInput);
+```
+
+```js
+// Log MHC/percentile controls
+try {
+  globalThis.__dbg?.dbg('ui','percentileModeInput:render', { value: percMode });
+  percentileModeInput?.addEventListener?.('input', () => { try { globalThis.__dbg?.dbg('ui','percentileModeInput:change', { value: percentileModeInput.value }); } catch {} });
+  globalThis.__dbg?.dbg('ui','mhcClassInput:render', { value: mhcClass });
+  mhcClassInput?.addEventListener?.('input', () => { try { globalThis.__dbg?.dbg('ui','mhcClassInput:change', { value: mhcClassInput.value }); } catch {} });
+} catch {}
 
 /* allele plot â€” reactive to allele picks and Apply (protein) */
 selectedI;
@@ -3275,6 +3560,17 @@ const alleleCtrl2 = comboSelectLazy({
   fetch: ({ q, offset, limit }) => fetchAlleles("II", q, offset, limit)
 });
 const selectedII = Generators.input(alleleCtrl2);
+
+```
+
+```js
+// Log allele controls lifecycle
+try {
+  globalThis.__dbg?.dbg('ui','alleleCtrl1:render');
+  alleleCtrl1?.addEventListener?.('input', () => { try { globalThis.__dbg?.dbg('ui','alleleCtrl1:change', { n: (alleleCtrl1.value ? alleleCtrl1.value.length : 0) }); } catch {} });
+  globalThis.__dbg?.dbg('ui','alleleCtrl2:render');
+  alleleCtrl2?.addEventListener?.('input', () => { try { globalThis.__dbg?.dbg('ui','alleleCtrl2:change', { n: (alleleCtrl2.value ? alleleCtrl2.value.length : 0) }); } catch {} });
+} catch {}
 
 /* snapshots captured only when the Run buttons fire */
 const committedI        = snapshotOn(runBtnI,  () => Array.from(alleleCtrl1.value || []));
