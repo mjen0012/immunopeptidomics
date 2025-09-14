@@ -2213,7 +2213,9 @@ const dashboardSlot = Generators.observe(change => {
 });
 ```
 
+
 ```js
+{
   const pid = committedProteinId ?? DEFAULT_PROTEIN; // reactive dep
   const state = (globalThis.__proteinViewState ??= { last: null });
   if (state.last === pid) {
