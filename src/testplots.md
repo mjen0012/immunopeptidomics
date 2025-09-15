@@ -53,7 +53,10 @@ const alleleRadio = Inputs.radio(alleleList, { label: "Allele", value: alleleLis
 // Helper to compute filtered data on demand
 function getFilteredRows() {
   const sel = alleleRadio.value;
-  return rows.filter(r => sel === "All" ? true : r.allele === sel);
+  // Enforce root-only rows here to avoid accidental bleed from window-level rows
+  return rowsAll
+    .filter(r => r.peptide && r.root && r.peptide === r.root)
+    .filter(r => sel === "All" ? true : r.allele === sel);
 }
 ```
 
