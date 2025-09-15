@@ -398,6 +398,7 @@ function createIAVDashboardResponsive({
     <br>${runBtnII}</br>
     <br>${downloadCSVI}
     ${downloadCSVII}
+    ${downloadCSVI_annot}
 
   </div>
 
@@ -3493,6 +3494,112 @@ const downloadCSVII = downloadButton({
   data    : () => resultsArrayII.value,
   tooltipTitle: "Download Class II predictions",
   tooltipBody : "netMHCIIpan EL/BA scores and percentiles for selected Class II alleles and uploaded peptides. Outputs as .csv"
+});
+
+// Annotated Class I CSV: merge predictions with tallies and root peptide
+const downloadCSVI_annot = downloadButton({
+  filename: "mhcI_predictions_annotated.csv",
+  tooltipTitle: "Download Class I + tallies + root",
+  tooltipBody : "Allele, peptide, EL/BA percentiles plus frequency/proportion tallies and root (source input peptide).",
+  data: () => {
+    try {
+      const base = Array.isArray(resultsArrayI?.value) ? resultsArrayI.value : [];
+      if (!base.length) return [];
+
+      // Peptides we need to annotate
+      const pepSet = new Set(base.map(r => String(r.peptide || "").toUpperCase()));
+
+      // Tallies source (built earlier for committed protein + windows)
+      const srcTallies = Array.isArray(globalThis.__windowTalliesRows) ? globalThis.__windowTalliesRows : [];
+
+      // Aggregate tallies by peptide across windows (sum frequencies; totals assumed constant)
+      const talliesByPep = new Map();
+      for (const r of srcTallies) {
+        const p = String(r?.peptide || "").toUpperCase();
+        if (!pepSet.has(p)) continue;
+        const acc = talliesByPep.get(p) || { fa:0, fu:0, ta: null, tu: null };
+        acc.fa += Number(r.frequency_all)    || 0;
+        acc.fu += Number(r.frequency_unique) || 0;
+        // Keep the last seen totals (these should be constant for the filter set)
+        acc.ta = Number(r.total_all);
+        acc.tu = Number(r.total_unique);
+        talliesByPep.set(p, acc);
+      }
+
+      // Build window -> roots map from uploaded peptides (aligned table)
+      const pid = committedProteinId;
+      const winToRoots = new Map(); // key: "start|len" -> Set(rootPeptide)
+      for (const r of (globalThis.__peptidesAligned || [])) {
+        if ((r?.protein || "").toUpperCase() !== pid) continue;
+        const st = Number(r?.start);
+        const ln = Number(r?.aligned_length ?? r?.length);
+        const pepOrig = String(r?.peptide || "").toUpperCase().replace(/-/g, "");
+        if (!(st > 0 && ln > 0) || !pepOrig) continue;
+        const k = `${st}|${ln}`;
+        const set = winToRoots.get(k) || new Set();
+        set.add(pepOrig);
+        winToRoots.set(k, set);
+      }
+
+      // Map candidate peptide -> root(s) via topCandidatesByWindow
+      const rootsByPep = new Map();
+      const addRoots = (pep, roots) => {
+        if (!pep || !roots?.size) return;
+        const existing = rootsByPep.get(pep) || new Set();
+        for (const r of roots) existing.add(r);
+        rootsByPep.set(pep, existing);
+      };
+      for (const r of (Array.isArray(topCandidatesByWindow) ? topCandidatesByWindow : [])) {
+        const pep = String(r?.peptide || "").toUpperCase();
+        const k = `${Number(r?.start)}|${Number(r?.len)}`;
+        const roots = winToRoots.get(k);
+        addRoots(pep, roots);
+      }
+
+      // Also treat uploaded peptides themselves as their own root
+      for (const r of (globalThis.__peptidesAligned || [])) {
+        if ((r?.protein || "").toUpperCase() !== pid) continue;
+        const pep = String(r?.peptide || "").toUpperCase().replace(/-/g, "");
+        if (pep) addRoots(pep, new Set([pep]));
+      }
+
+      // Assemble final annotated rows in a stable column order
+      const rows = base.map(r => {
+        const allele = String(r.allele || "").toUpperCase();
+        const peptide = String(r.peptide || "").toUpperCase();
+        const elp = Number(r.netmhcpan_el_percentile);
+        const bap = Number(r.netmhcpan_ba_percentile);
+        const t = talliesByPep.get(peptide) || { fa:0, fu:0, ta:null, tu:null };
+        const total_all   = Number.isFinite(t.ta) ? t.ta : 0;
+        const total_unique= Number.isFinite(t.tu) ? t.tu : 0;
+        const frequency_all   = t.fa;
+        const frequency_unique= t.fu;
+        const proportion_all     = total_all    ? (frequency_all/total_all)       : 0;
+        const proportion_unique  = total_unique ? (frequency_unique/total_unique) : 0;
+        const rootSet = rootsByPep.get(peptide) || new Set();
+        const root = [...rootSet].sort().join(";");
+        return {
+          allele,
+          peptide,
+          netmhcpan_el_percentile: elp,
+          netmhcpan_ba_percentile: bap,
+          frequency_all,
+          total_all,
+          proportion_all,
+          frequency_unique,
+          total_unique,
+          proportion_unique,
+          root
+        };
+      });
+
+      // Keep only rows with at least some data (peptide present) – already ensured
+      return rows;
+    } catch (e) {
+      console.error("downloadCSVI_annot: failed to build data", e);
+      return [];
+    }
+  }
 });
 ```
 
