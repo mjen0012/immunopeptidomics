@@ -3500,14 +3500,14 @@ const downloadCSVII = downloadButton({
 const downloadCSVI_annot = downloadButton({
   filename: "mhcI_predictions_annotated.csv",
   tooltipTitle: "Download Class I + tallies + root",
-  tooltipBody : "Allele, peptide, EL/BA percentiles plus frequency/proportion tallies and root (source input peptide).",
+  tooltipBody : "Protein, allele, peptide, EL/BA percentiles plus frequency/proportion tallies and root (source input peptide).",
   data: () => {
     try {
       const base = Array.isArray(resultsArrayI?.value) ? resultsArrayI.value : [];
       if (!base.length) return [];
 
       // Peptides we need to annotate
-      const pepSet = new Set(base.map(r => String(r.peptide || "").toUpperCase()));
+      const pepSet = new Set(base.map(r => String(r.peptide || "").toUpperCase().replace(/-/g, "")));
 
       // Tallies source (built earlier for committed protein + windows)
       const srcTallies = Array.isArray(globalThis.__windowTalliesRows) ? globalThis.__windowTalliesRows : [];
@@ -3515,7 +3515,7 @@ const downloadCSVI_annot = downloadButton({
       // Aggregate tallies by peptide across windows (sum frequencies; totals assumed constant)
       const talliesByPep = new Map();
       for (const r of srcTallies) {
-        const p = String(r?.peptide || "").toUpperCase();
+        const p = String(r?.peptide || "").toUpperCase().replace(/-/g, "");
         if (!pepSet.has(p)) continue;
         const acc = talliesByPep.get(p) || { fa:0, fu:0, ta: null, tu: null };
         acc.fa += Number(r.frequency_all)    || 0;
@@ -3542,12 +3542,13 @@ const downloadCSVI_annot = downloadButton({
       }
 
       // Map candidate peptide -> root(s) via topCandidatesByWindow
-      const rootsByPep = new Map();
+      const rootsByPep = new Map(); // key: ungapped peptide (UPPERCASE)
       const addRoots = (pep, roots) => {
-        if (!pep || !roots?.size) return;
-        const existing = rootsByPep.get(pep) || new Set();
+        const k = String(pep || "").toUpperCase().replace(/-/g, "");
+        if (!k || !roots?.size) return;
+        const existing = rootsByPep.get(k) || new Set();
         for (const r of roots) existing.add(r);
-        rootsByPep.set(pep, existing);
+        rootsByPep.set(k, existing);
       };
       for (const r of (Array.isArray(topCandidatesByWindow) ? topCandidatesByWindow : [])) {
         const pep = String(r?.peptide || "").toUpperCase();
@@ -3566,7 +3567,7 @@ const downloadCSVI_annot = downloadButton({
       // Assemble final annotated rows in a stable column order
       const rows = base.map(r => {
         const allele = String(r.allele || "").toUpperCase();
-        const peptide = String(r.peptide || "").toUpperCase();
+        const peptide = String(r.peptide || "").toUpperCase().replace(/-/g, "");
         const elp = Number(r.netmhcpan_el_percentile);
         const bap = Number(r.netmhcpan_ba_percentile);
         const t = talliesByPep.get(peptide) || { fa:0, fu:0, ta:null, tu:null };
@@ -3579,6 +3580,7 @@ const downloadCSVI_annot = downloadButton({
         const rootSet = rootsByPep.get(peptide) || new Set();
         const root = [...rootSet].sort().join(";");
         return {
+          protein: proteinCommitted ?? "",
           allele,
           peptide,
           netmhcpan_el_percentile: elp,
@@ -3731,7 +3733,7 @@ async function fetchAlleles(cls, q = "", offset = 0, limit = PAGE_LIMIT_DEFAULT)
 /* â–¸ allele lists (lazy) ----------------------------------------- */
 const alleleCtrl1 = comboSelectLazy({
   label: "Class I alleles (MHCI)",
-  placeholder: "Type class-I alleleâ€¦",
+  placeholder: "Type class-I allele",
   fontFamily: "'Roboto', sans-serif",
   initialLimit: 20,
   pageLimit: 50,
@@ -3742,7 +3744,7 @@ try { globalThis.__selectedI = Array.from(selectedI || []); } catch {}
 
 const alleleCtrl2 = comboSelectLazy({
   label: "Class II alleles (MHCII)",
-  placeholder: "Type class-II alleleâ€¦",
+  placeholder: "Type class-II allele",
   fontFamily: "'Roboto', sans-serif",
   initialLimit: 20,
   pageLimit: 50,
