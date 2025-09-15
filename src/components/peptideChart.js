@@ -64,11 +64,12 @@ export function peptideChart(
 
   /* ---------- allele lookups & colourer ------------------------ */
 
-  // Simple rule for mode
-  const usingAlleleColour = !/^attribute_[123]$/i.test(String(colourBy || ""));
+  // Simple rule for mode (treat "Proportion" as non-allele)
+  const usingAlleleColour = !(/^attribute_[123]$/i.test(String(colourBy || ""))
+    || String(colourBy || "").toUpperCase() === 'PROPORTION');
 
   const normPep    = s => String(s || "").toUpperCase().replace(/-/g, "").trim();
-  const normAllele = s => String(s || "").toUpperCase().trim();
+  const normAllele = s => String(s || "").toUpperCase().replace(/^HLA-/, "").trim();
 
   const resolveMode = () => {
     const m = (percentileMode && percentileMode.value !== undefined
