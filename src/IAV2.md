@@ -147,9 +147,9 @@ function createIAVDashboardResponsive({
         colourBy:colourByForChart, colourScale, isAlleleColour:isAlleleNow, missingColor:'#f0f0f0', alleleData:alleleDataForChart,
         alleles:selI, percentileMode:percModeNow,
         onClick:d=>{ setSelectedPeptide(d.peptide_aligned); setSelectedStart(d.start); setSelectedLength(d.length); } });
-      const pepBlockH = Math.max(perH, pep.height);
-      addYLabel(gPep, pepBlockH, 'Peptides');
-      yOff += pepBlockH;
+      // Force equal block heights so the dashboard always fits the card
+      addYLabel(gPep, perH, 'Peptides');
+      yOff += perH;
     }
 
     // Sequences
@@ -159,27 +159,24 @@ function createIAVDashboardResponsive({
     const consRowsNow = Array.isArray(globalThis.__consensusRows) ? globalThis.__consensusRows : [];
     try { globalThis.__dbg?.dbg('data','dashboard:seqRows', { ref: refRowsNow.length, cons: consRowsNow.length, placeholder: !(refRowsNow.length && consRowsNow.length) }); } catch {}
     const seqcmp = sequenceCompareChart(gSeq, { refRows:refRowsNow, consRows:consRowsNow, xScale:xCurrent, colourMode:(typeof colourMode!=='undefined'?colourMode:'Mismatches'), sizeFactor, margin: marginMid, gapRows:seqGapRows, cell:seqCell });
-    const seqBlockH = Math.max(perH, seqcmp.height);
-    addYLabel(gSeq, seqBlockH, 'Sequences');
-    yOff += seqBlockH;
+    addYLabel(gSeq, perH, 'Sequences');
+    yOff += perH;
 
     // Diversity
     const gStack = slot();
     const aaFreqNow = Array.isArray(globalThis.__aaFrequencies) ? globalThis.__aaFrequencies : [];
     try { globalThis.__dbg?.dbg('data','dashboard:aaFrequencies', { n: aaFreqNow.length }); } catch {}
     const stack = stackedChart(gStack, { data: stackedBarsSafe, tooltipRows: aaFreqNow.map(d=>({position:d.position, aminoacid:d.aminoacid, value:d.value_selected})), xScale:xCurrent, sizeFactor, margin: marginMid, height:perH });
-    const stackBlockH = Math.max(perH, stack.height);
-    addYLabel(gStack, stackBlockH, 'Diversity');
-    yOff += stackBlockH;
+    addYLabel(gStack, perH, 'Diversity');
+    yOff += perH;
 
     // Conservation
     const gArea = slot();
     const areaDataNow = Array.isArray(globalThis.__areaData) ? globalThis.__areaData : [];
     try { globalThis.__dbg?.dbg('data','dashboard:areaData', { n: areaDataNow.length }); } catch {}
     const area = areaChart(gArea, { data: areaDataNow, xScale:xCurrent, sizeFactor, margin: marginLast, height:perH });
-    const areaBlockH = Math.max(perH, area.height);
-    addYLabel(gArea, areaBlockH, 'Conservation');
-    yOff += areaBlockH;
+    addYLabel(gArea, perH, 'Conservation');
+    yOff += perH;
 
     // Distribute any leftover space equally above and below charts so the block fills the card neatly
     const spare      = Math.max(0, availAdj - yOff);
@@ -3339,7 +3336,7 @@ const chartRowsI = (() => {
     }
   }
   const out = [...map.values()];
-  try { globalThis.__chartRowsI = out; } catch {}
+  try { globalThis.__chartRowsI = out; dispatchEvent(new Event('alleleRows-ready')); } catch {}
   return out;
 })();
 
