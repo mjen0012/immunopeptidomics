@@ -1,4 +1,4 @@
-﻿/*****************************************************************
+/*****************************************************************
  *  Peptide track viewer  ·  v4 (allele/attribute simple rule)
  *  Rule: if `colourBy` is NOT "attribute_1/2/3" ⇒ allele mode.
  *****************************************************************/
@@ -69,11 +69,7 @@ export function peptideChart(
     || String(colourBy || "").toUpperCase() === 'PROPORTION');
 
   const normPep    = s => String(s || "").toUpperCase().replace(/-/g, "").trim();
-  const normAllele = s => String(s || "")
-    .toUpperCase()
-    .replace(/^HLA-/, "")
-    .replace(/[^A-Z0-9]/g, "")
-    .trim();
+  const normAllele = s => String(s || "").toUpperCase().replace(/^HLA-/, "").trim();
 
   const resolveMode = () => {
     const m = (percentileMode && percentileMode.value !== undefined
@@ -105,43 +101,20 @@ export function peptideChart(
     return "#e60000";
   };
 
-  const colourByRaw = String(colourBy || "");
-  const colourByNorm = normAllele(colourByRaw);
-  const debugInfo = {
-    colourBy: colourByRaw,
-    colourByNorm,
-    usingAlleleColour,
-    percentileMode: modeNow,
-    alleleRows: Array.isArray(alleleData) ? alleleData.length : 0,
-    bars: rows.length,
-    attrMissing: 0,
-    alleleHits: 0,
-    alleleMissing: 0
-  };
-
+  const colourByUC = normAllele(colourBy);
   const fillForBar = d => {
     if (!usingAlleleColour) {
       // Attribute path (categorical)
       const raw = (d[colourBy] ?? d.attribute_1 ?? d.attribute);
       const isMissing = raw == null || String(raw).trim() === "";
-      if (isMissing) {
-        debugInfo.attrMissing++;
-        return missingColor;
-      }
+      if (isMissing) return missingColor;
       const key = String(raw);
-      const colour = colourScale ? colourScale(key) : "#A3A3A3";
-      if (!colour) {
-        debugInfo.attrMissing++;
-        return missingColor;
-      }
-      return colour;
+      return colourScale ? colourScale(key) : "#A3A3A3";
     }
     // Allele path: look up percentile for (colourBy allele, ungapped peptide)
     const pepKey = normPep(d.peptide_aligned || d.peptide);
-    const pair   = `${colourByNorm}|${pepKey}`;
+    const pair   = `${colourByUC}|${pepKey}`;
     const v = (modeNow === "BA" ? baMap.get(pair) : elMap.get(pair));
-    if (v != null && !Number.isNaN(+v)) debugInfo.alleleHits++;
-    else debugInfo.alleleMissing++;
     return piecewiseColour(v);
   };
 
@@ -154,20 +127,6 @@ export function peptideChart(
       .attr("stroke", "#444")
       .attr("stroke-width", 0.5 * sizeFactor)
       .on("click", (_, d) => onClick(d));
-
-  try {
-    const sampleRows = rows.slice(0, 5).map(r => ({
-      peptide: r.peptide,
-      start: r.start,
-      len: r.length,
-      attribute_1: r.attribute_1,
-      attribute_2: r.attribute_2,
-      attribute_3: r.attribute_3
-    }));
-    console.log('[IAV] peptideChart', { ...debugInfo, sampleRows });
-  } catch (err) {
-    console.warn('[IAV] peptideChart logging failed', err);
-  }
 
   /* ---------- axis styling helper (unified with peptideScanChart) --- */
   function axisStyling(sel){
@@ -239,14 +198,10 @@ export function peptideChart(
           // Pick a sensible label for the allele header
           let alleleLabel = 'Allele';
           const picked = (Array.isArray(alleles) ? alleles : []);
-          if (picked.length) alleleLabel = picked[0];
-          if (colourByRaw && !/^ATTRIBUTE_\d+$/i.test(colourByRaw) && colourByRaw.toUpperCase() !== 'PROPORTION') {
-            alleleLabel = colourByRaw;
-          } else if (!picked.length && colourByNorm) {
-            alleleLabel = colourByNorm;
-          }
+          if (picked.length) alleleLabel = normAllele(picked[0]);
+          if (colourByUC && !/^ATTRIBUTE_\d+$/i.test(colourByUC)) alleleLabel = colourByUC;
           const pepKey = normPep(d.peptide_aligned || d.peptide);
-          const pair   = `${colourByNorm}|${pepKey}`;
+          const pair   = `${colourByUC}|${pepKey}`;
           const el = elMap.get(pair);
           const ba = baMap.get(pair);
           const elStr = (el != null && isFinite(el)) ? fmtPct(el) : "-";

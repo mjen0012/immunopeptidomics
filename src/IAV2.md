@@ -85,11 +85,7 @@ function createIAVDashboardResponsive({
       : pepData;
     const colourByForChart = useProp ? 'attribute_1' : colourAttrNow;
     let colourScale = null;
-    const normAllele = s => String(s || '')
-      .toUpperCase()
-      .replace(/^HLA-/, '')
-      .replace(/[^A-Z0-9]/g, '')
-      .trim();
+    const normAllele = s => String(s || '').toUpperCase().replace(/^HLA-/, '').trim();
     const isAlleleNow = (!inProportionMode && !/^attribute_[123]$/i.test(String(colourAttrNow)) && selI.some(a => normAllele(a) === normAllele(colourAttrNow)));
     if (!isAlleleNow) {
       if (useProp) {
@@ -99,29 +95,6 @@ function createIAVDashboardResponsive({
         const keys = [...new Set(vals.filter(v => v != null && String(v).trim() !== "").map(String))].sort();
         colourScale = makePeptideScale(keys.length ? keys : ["dummy"]);
       }
-    }
-
-    try {
-      const sampleDebug = pepDataForChart.slice(0, 5).map(d => ({
-        peptide: d.peptide,
-        attr1: d.attribute_1,
-        start: d.start,
-        len: d.length
-      }));
-      console.log('[IAV] dashboard render', {
-        colourAttrNow,
-        colourByForChart,
-        inProportionMode,
-        useProp,
-        isAlleleNow,
-        selectedAlleles: selI,
-        peptideCount: pepDataForChart.length,
-        hasProportionFn: (typeof globalThis.__getPeptideProportion === 'function'),
-        alleleRows: Array.isArray(globalThis.__chartRowsI) ? globalThis.__chartRowsI.length : 0,
-        samplePeptides: sampleDebug
-      });
-    } catch (err) {
-      console.warn('[IAV] dashboard render debug failed', err);
     }
 
     const stackedBarsSafe = Array.isArray(globalThis.__stackedBars) ? globalThis.__stackedBars : [];
@@ -2157,7 +2130,6 @@ const normAllele = s =>
   String(s || "")
     .toUpperCase()
     .replace(/^HLA-/, "")    // tolerate HLA- prefix
-    .replace(/[^A-Z0-9]/g, "") // drop punctuation for consistent matching
     .trim();
 
 const isAlleleColour = (() => {
@@ -2582,16 +2554,6 @@ const proportionIndex = await (async () => {
     const pepU = String(r.peptide || "").toUpperCase().replace(/-/g, "");
     const key  = `${r.start}|${r.len}|${pepU}`;
     map.set(key, useUnique ? Number(r.proportion_unique) : Number(r.proportion_all));
-  }
-  try {
-    console.log('[IAV] proportionIndex', {
-      size: map.size,
-      useUnique,
-      committedProteinId,
-      windows: peptideWindows.length
-    });
-  } catch (err) {
-    console.warn('[IAV] proportionIndex log failed', err);
   }
   return map;
 })();
@@ -3367,29 +3329,16 @@ const chartRowsI = (() => {
   selectedI;
   committedProteinId;
 
-  const normAlleleForMatch = s => String(s || '')
-    .toUpperCase()
-    .replace(/^HLA-/, '')
-    .replace(/[^A-Z0-9]/g, '')
-    .trim();
-  const allelesNowRaw = new Set((alleleCtrl1?.value || []).map(a => String(a).toUpperCase()));
-  const allelesNowNorm = new Set(Array.from(allelesNowRaw, normAlleleForMatch));
+  const allelesNow = new Set((alleleCtrl1?.value || []).map(a => String(a).toUpperCase()));
   const allowed    = new Set((peptidesIWorkset || []).map(p => String(p).toUpperCase()));
-  if (!allelesNowRaw.size || !allowed.size) return [];
-
-  const matchesAllele = val => {
-    const raw = String(val || '').toUpperCase();
-    if (allelesNowRaw.has(raw)) return true;
-    const norm = normAlleleForMatch(raw);
-    return norm ? allelesNowNorm.has(norm) : false;
-  };
+  if (!allelesNow.size || !allowed.size) return [];
 
   const map = new Map();
 
   for (const r of cachePreviewI) {
     const al = String(r.allele || "").toUpperCase();
     const pp = String(r.peptide|| "").toUpperCase();
-    if (allowed.has(pp) && matchesAllele(al)) {
+    if (allowed.has(pp) && allelesNow.has(al)) {
       map.set(`${al}|${pp}`, r);
     }
   }
@@ -3397,20 +3346,13 @@ const chartRowsI = (() => {
   for (const r of apiRows) {
     const al = String(r.allele || "").toUpperCase();
     const pp = String(r.peptide|| "").toUpperCase();
-    if (allowed.has(pp) && matchesAllele(al)) {
+    if (allowed.has(pp) && allelesNow.has(al)) {
       map.set(`${al}|${pp}`, r);
     }
   }
   const out = [...map.values()];
   try {
     globalThis.__chartRowsI = out;
-    console.log('[IAV] chartRowsI update', {
-      rows: out.length,
-      allelesRaw: Array.from(allelesNowRaw),
-      allelesNorm: Array.from(allelesNowNorm),
-      peptides: Array.from(allowed),
-      sample: out.slice(0, 5)
-    });
     dispatchEvent(new Event('alleleRows-ready'));
     const sched = globalThis.__scheduleIAVDashboardRender;
     if (typeof sched === 'function') sched();
@@ -3819,7 +3761,6 @@ const alleleCtrl1 = comboSelectLazy({
 const selectedI = Generators.input(alleleCtrl1);
 try {
   globalThis.__selectedI = Array.from(selectedI || []);
-  console.log('[IAV] selectedI', { selected: globalThis.__selectedI });
   dispatchEvent(new Event('allele-change'));
   const sched = globalThis.__scheduleIAVDashboardRender;
   if (typeof sched === 'function') sched();
