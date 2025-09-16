@@ -50,11 +50,13 @@ const alleleRadio = Inputs.radio(alleleList, { label: "Allele", value: alleleLis
 ```
 
 ```js
-// Helper to compute filtered data on demand (root-only)
+// Helper to compute filtered data on demand
 function getFilteredRows() {
   const sel = alleleRadio.value;
-  // Use the pre-filtered root-only dataset to avoid including window peptides
-  return rows.filter(r => sel === "All" ? true : r.allele === sel);
+  // Enforce root-only rows here to avoid accidental bleed from window-level rows
+  return rowsAll
+    .filter(r => r.peptide && r.root && r.peptide === r.root)
+    .filter(r => sel === "All" ? true : r.allele === sel);
 }
 ```
 
@@ -345,91 +347,3 @@ const chartWindows = reactiveChartWindows();
 
 <div class="file-heading">4) Root peptides: windows score and count (EL% ≤ 2)</div>
 ${chartWindows}
-```
-
-```js
-// 5) Windows-aware score/count per root peptide filtered by selected allele
-// For the chosen allele, require the ROOT to have EL% <= 2 for that allele,
-// then sum/count window peptides (any peptide whose roots include the ROOT) with EL% <= 2 for that allele.
-
-function rowsWindowsForAllele(allele) {
-  if (allele === "All") return rowsWindows; // fall back to all-alleles aggregate (chart 4 dataset)
-
-  // Qualifying set: (protein|root|allele) where the root itself is <= 2 for the selected allele
-  const qualifies = new Set(
-    rows
-      .filter(r => r.allele === allele && (+r.netmhcpan_el_percentile) <= 2)
-      .map(r => `${r.protein}|${r.peptide}|${r.allele}`)
-  );
-
-  const agg = new Map(); // key: protein|root -> { protein, peptide, score, count }
-  for (const r of rowsAll) {
-    if (r.allele !== allele) continue;
-    const roots = String(r.root || '').split(';').map(s => s.trim()).filter(Boolean);
-    if (!roots.length) continue;
-    if ((+r.netmhcpan_el_percentile) > 2) continue; // this peptide not <= 2 for this allele
-    for (const rt of roots) {
-      const keyQA = `${r.protein}|${rt}|${r.allele}`;
-      if (!qualifies.has(keyQA)) continue; // root doesn't qualify for this allele
-      const k = `${r.protein}|${rt}`;
-      let e = agg.get(k);
-      if (!e) {
-        e = { protein: r.protein, peptide: rt, score: 0, count: 0 };
-        agg.set(k, e);
-      }
-      e.score += (+r.proportion_all) || 0;
-      e.count += 1;
-    }
-  }
-  return Array.from(agg.values());
-}
-
-function scatterWindowsAllele({ width=820, height=460, margin={top:30,right:24,bottom:48,left:54} }) {
-  const sel = alleleRadio.value;
-  const data = rowsWindowsForAllele(sel);
-  const isAll = sel === "All";
-  return scatterPlot({
-    data,
-    width, height, margin,
-    yScaleKind: 'linear',
-    xAccessor: d => d.score,
-    yAccessor: d => d.count,
-    xLabel: 'Windows score (sum of prop_all <= 2)',
-    yLabel: 'Windows count (<= 2)',
-    tooltipHTML: (d, fmtProp) => (
-      isAll
-        ? (`<div><b>${d.protein}</b></div>`+
-           `<div>${d.peptide}</div>`+
-           `<div>score: ${fmtProp(d.score)}</div>`+
-           `<div>windows: ${d.count}</div>`)
-        : (`<div><b>${d.protein}</b> | ${sel}</div>`+
-           `<div>${d.peptide}</div>`+
-           `<div>score: ${fmtProp(d.score)}</div>`+
-           `<div>windows: ${d.count}</div>`)
-    )
-  });
-}
-
-function reactiveChartWindowsAllele(){
-  const mount = document.createElement('div');
-  mount.className = 'chart';
-  const render = () => {
-    const w = Math.max(360, Math.round(mount.getBoundingClientRect().width || 820));
-    const node = scatterWindowsAllele({ width: w });
-    mount.replaceChildren(node);
-  };
-  render();
-  (async () => { for await (const _ of Generators.input(alleleRadio)) render(); })();
-  if ('ResizeObserver' in globalThis) {
-    const ro = new ResizeObserver(() => render());
-    queueMicrotask(() => ro.observe(mount));
-    if (typeof invalidation !== 'undefined' && invalidation?.then) invalidation.then(() => ro.disconnect());
-  }
-  return mount;
-}
-
-const chartWindowsAllele = reactiveChartWindowsAllele();
-```
-
-<div class="file-heading">5) Root peptides: windows score and count by allele (EL% <= 2)</div>
-${chartWindowsAllele}
