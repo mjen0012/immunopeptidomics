@@ -220,8 +220,6 @@ function createIAVDashboardResponsive({
   addEventListener('colourAttr-change', scheduleRender);
   addEventListener('allele-change',     scheduleRender);
   addEventListener('percMode-change',   scheduleRender);
-  addEventListener('alleleRows-ready',  scheduleRender);
-  addEventListener('peptideProportion-ready', scheduleRender);
   if (typeof invalidation !== 'undefined' && invalidation?.then) invalidation.then(()=> {
     ro.disconnect(); if (roLeft) roLeft.disconnect();
     window.removeEventListener('resize', scheduleRender);
@@ -234,8 +232,6 @@ function createIAVDashboardResponsive({
     removeEventListener('colourAttr-change', scheduleRender);
     removeEventListener('allele-change',     scheduleRender);
     removeEventListener('percMode-change',   scheduleRender);
-    removeEventListener('alleleRows-ready',  scheduleRender);
-    removeEventListener('peptideProportion-ready', scheduleRender);
   });
 
   // initial paint
@@ -2560,7 +2556,6 @@ function getPeptideProportion(d) {
   return (v != null && isFinite(v)) ? +v : 0;  // treat missing as 0 (lightest blue)
 }
 try { globalThis.__getPeptideProportion = getPeptideProportion; } catch {}
-try { dispatchEvent(new Event('peptideProportion-ready')); } catch {}
 
 
 /* â”€â”€â”€ reference (aligned) sequence rows â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
