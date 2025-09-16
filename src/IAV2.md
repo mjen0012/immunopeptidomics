@@ -43,6 +43,8 @@ function createIAVDashboardResponsive({
     requestAnimationFrame(() => { framePending = false; render(); });
   };
 
+  try { globalThis.__scheduleIAVDashboardRender = scheduleRender; } catch {}
+
   const render = () => {
     const t0 = performance.now();
     root.innerHTML = '';
@@ -236,6 +238,7 @@ function createIAVDashboardResponsive({
     removeEventListener('percMode-change',   scheduleRender);
     removeEventListener('alleleRows-ready',  scheduleRender);
     removeEventListener('peptideProportion-ready', scheduleRender);
+    try { if (globalThis.__scheduleIAVDashboardRender === scheduleRender) { globalThis.__scheduleIAVDashboardRender = null; } } catch {}
   });
 
   // initial paint
@@ -1214,6 +1217,7 @@ const peptidesAligned = peptidesClean.map(d => {
 // wherever peptidesAligned is produced:
 globalThis.__peptidesAligned = peptidesAligned;   // stash for non-reactive access
 dispatchEvent(new Event("peptides-ready"));       // notify button enabler
+try { const sched = globalThis.__scheduleIAVDashboardRender; if (typeof sched === "function") sched(); } catch {}
 ```
 ```js
 // Perf: size of peptidesAligned array and NW totals
@@ -1719,6 +1723,7 @@ const conservedCard = metricCard({
 
   globalThis.__windowTalliesRows = rows;
   dispatchEvent(new Event("tallies-ready"));
+  try { const sched = globalThis.__scheduleIAVDashboardRender; if (typeof sched === "function") sched(); } catch {}
 }
 
 
@@ -2559,8 +2564,12 @@ function getPeptideProportion(d) {
   const v = proportionIndex.get(key);
   return (v != null && isFinite(v)) ? +v : 0;  // treat missing as 0 (lightest blue)
 }
-try { globalThis.__getPeptideProportion = getPeptideProportion; } catch {}
-try { dispatchEvent(new Event('peptideProportion-ready')); } catch {}
+try {
+  globalThis.__getPeptideProportion = getPeptideProportion;
+  dispatchEvent(new Event('peptideProportion-ready'));
+  const sched = globalThis.__scheduleIAVDashboardRender;
+  if (typeof sched === 'function') sched();
+} catch {}
 
 
 /* â”€â”€â”€ reference (aligned) sequence rows â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
@@ -3342,7 +3351,12 @@ const chartRowsI = (() => {
     }
   }
   const out = [...map.values()];
-  try { globalThis.__chartRowsI = out; dispatchEvent(new Event('alleleRows-ready')); } catch {}
+  try {
+    globalThis.__chartRowsI = out;
+    dispatchEvent(new Event('alleleRows-ready'));
+    const sched = globalThis.__scheduleIAVDashboardRender;
+    if (typeof sched === 'function') sched();
+  } catch {}
   return out;
 })();
 
@@ -3745,7 +3759,12 @@ const alleleCtrl1 = comboSelectLazy({
   fetch: ({ q, offset, limit }) => fetchAlleles("I", q, offset, limit)
 });
 const selectedI = Generators.input(alleleCtrl1);
-try { globalThis.__selectedI = Array.from(selectedI || []); } catch {}
+try {
+  globalThis.__selectedI = Array.from(selectedI || []);
+  dispatchEvent(new Event('allele-change'));
+  const sched = globalThis.__scheduleIAVDashboardRender;
+  if (typeof sched === 'function') sched();
+} catch {}
 
 const alleleCtrl2 = comboSelectLazy({
   label: "Class II alleles (MHCII)",
