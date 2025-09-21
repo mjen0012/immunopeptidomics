@@ -24,7 +24,6 @@ function createIAVDashboardResponsive({
   root.style.width  = '100%';
   root.style.height = '100%';
   root.style.display = 'block';
-  try { globalThis.__dbg?.dbg('ui', 'dashboard:init', { rowHeight, gap, sizeFactor, margin }); } catch {}
 
   // ===== TUNABLE CONSTANTS (adjust to tweak behaviour) =====
   // Per-chart height bounds (px)
@@ -39,7 +38,6 @@ function createIAVDashboardResponsive({
   const scheduleRender = () => {
     if (framePending) return;
     framePending = true;
-    try { globalThis.__dbg?.dbg('chart', 'dashboard:scheduleRender'); } catch {}
     requestAnimationFrame(() => { framePending = false; render(); });
   };
 
@@ -59,14 +57,12 @@ function createIAVDashboardResponsive({
     const availAdj = Math.max(0, avail - SVG_TOP_OFFSET - SVG_BOTTOM_OFFSET);
     const perRaw   = Math.floor(availAdj / nPrimary) || Math.round(140*sizeFactor);
     const perH     = Math.max(MIN_PER_CHART, Math.min(perRaw, MAX_PER_CHART));
-    try { globalThis.__dbg?.dbg('chart', 'dashboard:measure', { containerH: avail, containerHAdj: availAdj, perRaw, perH }); } catch {}
 
     // --- Build a fresh dashboard SVG (re-using existing chart components) ---
     // Avoid hard dependencies; use globals and defaults so we can render immediately.
     const proteinNow = (globalThis.__committedProteinId || globalThis.DEFAULT_PROTEIN || 'M1');
     const pepData = (Array.isArray(globalThis.__peptidesAligned) ? globalThis.__peptidesAligned : [])
       .filter(d => d.protein === proteinNow);
-    try { globalThis.__dbg?.dbg('data', 'dashboard:pepData', { n: pepData.length, protein: proteinNow }); } catch {}
     const colourAttrNow = (globalThis.__colourAttrNow != null ? globalThis.__colourAttrNow : 'Proportion');
     const selI = Array.isArray(globalThis.__selectedI) ? globalThis.__selectedI : [];
     const percModeNow = (globalThis.__percMode != null ? globalThis.__percMode : 'EL');
@@ -157,7 +153,6 @@ function createIAVDashboardResponsive({
     const seqCell = Math.max(12, Math.floor((perH - margin.top - margin.bottom - seqGapRows)/2));
     const refRowsNow = Array.isArray(globalThis.__refRows) ? globalThis.__refRows : [];
     const consRowsNow = Array.isArray(globalThis.__consensusRows) ? globalThis.__consensusRows : [];
-    try { globalThis.__dbg?.dbg('data','dashboard:seqRows', { ref: refRowsNow.length, cons: consRowsNow.length, placeholder: !(refRowsNow.length && consRowsNow.length) }); } catch {}
     const seqcmp = sequenceCompareChart(gSeq, { refRows:refRowsNow, consRows:consRowsNow, xScale:xCurrent, colourMode:(typeof colourMode!=='undefined'?colourMode:'Mismatches'), sizeFactor, margin: marginMid, gapRows:seqGapRows, cell:seqCell });
     addYLabel(gSeq, perH, 'Sequences');
     yOff += perH;
@@ -165,7 +160,6 @@ function createIAVDashboardResponsive({
     // Diversity
     const gStack = slot();
     const aaFreqNow = Array.isArray(globalThis.__aaFrequencies) ? globalThis.__aaFrequencies : [];
-    try { globalThis.__dbg?.dbg('data','dashboard:aaFrequencies', { n: aaFreqNow.length }); } catch {}
     const stack = stackedChart(gStack, { data: stackedBarsSafe, tooltipRows: aaFreqNow.map(d=>({position:d.position, aminoacid:d.aminoacid, value:d.value_selected})), xScale:xCurrent, sizeFactor, margin: marginMid, height:perH });
     addYLabel(gStack, perH, 'Diversity');
     yOff += perH;
@@ -173,7 +167,6 @@ function createIAVDashboardResponsive({
     // Conservation
     const gArea = slot();
     const areaDataNow = Array.isArray(globalThis.__areaData) ? globalThis.__areaData : [];
-    try { globalThis.__dbg?.dbg('data','dashboard:areaData', { n: areaDataNow.length }); } catch {}
     const area = areaChart(gArea, { data: areaDataNow, xScale:xCurrent, sizeFactor, margin: marginLast, height:perH });
     addYLabel(gArea, perH, 'Conservation');
     yOff += perH;
@@ -192,7 +185,6 @@ function createIAVDashboardResponsive({
     const updaters = [pep.update, stack.update, seqcmp.update, area.update];
     const EPS=1e-6; const zoom = d3.zoom().scaleExtent([1,15]).translateExtent([[margin.left,0],[svgWidth-margin.right,totalH]]).on('zoom', ev => { if (Math.abs(ev.transform.k-1)<EPS && Math.abs(ev.transform.x)>EPS){ svg.call(zoom.transform, d3.zoomIdentity); return; } xCurrent = ev.transform.rescaleX(x0); updaters.forEach(fn=>fn(xCurrent)); });
     svg.call(zoom);
-    try { globalThis.__dbg?.dbg('chart', 'dashboard:render:end', { ms: +(performance.now()-t0).toFixed(1) }); } catch {}
 
     root.appendChild(svg.node());
   };
@@ -251,7 +243,7 @@ function createIAVDashboardResponsive({
   left: 50%;
   margin-left: -50vw;
 
-  /* â¬‡ï¸ NEW â€” cancel the articleâ€™s built-in top padding */
+  /* â¬ï¸ NEW â cancel the articleâs built-in top padding */
   margin-top: calc(-1 * var(--observable-layout-spacing-block, 2rem));
   margin-bottom: var(--observable-layout-spacing-block, 1rem);
 
@@ -292,7 +284,7 @@ function createIAVDashboardResponsive({
   color: #fff;
 }
 
-/* ------------- translucent â€œMâ€ ----------------------------------- */
+/* ------------- translucent âMâ ----------------------------------- */
 .banner__logo {
   position: absolute;
   top: 0;
@@ -328,7 +320,7 @@ function createIAVDashboardResponsive({
   grid-template-columns: 20% 80%;
   gap: var(--observable-layout-spacing-block, 1rem);
 }
-/* kill the cardâ€™s default margin so gap rules all */
+/* kill the cardâs default margin so gap rules all */
 .layout-20-80 .card { margin: 0; }
 
 /* mobile */
@@ -402,7 +394,7 @@ function createIAVDashboardResponsive({
 
   </div>
 
-  <!-- Right column wrapper spans rows 2–4 so left panel sizing does not bloat the metric-row -->
+  <!-- Right column wrapper spans rows 24 so left panel sizing does not bloat the metric-row -->
   <div class="right-stack">
     <!-- Row 2· 80 %· metric cards (fit to content) -->
     <div class="metric-row" style="display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:1rem;">
@@ -436,7 +428,7 @@ function createIAVDashboardResponsive({
   height: 100%;                /* fit svg to card height */
 }
 
-/* right column wrapper spans rows 2–4, manages its own vertical flow */
+/* right column wrapper spans rows 24, manages its own vertical flow */
 .right-stack {
   grid-column: 2 / 3;
   grid-row: 2 / span 3;
@@ -519,7 +511,7 @@ const peptideProps = {
 
 ```js
 
-/* Wrap Database â€” reuse a single instance */
+/* Wrap Database â reuse a single instance */
 const db = await getOrCreateDB(() =>
   DuckDBClient.of({
     // Keep local attachments for these tables
@@ -536,98 +528,22 @@ const DEFAULT_PROTEIN = "M1";
     SELECT * FROM read_parquet('${url0}')`;
   await db.sql`CREATE OR REPLACE VIEW proteins AS SELECT * FROM proteins_cache`;
   globalThis.__proteinViewState = { last: DEFAULT_PROTEIN };
-  console.info('[IAV2] proteins table initialised', { protein: DEFAULT_PROTEIN });
 }
 ```
 
 ```js
-
-
-```
-
-```js
-// Global lifecycle/event logging
-{
-  const h = (e) => { try { globalThis.__dbg?.dbg('reactive', `event:${e.type}`); } catch {} };
-  addEventListener('peptides-ready', h);
-  addEventListener('tallies-ready',  h);
-  addEventListener('aligned-ready',  h);
-  if (typeof invalidation !== 'undefined' && invalidation?.then) {
-    invalidation.then(() => {
-      removeEventListener('peptides-ready', h);
-      removeEventListener('tallies-ready',  h);
-      removeEventListener('aligned-ready',  h);
-    });
-  }
-}
-```
-
-```js
-// Perf helpers (console logging only; no dataflow deps)
+// Perf helpers (no-op instrumentation)
 {
   const g = globalThis;
   if (!g.__perfUtils) {
-    const memSnap = () => {
-      const m = performance && performance.memory;
-      return m ? { used: m.usedJSHeapSize, total: m.totalJSHeapSize, limit: m.jsHeapSizeLimit } : null;
-    };
-    const fmtBytes = (n) => n == null ? null : `${(n/1024/1024).toFixed(2)} MB`;
-    async function perfAsync(label, fn) {
-      const t0 = performance.now();
-      const m0 = memSnap();
-      let out;
-      try {
-        out = await fn();
-        return out;
-      } finally {
-        const t1 = performance.now();
-        const m1 = memSnap();
-        const dUsed = (m0 && m1) ? (m1.used - m0.used) : null;
-        const size = Array.isArray(out) ? out.length : (out && typeof out === 'object' && 'numRows' in out ? out.numRows : undefined);
-        console.log(`[perf] ${label}`, { ms: +(t1 - t0).toFixed(1), usedDelta: fmtBytes(dUsed), size });
-      }
+    async function perfAsync(_label, fn) {
+      return await fn();
     }
-    function logArray(label, arr) {
-      try {
-        const len = Array.isArray(arr) ? arr.length : (arr ? arr.length ?? undefined : 0);
-        const m = memSnap();
-        console.debug(`[perf] array ${label}`, { length: len, used: m ? fmtBytes(m.used) : null });
-      } catch {}
-    }
+    function logArray(_label, _arr) {}
     g.__perfUtils = { perfAsync, logArray };
-    console.info('[perf] instrumentation ready');
-  }
-
-  // Debug helpers (category-gated logging)
-  if (!g.__dbg) {
-    const catsDefault = { ui: true, data: true, chart: true, sql: false, reactive: true, network: true };
-    const state = { enabled: true, categories: { ...catsDefault } };
-    function dbg(cat, label, payload) {
-      try {
-        if (!state.enabled || state.categories?.[cat] === false) return;
-        if (payload !== undefined) console.debug(`[IAV2/${cat}] ${label}`, payload);
-        else console.debug(`[IAV2/${cat}] ${label}`);
-      } catch {}
-    }
-    function group(cat, label, fn) {
-      if (!state.enabled || state.categories?.[cat] === false) return fn();
-      console.groupCollapsed(`[IAV2/${cat}] ${label}`);
-      try { return fn(); }
-      finally { console.groupEnd(); }
-    }
-    function time(cat, label, fn) {
-      const id = `[IAV2/${cat}] ${label}`;
-      console.time(id);
-      try { return fn(); }
-      finally { console.timeEnd(id); }
-    }
-    g.__dbg = { dbg, group, time, state };
-    console.info('[IAV2] debug helpers ready');
   }
 }
 ```
-
- 
 
 <!-- Filter Buttons + Helpers -->
 ```js
@@ -646,10 +562,6 @@ const proteinOptions = [
   {id: "PB1",   label: "Polymerase Basic 1 (PB1)"},
   {id: "PB2",   label: "Polymerase Basic 2 (PB2)"}
 ];
-
-const { perfAsync, logArray } = globalThis.__perfUtils ?? {};
-
-
 ```
 
 ```js
@@ -882,32 +794,22 @@ const referenceFile = Generators.input(referencefasta);
 ```
 
 ```js
-// Log reference upload input lifecycle
-try {
-  console.info('[IAV2/ui] render referencefasta');
-  referencefasta?.addEventListener?.('input', () => {
-    try { globalThis.__dbg?.dbg('ui', 'referencefasta:input', { hasFile: !!referencefasta.value }); } catch {}
-  });
-} catch {}
-```
-
-```js
 /* Normaliser (kept from your code) */
 const normProtein = s => String(s ?? "").trim().replace(/\s+/g, "").toUpperCase();
 
-/* Tiny per-protein cache for sequencecalc â†’ alignment profiles */
+/* Tiny per-protein cache for sequencecalc â alignment profiles */
 if (!globalThis.__seqProfileCache) {
   globalThis.__seqProfileCache = { protein: null, profile: null };
 }
 
-/* Fetch + build [position â†’ Map(aminoacid â†’ proportion)] only for the committed protein */
+/* Fetch + build [position â Map(aminoacid â proportion)] only for the committed protein */
 async function loadSeqProfileFor(proteinId) {
   const pid = normProtein(proteinId);
   if (!pid) return null;
 
   if (globalThis.__seqProfileCache.protein === pid &&
       globalThis.__seqProfileCache.profile) {
-    return globalThis.__seqProfileCache.profile;         // âš¡ warm
+    return globalThis.__seqProfileCache.profile;         // â¡ warm
   }
 
   const rows = await (globalThis.__perfUtils?.perfAsync?.(`sql: seqProfile for ${pid}`, async () => (await db.sql`
@@ -929,9 +831,6 @@ async function loadSeqProfileFor(proteinId) {
   globalThis.__seqProfileCache = { protein: pid, profile: arr };
   return arr;
 }
-
-
-
 ```
 
 ```js
@@ -1029,7 +928,7 @@ function nwAffineBanded(ref, freqs, baseBandWidth = 75, gOpen = -5, gExt = -2) {
 /* Align every protein in the uploaded reference FASTA (on file input) */
 const allAlignedFromReference = referenceFile ? await (async () => {
   const __t0 = performance.now();
-  // --- parse FASTA text → [{protein, raw_sequence}]
+  // --- parse FASTA text ? [{protein, raw_sequence}]
   const txt = await referenceFile.text();
   const entries = (() => {
     const out = [];
@@ -1050,7 +949,6 @@ const allAlignedFromReference = referenceFile ? await (async () => {
 try { globalThis.__committedProteinId = committedProteinId; } catch {}
   // --- build a profile for every distinct protein header found
   const ids = [...new Set(entries.map(d => normProtein?.(d.protein) ?? d.protein))].filter(Boolean);
-  try { globalThis.__dbg?.dbg('data','ref:profiles:request',{ nHeaders: entries.length, nUniqueIds: ids.length }); } catch {}
   const profilePairs = await Promise.all(ids.map(async id => [id, await loadSeqProfileFor(id)]));
   const profileMap = new Map(profilePairs); // id -> profile|null
 
@@ -1061,7 +959,6 @@ try { globalThis.__committedProteinId = committedProteinId; } catch {}
     const aln  = prof ? nwAffineBanded(e.raw_sequence, prof) : null;
     return { protein: e.protein, aligned_sequence: aln };
   });
-  try { globalThis.__dbg?.dbg('data','ref:align:done',{ n: out.length, ms: +(performance.now()-__t0).toFixed(1) }); } catch {}
   return out;
 })() : [];
 
@@ -1102,16 +999,6 @@ const peptideFile = Generators.input(peptideinput);
 ```
 
 ```js
-// Log peptide upload input lifecycle
-try {
-  console.info('[IAV2/ui] render peptideinput');
-  peptideinput?.addEventListener?.('input', () => {
-    try { globalThis.__dbg?.dbg('ui', 'peptideinput:input', { hasFile: !!peptideinput.value }); } catch {}
-  });
-} catch {}
-```
-
-```js
 /* Read Peptide File + Normalisation */
 const peptidesRaw = peptideFile
   ? (await (await peptideFile.text()).trim())
@@ -1148,12 +1035,6 @@ const peptidesClean = peptidesRaw.map(d => {
 ```
 
 ```js
-// Peptide raw/clean sizes
-try { globalThis.__dbg?.dbg('data', 'peptidesRaw:size', { n: Array.isArray(peptidesRaw) ? peptidesRaw.length : 0 }); } catch {}
-try { globalThis.__dbg?.dbg('data', 'peptidesClean:size', { n: Array.isArray(peptidesClean) ? peptidesClean.length : 0 }); } catch {}
-```
-
-```js
 /* Reference Grids */
 const alignRefMap = new Map(
   (fastaAligned ?? []).map(d => [d.protein, d.aligned_sequence])
@@ -1187,7 +1068,7 @@ function alignPeptideToRef(peptide, refAlign) {
   return { start_raw: idxRaw + 1, start_aln: startAln, aligned };
 }
 
-/* Peptide Alignment Table  â€“ now exposes BOTH lengths */
+/* Peptide Alignment Table  â now exposes BOTH lengths */
 const peptidesAligned = peptidesClean.map(d => {
   const ref  = alignRefMap.get(d.protein);
 
@@ -1198,8 +1079,8 @@ const peptidesAligned = peptidesClean.map(d => {
   return {
     ...d,
     /* NEW FIELD NAMES */
-    length_raw       : d.peptide.length,               // â† ungapped length
-    length           : aligned ? aligned.length : null,/* â† aligned length */
+    length_raw       : d.peptide.length,               // â ungapped length
+    length           : aligned ? aligned.length : null,/* â aligned length */
     start_raw        : start_raw,                      // optional info
     start            : start_aln,                      // aligned coord
     peptide_aligned  : aligned,                        // string incl. gaps
@@ -1213,10 +1094,8 @@ dispatchEvent(new Event("peptides-ready"));       // notify button enabler
 ```
 ```js
 // Perf: size of peptidesAligned array and NW totals
-globalThis.__perfUtils?.logArray?.('peptidesAligned', peptidesAligned);
 (function(){
   const s = globalThis.__nwPerf;
-  if (s) console.log('[perf] nwAffineBanded', { calls: s.count, totalMs: +s.totalMs.toFixed(1), avgMs: s.count ? +(s.totalMs/s.count).toFixed(2) : 0, maxMs: +s.maxMs.toFixed(1) });
 })();
 ```
 ```js
@@ -1234,8 +1113,6 @@ const peptideWindows = (() => {
   }
   return [...map.values()];
 })();
-
-
 ```
 
 ```js
@@ -1271,15 +1148,12 @@ async function getWindowTalliesRows(windows) {
     windowsKey      : winsKey
   });
 
-  try { globalThis.__dbg?.dbg('data', 'tallies:request', { protein: pid, nWindows: wins.length }); } catch {}
 
   if (globalThis.__windowTalliesCache?.key === filterKey) {
-    try { globalThis.__dbg?.dbg('data', 'tallies:cache:hit', { rows: globalThis.__windowTalliesCache.rows?.length ?? 0 }); } catch {}
     return globalThis.__windowTalliesCache.rows || [];
   }
 
   if (!wins.length) {
-    try { globalThis.__dbg?.dbg('data', 'tallies:skip:no-windows'); } catch {}
     globalThis.__windowTalliesCache = { key: filterKey, rows: [] };
     return [];
   }
@@ -1411,98 +1285,20 @@ async function getWindowTalliesRows(windows) {
 
   const rows = await q.toArray();
   globalThis.__windowTalliesCache = { key: filterKey, rows };
-  try { globalThis.__dbg?.dbg('data', 'tallies:ready', { rows: rows.length }); } catch {}
   return rows;
 }
-
-```
-
-```js
-// Debug: inputs to topCandidatesByWindow
-try {
-  const pid = committedProteinId;
-  const nWin = peptideWindows.length;
-  const sampleWin = peptideWindows.slice(0, 5);
-  console.debug('[IAV2] topCandidates inputs', { protein: pid, nWindows: nWin, sampleWin });
-  if (globalThis.__perfUtils?.perfAsync) {
-    const rows = await globalThis.__perfUtils.perfAsync('sql: proteins count (pre topCandidates)', async () =>
-      (await db.sql`
-        SELECT COUNT(*) AS n
-        FROM   proteins
-        WHERE  1=1
-          AND ${ genotypesCommitted.length
-                  ? sql`genotype IN (${ genotypesCommitted })` : sql`TRUE` }
-          AND ${ hostsCommitted.length
-                  ? sql`host IN (${ hostsCommitted })` : sql`TRUE` }
-          AND ${
-                hostCategoryCommitted.includes('Human') &&
-                !hostCategoryCommitted.includes('Non-human')
-                  ? sql`host = 'Homo sapiens'`
-                  : (!hostCategoryCommitted.includes('Human') &&
-                     hostCategoryCommitted.includes('Non-human'))
-                      ? sql`host <> 'Homo sapiens'`
-                      : sql`TRUE`
-              }
-          AND ${ countriesCommitted.length
-                  ? sql`country IN (${ countriesCommitted })` : sql`TRUE` }
-      `).toArray()
-    );
-    const nSeq = rows?.[0]?.n ?? null;
-    try { console.debug('[IAV2] proteins count (pre topCandidates)', { nSeq, nWindows: nWin, estCross: nSeq != null ? nSeq * nWin : null }); } catch {}
-  }
-} catch (e) { try { console.warn('[IAV2] debug inputs failed', e); } catch {} }
-
-const topCandidatesByWindow = peptideWindows.length === 0 ? []
-: await (globalThis.__perfUtils?.perfAsync?.('sql: topCandidatesByWindow (tallies->rank)', async () => {
-  const rows = await getWindowTalliesRows(peptideWindows);
-
-  // Group by window and compute ranks by proportion_all and proportion_unique
-  const byWin = d3.group(rows, r => `${r.start}|${r.len}`);
-  const out = [];
-  for (const [k, arr] of byWin) {
-    const orderAll = [...arr].sort((a,b) => d3.descending(+a.proportion_all, +b.proportion_all) || d3.ascending(String(a.peptide), String(b.peptide)));
-    const rAll = new Map(orderAll.map((r,i)=>[r.peptide, i+1]));
-    const orderU = [...arr].sort((a,b) => d3.descending(+a.proportion_unique, +b.proportion_unique) || d3.ascending(String(a.peptide), String(b.peptide)));
-    const rU = new Map(orderU.map((r,i)=>[r.peptide, i+1]));
-
-    for (const r of arr) {
-      const rrAll = rAll.get(r.peptide) ?? Number.POSITIVE_INFINITY;
-      const rrU   = rU.get(r.peptide)   ?? Number.POSITIVE_INFINITY;
-      if (rrAll <= 5 || rrU <= 5) {
-        out.push({
-          start : Number(r.start),
-          len   : Number(r.len),
-          peptide: r.peptide,
-          r_all : rrAll,
-          r_u   : rrU,
-          proportion_all   : Number(r.proportion_all),
-          proportion_unique: Number(r.proportion_unique),
-          frequency_all    : Number(r.frequency_all),
-          total_all        : Number(r.total_all),
-          frequency_unique : Number(r.frequency_unique),
-          total_unique     : Number(r.total_unique)
-        });
-      }
-    }
-  }
-  out.sort((a,b) => (a.start-b.start) || (a.len-b.len) || (a.r_all-b.r_all) || (a.r_u-b.r_u) || a.peptide.localeCompare(b.peptide));
-  try { console.debug('[IAV2] topCandidates done', { rows: out.length }); } catch {}
-  return out;
-}))
-
-
 ```
 
 ```js
 /* Workset for Class I predictions (per protein):
-   uploaded peptides (8â€“14 aa) âˆª top 5 per window (both All & Unique) */
+   uploaded peptides (8â14 aa) âª top 5 per window (both All & Unique) */
 const peptidesIWorkset = (() => {
   const pid = committedProteinId; // reactive
   if (!pid) return [];
 
   const set = new Set();
 
-  // uploaded peptides (scoped to protein), 8â€“14 aa, ungapped
+  // uploaded peptides (scoped to protein), 8â14 aa, ungapped
   for (const r of peptidesClean) {
     if ((r.protein || "").toUpperCase() !== pid) continue;
     const pep = (r.peptide || "").toUpperCase().replace(/-/g,"");
@@ -1517,16 +1313,10 @@ const peptidesIWorkset = (() => {
 
   return [...set];
 })();
-
 ```
 
 ```js
-// Perf: size of peptideWindows
-globalThis.__perfUtils?.logArray?.('peptideWindows', peptideWindows);
-```
-
-```js
-// Reactive enabler — re-runs when fastaAligned changes
+// Reactive enabler  re-runs when fastaAligned changes
 {
   const ready = (fastaAligned ?? []).some(d => typeof d.aligned_sequence === "string" && d.aligned_sequence.length > 0);
 
@@ -1570,7 +1360,7 @@ globalThis.__perfUtils?.logArray?.('peptideWindows', peptideWindows);
 ```
 
 ```js
-// All sequences — renders immediately
+// All sequences  renders immediately
 const allSeqCard = metricCard({
   title: "All sequences",
   current: Number.isFinite(total_all_count) ? total_all_count : "--",
@@ -1578,7 +1368,7 @@ const allSeqCard = metricCard({
   hideDelta: false
 });
 
-// Unique sequences — renders immediately
+// Unique sequences  renders immediately
 const uniqueSeqCard = metricCard({
   title: "Unique sequences",
   current: Number.isFinite(total_unique_count) ? total_unique_count : "--",
@@ -1588,7 +1378,7 @@ const uniqueSeqCard = metricCard({
 
 // Renders instantly; shows placeholder values until data exists
 const alignedPepsCard = metricCard({
-  title: `Aligned peptides (${proteinCommitted ?? "—"})`,
+  title: `Aligned peptides (${proteinCommitted ?? ""})`,
   current: "--",
   previous: undefined,   // hide pill initially
   hideDelta: true
@@ -1597,7 +1387,7 @@ const alignedPepsCard = metricCard({
 
 // Renders right away with placeholders
 const conservedCard = metricCard({
-  title: `Conserved peptides (${proteinCommitted ?? "—"}) >95%`,
+  title: `Conserved peptides (${proteinCommitted ?? ""}) >95%`,
   current: "--",
   previous: undefined,
   hideDelta: true
@@ -1634,7 +1424,7 @@ const conservedCard = metricCard({
     // If no user peptides yet, show placeholders
     if (userPeps.size === 0) {
       conservedCard.set({
-        title: `Conserved peptides (${protein || "—"}) >95%`,
+        title: `Conserved peptides (${protein || ""}) >95%`,
         current: "--",
         previous: undefined,
         hideDelta: true
@@ -1649,7 +1439,7 @@ const conservedCard = metricCard({
     }
     if (!Array.isArray(rows) || rows.length === 0) {
       conservedCard.set({
-        title: `Conserved peptides (${protein || "—"}) >95%`,
+        title: `Conserved peptides (${protein || ""}) >95%`,
         current: "--",
         previous: undefined,
         hideDelta: true
@@ -1664,7 +1454,7 @@ const conservedCard = metricCard({
     };
     const subset = rows.filter(protMatch);
 
-    // 3) Build peptide → proportion map (use MAX across windows for safety)
+    // 3) Build peptide ? proportion map (use MAX across windows for safety)
     const pepToProp = new Map();
     for (const r of subset) {
       const pep = normPep(r?.peptide);
@@ -1686,7 +1476,7 @@ const conservedCard = metricCard({
     }
 
     conservedCard.set({
-      title: `Conserved peptides (${protein || "—"}) >95%`,
+      title: `Conserved peptides (${protein || ""}) >95%`,
       current: conserved,
       previous: non,
       hideDelta: true
@@ -1716,8 +1506,54 @@ const conservedCard = metricCard({
   globalThis.__windowTalliesRows = rows;
   dispatchEvent(new Event("tallies-ready"));
 }
+```
 
-
+```js
+const topCandidatesByWindow = peptideWindows.length === 0 ? [] :
+  await (globalThis.__perfUtils?.perfAsync?.('sql: topCandidatesByWindow (tallies->rank)', async () => {
+    const rows = await getWindowTalliesRows(peptideWindows);
+    const byWin = d3.group(rows, r => `${r.start}|${r.len}`);
+    const out = [];
+    for (const [, arr] of byWin) {
+      const orderAll = [...arr].sort((a, b) =>
+        d3.descending(+a.proportion_all, +b.proportion_all) ||
+        d3.ascending(String(a.peptide), String(b.peptide))
+      );
+      const ranksAll = new Map(orderAll.map((r, i) => [r.peptide, i + 1]));
+      const orderUnique = [...arr].sort((a, b) =>
+        d3.descending(+a.proportion_unique, +b.proportion_unique) ||
+        d3.ascending(String(a.peptide), String(b.peptide))
+      );
+      const ranksUnique = new Map(orderUnique.map((r, i) => [r.peptide, i + 1]));
+      for (const row of arr) {
+        const rankAll = ranksAll.get(row.peptide) ?? Number.POSITIVE_INFINITY;
+        const rankUnique = ranksUnique.get(row.peptide) ?? Number.POSITIVE_INFINITY;
+        if (rankAll <= 5 || rankUnique <= 5) {
+          out.push({
+            start: Number(row.start),
+            len: Number(row.len),
+            peptide: row.peptide,
+            r_all: rankAll,
+            r_u: rankUnique,
+            proportion_all: Number(row.proportion_all),
+            proportion_unique: Number(row.proportion_unique),
+            frequency_all: Number(row.frequency_all),
+            total_all: Number(row.total_all),
+            frequency_unique: Number(row.frequency_unique),
+            total_unique: Number(row.total_unique)
+          });
+        }
+      }
+    }
+    out.sort((a, b) =>
+      (a.start - b.start) ||
+      (a.len - b.len) ||
+      (a.r_all - b.r_all) ||
+      (a.r_u - b.r_u) ||
+      a.peptide.localeCompare(b.peptide)
+    );
+    return out;
+  }));
 ```
 
 ```js
@@ -1747,7 +1583,7 @@ const conservedCard = metricCard({
     const mis      = filtered.length - aligned;
 
     // title always reflects current selection
-    const title = `Aligned peptides (${protein || "—"})`;
+    const title = `Aligned peptides (${protein || ""})`;
 
     // if no peptide file yet, keep placeholders
     if (!arr.length) {
@@ -1772,7 +1608,6 @@ const conservedCard = metricCard({
   addEventListener("peptides-ready", update);           // when the stash is filled
   invalidation.then(() => removeEventListener("peptides-ready", update));
 }
-
 ```
 
 <!-- Download Buttons -->
@@ -1794,16 +1629,11 @@ const downloadFastaBtn = downloadButton({
 ```
 
 ```js
-try { globalThis.__dbg?.dbg('ui','downloadFastaBtn:init',{ disabled: true }); } catch {}
-```
-
-```js
 {
   const update = () => {
     const arr = globalThis.__peptidesAligned;
     const ready = Array.isArray(arr) && arr.length > 0;
     downloadPeptideBtn.setDisabled(!ready);
-    try { globalThis.__dbg?.dbg('ui','downloadPeptideBtn:state',{ ready, n: Array.isArray(arr) ? arr.length : 0 }); } catch {}
   };
 
   update(); // set initial state on page load
@@ -1814,7 +1644,7 @@ try { globalThis.__dbg?.dbg('ui','downloadFastaBtn:init',{ disabled: true }); } 
 
 
 ```js
-/* Download Peptides Button — renders immediately, locked until data exists */
+/* Download Peptides Button  renders immediately, locked until data exists */
 const downloadPeptideBtn = downloadButton({
   filename: "peptidesAligned.csv",
   // NOTE: no reference to `peptidesAligned` here
@@ -1851,7 +1681,7 @@ function createIAVDashboard({
   margin      = {top:12,right:20,bottom:12,left:56}
 } = {}) {
 
-  /* 1 — peptide data & colour scale --------------------------- */
+  /* 1  peptide data & colour scale --------------------------- */
   const pepData = peptidesAligned.filter(d => d.protein === proteinCommitted);
 
   const inProportionMode = (String(colourAttr) === 'Proportion');
@@ -1875,19 +1705,19 @@ function createIAVDashboard({
       colourScale = makePeptideScale(keys.length ? keys : ["dummy"]);
     }
   }
-  /* 3 â–¸ SHARED X SCALE  (0.5 â€¦ max+0.5) ------------------------ */
+  /* 3 â¸ SHARED X SCALE  (0.5 â¦ max+0.5) ------------------------ */
   const stackedBarsSafe = (typeof stackedBars !== "undefined" ? stackedBars : []);
   const maxPos = Math.max(
     pepData.length ? d3.max(pepData, d => d.start + d.length) : 1,
     (stackedBarsSafe.length ? d3.max(stackedBarsSafe, d => d.position) : 1)
   );
-  const domain = [0.5, maxPos + 0.5];                 // â† key change
+  const domain = [0.5, maxPos + 0.5];                 // â key change
   const svgWidth = width;
   const x0       = d3.scaleLinear(domain,
                    [margin.left, svgWidth - margin.right]);
   let   xCurrent = x0;
 
-  /* 4 — responsive SVG & slot helper -------------------------- */
+  /* 4  responsive SVG & slot helper -------------------------- */
   const svg = d3.create("svg")
     .style("width", "100%")
     .attr("font-family", "sans-serif");
@@ -1968,7 +1798,7 @@ function createIAVDashboard({
   // ensure we allocate the unified height regardless of internal rounding
   yOff += perChartHeight;
 
-  /* 7 â–¸ reference vs consensus cells -------------------------- */
+  /* 7 â¸ reference vs consensus cells -------------------------- */
   const gSeq = slot();
   // derive cell size to fit equal height across charts
   const seqGapRows = Math.max(20, Math.round(28 * sizeFactor));
@@ -1986,7 +1816,7 @@ function createIAVDashboard({
   addYLabel(gSeq, perChartHeight, "Sequences");
   yOff += perChartHeight;
 
-  /* 6 â–¸ stacked bar chart ------------------------------------- */
+  /* 6 â¸ stacked bar chart ------------------------------------- */
   const gStack = slot();
   const stack = stackedChart(gStack, {
     data       : stackedBarsSafe,
@@ -2003,7 +1833,7 @@ function createIAVDashboard({
   addYLabel(gStack, perChartHeight, "Diversity");
   yOff += perChartHeight;
 
-  /* â­ 8 â–¸ area chart -------------------------------------------- */
+  /* â­ 8 â¸ area chart -------------------------------------------- */
   const gArea = slot();
   const area = areaChart(gArea, {
     data      : (typeof areaData !== "undefined" ? areaData : []),
@@ -2015,7 +1845,7 @@ function createIAVDashboard({
   addYLabel(gArea, perChartHeight, "Conservation");
   yOff += perChartHeight;  
 
-  /* 9 â–¸ facet overlays (only if we actually have them) ------------- */
+  /* 9 â¸ facet overlays (only if we actually have them) ------------- */
   const facetUpdaters = [];
 
   if (typeof facetArea !== "undefined" && facetArea.size) {
@@ -2050,11 +1880,11 @@ function createIAVDashboard({
     }
   }
 
-  /* 7 â–¸ finalise SVG ------------------------------------------ */
+  /* 7 â¸ finalise SVG ------------------------------------------ */
   svg.attr("height", yOff)
      .attr("viewBox", `0 0 ${svgWidth} ${yOff}`);
 
-  /* 8 â–¸ shared zoom (integer ticks preserved) ----------------- */
+  /* 8 â¸ shared zoom (integer ticks preserved) ----------------- */
   const updaters = [pep.update, stack.update, seqcmp.update, area.update, ...facetUpdaters];
   const EPS      = 1e-6;
   const zoom = d3.zoom()
@@ -2065,7 +1895,7 @@ function createIAVDashboard({
       /* --- 1. snap to identity when user is fully zoomed out --- */
       if (Math.abs(ev.transform.k - 1) < EPS &&
           (Math.abs(ev.transform.x) > EPS)) {
-        // force-reset â€” affects every chart simultaneously
+        // force-reset â affects every chart simultaneously
         svg.call(zoom.transform, d3.zoomIdentity);
         return;                              // skip stale update
       }
@@ -2079,8 +1909,6 @@ function createIAVDashboard({
   return svg.node();
 }
 ```
-
-
 
 <!-- Control Panel Buttons -->
 ```js
@@ -2108,9 +1936,11 @@ const colourAttrInput = (() => {
     label: "Colour peptides by:",
     value: defaultValue
   });
-  try { globalThis.__dbg?.dbg('ui','colourAttrInput:render', { choices: colourChoices, defaultValue }); } catch {}
   el.addEventListener("input", () => { globalThis.__colourByPrev = el.value; });
-  el.addEventListener("input", () => { try { globalThis.__dbg?.dbg('ui','colourAttrInput:change', { value: el.value }); globalThis.__colourAttrNow = el.value; dispatchEvent(new Event('colourAttr-change')); } catch {} });
+  el.addEventListener("input", () => {
+    globalThis.__colourAttrNow = el.value;
+    dispatchEvent(new Event('colourAttr-change'));
+  });
   return el;
 })();
 const colourAttr = Generators.input(colourAttrInput);
@@ -2130,13 +1960,12 @@ const isAlleleColour = (() => {
   if (String(colourAttr) === "Proportion") return false;
 
   const attr = normAllele(colourAttr);
-  if (/^ATTRIBUTE_\d+$/i.test(attr)) return false;   // attribute_1/2/3 â†’ not allele
+  if (/^ATTRIBUTE_\d+$/i.test(attr)) return false;   // attribute_1/2/3 â not allele
 
   // Ensure we can map even if selectedI is a Set or Array
   const picked = new Set(Array.from(selectedI || []).map(normAllele));
   return picked.has(attr);
 })();
-
 ```
 
 ```js
@@ -2158,7 +1987,6 @@ const peptideKeyEl = (() => {
 
   const inProportionMode = String(colourAttr) === "Proportion";
   const inAlleleMode = !inProportionMode && !/^attribute_[123]$/i.test(String(colourAttr));
-  try { globalThis.__dbg?.dbg('ui','peptideKeyEl:render', { inProportionMode, inAlleleMode, colourAttr: String(colourAttr), percMode, seqSet }); } catch {}
 
   if (inAlleleMode) {
     return peptideColourKey({
@@ -2200,7 +2028,6 @@ const peptideKeyEl = (() => {
     missingColor : "#f0f0f0"
   });
 })();
-
 ```
 
 ```js
@@ -2238,7 +2065,7 @@ const dashboardSlot = Generators.observe(change => {
     if (!mount.childNodes.length) {
       const ph = document.createElement('div');
       ph.style.fontStyle = 'italic';
-      ph.textContent = 'Rendering dashboard…';
+      ph.textContent = 'Rendering dashboard...';
       mount.appendChild(ph);
       change(mount);
     }
@@ -2265,34 +2092,17 @@ const dashboardSlot = Generators.observe(change => {
   const pid = committedProteinId ?? DEFAULT_PROTEIN; // reactive dep
   const state = (globalThis.__proteinViewState ??= { last: null });
   if (state.last === pid) {
-    try { console.info('[IAV2] proteins table reuse', { protein: pid }); } catch {}
   } else {
     const url = `https://gbxc45oychilox63.public.blob.vercel-storage.com/${encodeURIComponent(pid)}.parquet`;
     await db.sql`CREATE OR REPLACE TABLE proteins_cache AS
       SELECT * FROM read_parquet('${url}')`;
     await db.sql`CREATE OR REPLACE VIEW proteins AS SELECT * FROM proteins_cache`;
     state.last = pid;
-    try { console.info('[IAV2] proteins table materialised', { protein: pid }); } catch {}
   }
 }
 ```
 
 ```js
-/* Sequence set */
-const seqSetInput = radioButtons(
-  ["All sequences", "Unique sequences"],
-  { label: "Sequence set:", value: "All sequences" }
-);
-const seqSet = Generators.input(seqSetInput);
-```
-
-```js
-// Log seqSetInput lifecycle
-try {
-  globalThis.__dbg?.dbg('ui','seqSetInput:render', { value: seqSet });
-  seqSetInput?.addEventListener?.('input', () => { try { globalThis.__dbg?.dbg('ui','seqSetInput:change', { value: seqSetInput.value }); } catch {} });
-} catch {}
-
 /* Cell colouring */
 const colourModeInput = radioButtons(
   ["Mismatches", "Properties"],
@@ -2302,14 +2112,8 @@ const colourMode = Generators.input(colourModeInput);
 ```
 
 ```js
-// Log colourModeInput lifecycle
-try {
-  globalThis.__dbg?.dbg('ui','colourModeInput:render', { value: colourMode });
-  colourModeInput?.addEventListener?.('input', () => { try { globalThis.__dbg?.dbg('ui','colourModeInput:change', { value: colourModeInput.value }); } catch {} });
-} catch {}
-
 const aaKeyEl = aaColourKey({
-  label: "Amino-acid colour key",   // or "" to hide the heading
+  label: "Amino-acid colour key",
   square: 22,
   gap: 6,
   showGroupLabels: true
@@ -2317,7 +2121,12 @@ const aaKeyEl = aaColourKey({
 ```
 
 ```js
-try { globalThis.__dbg?.dbg('ui','aaKeyEl:render'); } catch {}
+/* Sequence set */
+const seqSetInput = radioButtons(
+  ["All sequences", "Unique sequences"],
+  { label: "Sequence set:", value: "All sequences" }
+);
+const seqSet = Generators.input(seqSetInput);
 ```
 
 <!-- Data Source Switcher -->
@@ -2422,7 +2231,7 @@ const positionStats = (
           }
         ),
 
-        /* downstream identicalâ€¦ */
+        /* downstream identicalâ¦ */
         parsed AS ( SELECT sequence, LENGTH(sequence) AS len FROM filtered ),
         pos    AS ( SELECT p.sequence, gs.position
                     FROM parsed p CROSS JOIN generate_series(1, p.len) AS gs(position) ),
@@ -2453,7 +2262,6 @@ const positionStats = (
         ORDER  BY c.position, c.aminoacid
     `
 );
-
 ```
 
 ```js
@@ -2471,7 +2279,7 @@ const aaFrequencies = (
 });
 
 // stash + event for non-reactive dashboard consumers
-try { globalThis.__aaFrequencies = aaFrequencies; dispatchEvent(new Event('aa-ready')); console.debug('[IAV2/data] aaFrequencies:ready', { n: aaFrequencies.length }); } catch {}
+try { globalThis.__aaFrequencies = aaFrequencies; dispatchEvent(new Event('aa-ready')); } catch {}
 
 /* Stacked Bar Chart Data */
 const stackedBars = (() => {
@@ -2494,7 +2302,7 @@ const stackedBars = (() => {
   return rows;
 })();
 
-try { globalThis.__stackedBars = stackedBars; dispatchEvent(new Event('stacked-ready')); console.debug('[IAV2/data] stackedBars:ready', { n: stackedBars.length }); } catch {}
+try { globalThis.__stackedBars = stackedBars; dispatchEvent(new Event('stacked-ready')); } catch {}
 
 /* Area Chart Data */
 const areaData = Array.from(
@@ -2511,8 +2319,7 @@ const areaData = Array.from(
   }
 ).sort((a, b) => d3.ascending(a.position, b.position));
 
-try { globalThis.__areaData = areaData; dispatchEvent(new Event('area-ready')); console.debug('[IAV2/data] areaData:ready', { n: areaData.length }); } catch {}
-
+try { globalThis.__areaData = areaData; dispatchEvent(new Event('area-ready')); } catch {}
 ```
 
 ```js
@@ -2524,13 +2331,11 @@ try { globalThis.__areaData = areaData; dispatchEvent(new Event('area-ready')); 
     const aa = await (globalThis.__perfUtils?.perfAsync?.('warm:aaFrequencies', async () => aaFrequencies));
     const sb = stackedBars;
     const ad = areaData;
-    console.info('[IAV2] warmup done', { aa: Array.isArray(aa) ? aa.length : aa?.length, stack: Array.isArray(sb) ? sb.length : 0, area: Array.isArray(ad) ? ad.length : 0 });
     // Ensure listeners rerender even if they subscribed late
     dispatchEvent(new Event('aa-ready'));
     dispatchEvent(new Event('stacked-ready'));
     dispatchEvent(new Event('area-ready'));
   } catch (e) {
-    console.warn('[IAV2] warmup failed', e);
   }
 }
 
@@ -2558,14 +2363,14 @@ function getPeptideProportion(d) {
 try { globalThis.__getPeptideProportion = getPeptideProportion; } catch {}
 
 
-/* â”€â”€â”€ reference (aligned) sequence rows â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* reference (aligned) sequence rows*/
 const refAligned = fastaAligned.find(d => d.protein === proteinCommitted )
                      ?.aligned_sequence ?? "";               // empty string if none
 const refRows = refAligned.split("")
   .map((aa,i)=>({ position:i+1, aminoacid:aa }));
 try { globalThis.__refRows = refRows; } catch {}
 
-/* â”€â”€â”€ consensus rows (respecting the All / Unique toggle) â”€â”€â”€ */
+/* consensus rows (respecting the All / Unique toggle) */
 const consensusRows = Array.from(
   d3.rollups(
     aaFrequencies,
@@ -2576,7 +2381,7 @@ const consensusRows = Array.from(
 ).sort((a,b)=>d3.ascending(a.position,b.position));
 try { globalThis.__consensusRows = consensusRows; } catch {}
 
-/* facetArea :  Map<facetKey â†’ [{position,value,aminoacid}]> */
+/* facetArea :  Map<facetKey â [{position,value,aminoacid}]> */
 const facetArea = new Map();
 
 
@@ -2601,13 +2406,9 @@ if (positionFacetStats !== null) {
       }
     ).sort((a,b)=>d3.ascending(a.position,b.position));
 
-    facetArea.set(facetKey ?? "Unknown", areaRows);   // null → "Unknown"
+    facetArea.set(facetKey ?? "Unknown", areaRows);   // null ? "Unknown"
   }
 }
-
-
-
-
 ```
 
 ```js
@@ -2630,7 +2431,6 @@ const heatmapData = rowsRaw.map(r => ({
 }));
 
 /* Create Peptide Plot */
-try { globalThis.__dbg?.dbg('chart','heatmap:render', { nRows: heatmapData?.length ?? 0, mode: colourMode, alleles: (selectedI ? Array.from(selectedI).length : 0) }); } catch {}
 // Prepare allele overlay data lazily to avoid hard dependency on chartRowsI
 const __selI = Array.from(selectedI || []);
 const __chartRows = __selI.length ? (globalThis.__chartRowsI || []) : [];
@@ -2638,15 +2438,15 @@ const heatmapSVG = peptideHeatmap({
   data        : heatmapData,                        // peptides (ungapped)
   selected    : selectedPeptide,                    // may include '-'
   colourMode  : colourMode,
-  // â”€â”€ NEW overlay props:
+  // ââ NEW overlay props:
   alleleData  : __chartRows,                        // cache + API (snake_case)
   alleles     : __selI,
   mode        : percMode,                           // "EL" | "BA"
   showAlleles : true,
   baseCell    : (() => { let px=16; try{ const h2=document.querySelector('.metric-card h2'); if(h2) px=parseFloat(getComputedStyle(h2).fontSize)||16; }catch{} return Math.max(22, Math.round(px*2.0)); })(),
   height0     : (() => {
-    // Choose height so the rendered text height ≈ metric-card title size
-    // Approx model: displayedFont = (cell*0.5) * (height0 / (basePad + reserve + nRows*cell)) ⇒ height0
+    // Choose height so the rendered text height  metric-card title size
+    // Approx model: displayedFont = (cell*0.5) * (height0 / (basePad + reserve + nRows*cell)) ? height0
     // Reserve extra vertical band for allele labels so adding alleles does not shrink text.
     let px=16; try{ const h2=document.querySelector('.metric-card h2'); if(h2) px=parseFloat(getComputedStyle(h2).fontSize)||16; }catch{}
     const nRows   = 5;                    // head + topN (default 4)
@@ -2658,12 +2458,10 @@ const heatmapSVG = peptideHeatmap({
   })(),
   margin      : { top:20, right:150, bottom:20, left:4 }
 });
-
 ```
 
 ```js
 // Perf: size of aaFrequencies for plotting
-globalThis.__perfUtils?.logArray?.('aaFrequencies', aaFrequencies);
 ```
 
 ```js
@@ -2674,7 +2472,6 @@ globalThis.__perfUtils?.logArray?.('aaFrequencies', aaFrequencies);
   setSelectedStart(null);
   setSelectedLength(null);
 }
-
 ```
 
 ```js
@@ -2716,7 +2513,6 @@ const heatmapSVG2 = Generators.observe(change => {
   function render() {
     const { selI, rows } = pickOverlayRows();
     const data = buildHeatmapRows();
-    try { globalThis.__dbg?.dbg('chart','heatmap:render', { nRows: data.length, mode: colourMode, alleles: selI.length }); } catch {}
     const node = peptideHeatmap({
       data,
       selected    : selectedPeptide,
@@ -2749,7 +2545,7 @@ const heatmapSVG2 = Generators.observe(change => {
 
 
 ```js
-/* -------- facetChoices  â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+/* -------- facetChoices
    Re-evaluates automatically whenever any committed filter changes.
    A facet option appears only when the user has at least ONE value
    selected for that attribute.                                        */
@@ -2765,14 +2561,14 @@ const facetChoices = (() => {
 ```
 ```js
 
-/* -------- radio input  â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+/* -------- radio input
    Re-created every time `facetChoices` changes, so the UI never
    shows options that would facet the *entire* data set.                */
 const facetSelectInput = Inputs.radio(
   facetChoices,
   {
     label : "Facet by:",
-    value : facetChoices[0]              // whichever is first (â€œNoneâ€)
+    value : facetChoices[0]              // whichever is first (âNoneâ)
   }
 );
 const facetSelect = Generators.input(facetSelectInput);
@@ -2803,7 +2599,7 @@ WITH base AS (
     } AS facet,
     sequence
   FROM proteins
-  /* ðŸ”´ push ALL filters here so we only touch the committed proteinâ€™s rows */
+  /* push ALL filters here so we only touch the committed proteinâs rows */
   WHERE protein = ${proteinCommitted}
 
     AND ${ genotypesCommitted.length
@@ -2870,7 +2666,7 @@ WITH base AS (
     }
 ),
 
-/* for the â€œUniqueâ€ path, dedupe sequences now to avoid doubling later */
+/* for the âUniqueâ path, dedupe sequences now to avoid doubling later */
 b AS (
   ${ useUnique
       ? sql`SELECT DISTINCT facet, sequence FROM base`
@@ -2966,12 +2762,11 @@ const peptideValues = peptidesAligned
 
 ```js
 /* ------------------------------------------------------------------
-   Create a SINGLE memoâ€‘cache on the global object (survives reloads)
+   Create a SINGLE memoâcache on the global object (survives reloads)
    ------------------------------------------------------------------*/
 if (!globalThis.__peptideCache) {
   globalThis.__peptideCache = { key: null, table: null };
 }
-
 ```
 
 ```js
@@ -3044,26 +2839,20 @@ function getPeptidePropsAll() {
 }
 ```
 
-
 ```js
-/* Keeps the old name so downstream cells donâ€™t change */
+/* Keeps the old name so downstream cells donât change */
 const peptidePropsAll = getPeptidePropsAll();
 ```
 
- 
-
 ```js
 /* 
-   NetMHC-pan integration â€“ Class I & II
-   - Appears *below* the existing dashboard cards for now */
-
+   NetMHC-pan integration Class I & II*/
 const statusBanner = html`<div style="margin:0.5rem 0; font-style:italic;"></div>`;
 function setBanner(msg) {
   statusBanner.textContent = msg;
-  try { globalThis.__dbg?.dbg('ui','statusBanner', { msg }); } catch {}
 }
 
-/* â–¸ RUN buttons -------------------------------------------------- */
+/* â¸ RUN buttons -------------------------------------------------- */
 const runBtnI  = runButton("Run Class I (EL + BA)");
 const runBtnII = runButton("Run Class II (EL + BA)");
 
@@ -3075,7 +2864,7 @@ const trigII = Generators.input(runBtnII);
 
 ```js
 // Snapshot `getValue()` right now and again every time `view` fires.
-// No addEventListener anywhere â€” we rely purely on Generators.input(view).
+// No addEventListener anywhere â we rely purely on Generators.input(view).
 function snapshotOn(view, getValue) {
   return Generators.observe(change => {
     const push = () => change(getValue());
@@ -3089,11 +2878,10 @@ function snapshotOn(view, getValue) {
     return () => {};
   });
 }
-
 ```
 
 ```js
-/* â–¸ state holders ------------------------------------------------ */
+/* â¸ state holders ------------------------------------------------ */
 const resultsArrayI = Mutable([]);
 const resultsArrayII = Mutable([]);
 
@@ -3102,7 +2890,7 @@ const excludedII = Mutable([]);     // peptides <11 or >30
 ```
 
 ```js
-/* â–¸ helpers to talk to IEDB -------------------------------------- */
+/* â¸ helpers to talk to IEDB -------------------------------------- */
 function buildBodyI(alleles, fasta) {
   return {
     run_stage_range: [1,1],
@@ -3145,7 +2933,6 @@ function buildBodyII(alleles, fasta) {
 
 ```js
 async function submit(body) {
-  try { globalThis.__dbg?.dbg('network','submit:iedb-pipeline:req', { alleles: body?.stages?.[0]?.input_parameters?.alleles, tool: body?.stages?.[0]?.tool_group }); } catch {}
   const r = await fetch("/api/iedb-pipeline", {
     method:"POST",
     headers:{"content-type":"application/json"},
@@ -3155,12 +2942,10 @@ async function submit(body) {
   const j   = (()=>{try{return JSON.parse(txt);}catch{return txt;}})();
   if (!r.ok) throw new Error(j.errors?.join("; ") || r.statusText);
   const id = j.results_uri.split("/").pop();
-  try { globalThis.__dbg?.dbg('network','submit:iedb-pipeline:ok', { id }); } catch {}
   return id;       // result_id
 }
 
 async function poll(resultId, timeout = 90_000) {
-  try { globalThis.__dbg?.dbg('network','poll:start', { id: resultId }); } catch {}
   const t0 = Date.now();
   while (Date.now() - t0 < timeout) {
     const r = await fetch(`/api/iedb-result?id=${resultId}`);
@@ -3168,7 +2953,6 @@ async function poll(resultId, timeout = 90_000) {
     const j   = (()=>{try{return JSON.parse(txt);}catch{return txt;}})();
     if (j.status === "done")
       {
-        try { globalThis.__dbg?.dbg('network','poll:done', { id: resultId }); } catch {}
         return j.data?.results?.find(t => t.type === "peptide_table");
       }
     await new Promise(res => setTimeout(res, 1000));
@@ -3181,7 +2965,7 @@ function rowsFromTable(tbl) {
   return tbl.table_data.map(r => Object.fromEntries(r.map((v,i)=>[keys[i],v])));
 }
 
-/* â–¸ peptide-upload helper (re-uses existing peptideFile) ---------- */
+/* â¸ peptide-upload helper (re-uses existing peptideFile) ---------- */
 async function parsePeptides(file) {
   if (!file) return [];
   const text = await file.text();
@@ -3194,7 +2978,7 @@ async function parsePeptides(file) {
     .filter(Boolean);
 }
 
-/* â–¸ parse uploaded peptide table with protein column ------------- */
+/* â¸ parse uploaded peptide table with protein column ------------- */
 async function parsePeptideTable(file) {
   if (!file) return [];
   const text = await file.text();
@@ -3221,7 +3005,7 @@ async function parsePeptideTable(file) {
 ```
 
 ```js
-/* committed protein id â€” reactive */
+/* committed protein id â reactive */
 function normalizeProteinId(v) {
   if (!v) return null;
   if (typeof v === "string") return v;
@@ -3230,18 +3014,15 @@ function normalizeProteinId(v) {
 }
 
 const committedProteinId = (() => {
-  const raw = proteinCommitted;        // â† establish reactive dependency
+  const raw = proteinCommitted;        // â establish reactive dependency
   const id  = normalizeProteinId(raw);
   const out = id ? String(id).trim().toUpperCase() : null;
   return out;
 })();
-
-
-
 ```
 
 ```js
-/* â”€â”€ Unified schema (snake_case) for Class I rows â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ââ Unified schema (snake_case) for Class I rows */
 const keyMapI = {
   "peptide": "peptide",
   "allele": "allele",
@@ -3258,7 +3039,7 @@ function normalizeRowI_cache(r) {
   };
 }
 
-/* API table rows (display headers) â†’ only the 4 fields we keep */
+/* API table rows (display headers) â only the 4 fields we keep */
 function normalizeRowI_api(r) {
   return {
     allele: String(r["allele"] ?? r.allele).toUpperCase(),
@@ -3267,7 +3048,6 @@ function normalizeRowI_api(r) {
     netmhcpan_ba_percentile: +r["netmhcpan_ba percentile"]
   };
 }
-
 ```
 
 ```js
@@ -3280,18 +3060,11 @@ const peptidesI = await (async () => {
 ```
 
 ```js
-console.groupCollapsed("ðŸ”Ž Alt window lengths");
 const winLens = peptideWindows.map(w => w.len);
-console.log("Total windows:", winLens.length);
-console.log("Len â‰¤7:",  winLens.filter(n => n<=7).length);
-console.log("8â€“14:",   winLens.filter(n => n>=8 && n<=14).length);
-console.log("â‰¥15:",    winLens.filter(n => n>=15).length);
-console.groupEnd();
-
 ```
 
 ```js
-/* Class I cache preview for the committed protein â€” uses WORKSET */
+/* Class I cache preview for the committed protein â uses WORKSET */
 const cachePreviewI = await (async () => {
   selectedI;
   committedProteinId;
@@ -3306,11 +3079,10 @@ const cachePreviewI = await (async () => {
 
   return cacheRows.map(normalizeRowI_cache);
 })();
-
 ```
 
 ```js
-/* merged rows for the chart â€” STRICT to workset */
+/* merged rows for the chart â STRICT to workset */
 const chartRowsI = (() => {
   selectedI;
   committedProteinId;
@@ -3340,17 +3112,15 @@ const chartRowsI = (() => {
   try { globalThis.__chartRowsI = out; dispatchEvent(new Event('alleleRows-ready')); } catch {}
   return out;
 })();
-
 ```
 
 ```js
 /* ---- NetMHC batch size ---- */
 const NETMHC_CHUNK_SIZE = 1000;   // was ~25 before; now 1000 as requested
-
 ```
 
 ```js
-/* â–¸ RUN results â€“ Class I (per-protein workset; batch missing by 1000) */
+/* â¸ RUN results â Class I (per-protein workset; batch missing by 1000) */
 const runResultsI = await (async () => {
   trigI;
 
@@ -3360,7 +3130,7 @@ const runResultsI = await (async () => {
   if (!allelesSel.length) { setBanner("Class I: no alleles selected."); return []; }
   if (!pepsSel.length)    { setBanner("Class I: no peptides to run.");  return []; }
 
-  setBanner(`Class I: checking cache for ${pepsSel.length} peptidesâ€¦`);
+  setBanner(`Class I: checking cache for ${pepsSel.length} peptidesâ¦`);
 
   // No local cache available
   const cacheRows = [];
@@ -3383,7 +3153,8 @@ const runResultsI = await (async () => {
   if (missingByAllele.size === 0) {
     const merged = [...new Map(normCache.map(r => [cacheKey(r), r])).values()];
     resultsArrayI.value = merged;
-    setBanner(`Class I: all ${merged.length} rows from cache âœ…`);
+    setBanner(`Class I: all ${merged.length} rows from cache â
+`);
     return merged;
   }
 
@@ -3399,11 +3170,11 @@ const runResultsI = await (async () => {
   for (let i = 0; i < chunks.length; i++) {
     const chunk = chunks[i];
     try {
-      setBanner(`Class I: submitting chunk ${i+1}/${chunks.length} (${chunk.length} peptides)â€¦`);
+      setBanner(`Class I: submitting chunk ${i+1}/${chunks.length} (${chunk.length} peptides)â¦`);
       const fasta = chunk.map((p,idx)=>`>p${idx+1}\n${p}`).join("\n");
 
       const id  = await submit(buildBodyI(allelesToQuery, fasta));
-      setBanner(`Class I: polling chunk ${i+1}/${chunks.length}â€¦`);
+      setBanner(`Class I: polling chunk ${i+1}/${chunks.length}â¦`);
       const tbl = await poll(id);
       const apiRows = rowsFromTable(tbl);
 
@@ -3414,8 +3185,7 @@ const runResultsI = await (async () => {
 
       await new Promise(res => setTimeout(res, 150));
     } catch (err) {
-      console.error(`Chunk ${i+1} failed:`, err);
-      setBanner(`Class I: chunk ${i+1} failed (${err.message}). Continuingâ€¦`);
+      setBanner(`Class I: chunk ${i+1} failed (${err.message}). Continuingâ¦`);
       await new Promise(res => setTimeout(res, 250));
     }
   }
@@ -3429,18 +3199,17 @@ const runResultsI = await (async () => {
   resultsArrayI.value = merged;
 
   const uniqueApi = new Set(apiRowsAll.map(r => `${r.allele}|${r.peptide}`)).size;
-  setBanner(`Class I done â€” ${merged.length} rows (cache ${cacheSet.size} + new ${uniqueApi}).`);
+  setBanner(`Class I done â ${merged.length} rows (cache ${cacheSet.size} + new ${uniqueApi}).`);
   return merged;
 })();
-
 ```
 
 ```js
-/* â–¸ RUN pipeline â€“ Class II -------------------------------------- */
+/* â¸ RUN pipeline â Class II -------------------------------------- */
 trigII;                     // make cell reactive
 (async () => {
   if (!peptideFile) return;
-  setBanner("Class II: startingâ€¦");
+  setBanner("Class II: startingâ¦");
 
   const alleles = Array.from(alleleCtrl2.value || []);  // Class II
   const allPeps = await parsePeptides(peptideFile);
@@ -3453,10 +3222,10 @@ trigII;                     // make cell reactive
   const fasta = okPeps.map((p,i)=>`>p${i+1}\n${p}`).join("\n");
   try {
     const id  = await submit(buildBodyII(alleles, fasta));
-    setBanner("Class II: pollingâ€¦");
+    setBanner("Class II: pollingâ¦");
     const tbl = await poll(id);
     resultsArrayII.value = rowsFromTable(tbl);
-    setBanner(`Class II done â€” ${resultsArrayII.value.length} rows.`);
+    setBanner(`Class II done â ${resultsArrayII.value.length} rows.`);
   } catch (err) {
     setBanner(`Class II error: ${err.message}`);
   }
@@ -3464,7 +3233,7 @@ trigII;                     // make cell reactive
 ```
 
 ```js
-/* â–¸ CSV download helpers ----------------------------------------- */
+/* â¸ CSV download helpers ----------------------------------------- */
 function makeDownloadButton(label, rowsMut, filename) {
   const btn = Inputs.button(label);
   btn.onclick = () => {
@@ -3595,10 +3364,9 @@ const downloadCSVI_annot = downloadButton({
         };
       });
 
-      // Keep only rows with at least some data (peptide present) – already ensured
+      // Keep only rows with at least some data (peptide present)  already ensured
       return rows;
     } catch (e) {
-      console.error("downloadCSVI_annot: failed to build data", e);
       return [];
     }
   }
@@ -3606,33 +3374,22 @@ const downloadCSVI_annot = downloadButton({
 ```
 
 ```js
-/* â–¸ uploaded peptides table + committed-protein slice (Class I) -- */
+/* â¸ uploaded peptides table + committed-protein slice (Class I) -- */
 const uploadedPeptidesTable = await parsePeptideTable(peptideFile);
-
 
 /* peptides for Class I, scoped to committed protein (reactive) */
 const peptidesICommitted = (() => {
-  const pid = committedProteinId;         // â† dependency
+  const pid = committedProteinId;         // â dependency
   if (!pid) return [];
   return peptidesClean
     .filter(r => (r.protein || "").toUpperCase() === pid)
     .map(r => (r.peptide || "").toUpperCase())
     .filter(p => p.length >= 8 && p.length <= 14);
 })();
-
-
-
 ```
 
-
-
-
-
-
-
-
 ```js
-/* external radios â€“ place these with your other controls */
+/* external radios â place these with your other controls */
 const percentileModeInput = Inputs.radio(["EL","BA"], {
   label : "Percentile type:",
   value : "EL"
@@ -3649,15 +3406,7 @@ try { percentileModeInput?.addEventListener?.('input', () => { try { globalThis.
 ```
 
 ```js
-// Log MHC/percentile controls
-try {
-  globalThis.__dbg?.dbg('ui','percentileModeInput:render', { value: percMode });
-  percentileModeInput?.addEventListener?.('input', () => { try { globalThis.__dbg?.dbg('ui','percentileModeInput:change', { value: percentileModeInput.value }); } catch {} });
-  globalThis.__dbg?.dbg('ui','mhcClassInput:render', { value: mhcClass });
-  mhcClassInput?.addEventListener?.('input', () => { try { globalThis.__dbg?.dbg('ui','mhcClassInput:change', { value: mhcClassInput.value }); } catch {} });
-} catch {}
-
-/* allele plot â€” reactive to allele picks and Apply (protein) */
+/* allele plot â reactive to allele picks and Apply (protein) */
 selectedI;
 committedProteinId;
 
@@ -3674,7 +3423,7 @@ const allelePlot = alleleChart({
 
 ```js
 /* HLA fetchers (on-demand from DuckDB) -------------------------- */
-const PAGE_LIMIT_DEFAULT = 50;  // when searching (â‰¥2 chars)
+const PAGE_LIMIT_DEFAULT = 50;  // when searching (â¥2 chars)
 const PAGE_LIMIT_INITIAL = 20;  // first display when q === ""
 
 /* cls: "I" | "II"; q: string; offset/limit: paging */
@@ -3726,11 +3475,10 @@ async function fetchAlleles(cls, q = "", offset = 0, limit = PAGE_LIMIT_DEFAULT)
 
   return rows.map(r => r.allele).filter(s => s && s.trim().length);
 }
-
 ```
 
 ```js
-/* â–¸ allele lists (lazy) ----------------------------------------- */
+/* â¸ allele lists (lazy) ----------------------------------------- */
 const alleleCtrl1 = comboSelectLazy({
   label: "Class I alleles (MHCI)",
   placeholder: "Type class-I allele",
@@ -3751,27 +3499,14 @@ const alleleCtrl2 = comboSelectLazy({
   fetch: ({ q, offset, limit }) => fetchAlleles("II", q, offset, limit)
 });
 const selectedII = Generators.input(alleleCtrl2);
-
 ```
 
 ```js
-// Log allele controls lifecycle
-try {
-  globalThis.__dbg?.dbg('ui','alleleCtrl1:render');
-  alleleCtrl1?.addEventListener?.('input', () => { try { globalThis.__dbg?.dbg('ui','alleleCtrl1:change', { n: (alleleCtrl1.value ? alleleCtrl1.value.length : 0) }); } catch {} });
-  globalThis.__dbg?.dbg('ui','alleleCtrl2:render');
-  alleleCtrl2?.addEventListener?.('input', () => { try { globalThis.__dbg?.dbg('ui','alleleCtrl2:change', { n: (alleleCtrl2.value ? alleleCtrl2.value.length : 0) }); } catch {} });
-} catch {}
-
 /* snapshots captured only when the Run buttons fire */
 const committedI        = snapshotOn(runBtnI,  () => Array.from(alleleCtrl1.value || []));
 const committedWorksetI = snapshotOn(runBtnI,  () => Array.from(peptidesIWorkset || []));
 const committedProteinI = snapshotOn(runBtnI,  () => committedProteinId);
 const committedII       = snapshotOn(runBtnII, () => Array.from(alleleCtrl2.value || []));
-
-
-
-
 ```
 
 
