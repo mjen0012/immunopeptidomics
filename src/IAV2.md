@@ -537,10 +537,9 @@ const DEFAULT_PROTEIN = "M1";
   const g = globalThis;
   if (!g.__perfUtils) {
     async function perfAsync(_label, fn) {
-      return await fn();
+      return fn();
     }
-    function logArray(_label, _arr) {}
-    g.__perfUtils = { perfAsync, logArray };
+    g.__perfUtils = { perfAsync };
   }
 }
 ```
@@ -2028,14 +2027,6 @@ const peptideKeyEl = (() => {
     missingColor : "#f0f0f0"
   });
 })();
-```
-
-```js
-// Keep proteins temp table/view in sync with the committed protein selection, with debounce
-{
-  // Dashboard wrapper: render immediately, then inject dashboard when modules are ready
-  const ensure = (pred, fn) => { try { return pred() ? fn() : null; } catch { return null; } };
-}
 ```
 
 ```js
