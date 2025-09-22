@@ -98,11 +98,6 @@ export function peptideHeatmap({
     return { el, ba };
   }
   const look = buildDualLookups();
-  if (typeof console !== 'undefined') {
-    try {
-      console.debug('[heatmap] build lookups', { rows: Array.isArray(alleleData) ? alleleData.length : 'not array', alleles, mode: currentMode });
-    } catch {}
-  }
   const activeLookup = (currentMode === "BA" ? look.ba : look.el);
 
   // brand blue
@@ -298,11 +293,6 @@ export function peptideHeatmap({
 
   /* ── outer draw (v19 reflow) ─────────────────────────────────── */
   const draw = (wrapperWidth) => {
-    if (typeof console !== 'undefined') {
-      try {
-        console.debug('[heatmap] draw() start', { wrapperWidth, selected, rows: rows.length, alleles, mode: currentMode });
-      } catch {}
-    }
     const outerHaveAlleles = showAlleles && Array.isArray(alleles) && alleles.length > 0;
     const alleleCols  = outerHaveAlleles ? alleles.length : 0;
 

@@ -37,12 +37,6 @@ export function peptideChart(
   } = {}
 ) {
   /* ---------- pack rows into non-overlapping levels ------------ */
-  if (typeof console !== 'undefined') {
-    try {
-      console.debug('[peptideChart] init', { colourBy, usingAlleleColour, alleleDataLen: Array.isArray(alleleData) ? alleleData.length : 'not array' });
-    } catch {}
-  }
-
   const rows = Array.isArray(data) ? [...data] : [];
   rows.sort((a, b) => d3.ascending(a.start, b.start));
 
@@ -75,7 +69,12 @@ export function peptideChart(
     || String(colourBy || "").toUpperCase() === 'PROPORTION');
 
   const normPep    = s => String(s || "").toUpperCase().replace(/-/g, "").trim();
-  const canonAllele = s => String(s || "").toUpperCase().replace(/^HLA-/, "").replace(/[^A-Z0-9]/g, "").trim();
+  const canonAllele = s =>
+    String(s || "")
+      .toUpperCase()
+      .replace(/^HLA-/, "")
+      .replace(/[^A-Z0-9]/g, "")
+      .trim();
   const normAllele = canonAllele;
 
   const resolveMode = () => {
@@ -99,11 +98,6 @@ export function peptideChart(
     }
   };
 
-  if (usingAlleleColour && typeof console !== 'undefined') {
-    try {
-      console.debug('[peptideChart] alleleData state', { isArray: Array.isArray(alleleData), length: Array.isArray(alleleData) ? alleleData.length : 'n/a' });
-    } catch {}
-  }
   if (usingAlleleColour) {
     buildMaps(alleleData);
     if (!elMap.size && Array.isArray(globalThis.__chartRowsI) && globalThis.__chartRowsI.length) {
@@ -111,11 +105,7 @@ export function peptideChart(
     }
   }
 
-  if (usingAlleleColour && typeof console !== 'undefined') {
-    try {
-      console.debug('[peptideChart] map sizes', { colourBy, elEntries: elMap.size, baEntries: baMap.size, sampleEL: Array.from(elMap.keys()).slice(0,3), alleleDataSample: Array.isArray(alleleData) ? alleleData.slice(0,1) : 'n/a' });
-    } catch {}
-  }
+
 
   // piecewise percentile → colour (0–2 blue→white, 2–50 white→red, 50–100 red)
   const blueWhite = d3.scaleLinear().domain([0, 2]).range(["#006DAE", "#ffffff"]).clamp(true);
@@ -163,16 +153,6 @@ export function peptideChart(
       }
       if (match) break;
     }
-    if (typeof console !== 'undefined') {
-      try {
-        console.debug('[peptideChart] fillForBar', {
-          colourBy, rawAllele, alleleCandidates, pepKeys,
-          match, missing: match == null,
-          peptide: d.peptide, peptide_aligned: d.peptide_aligned,
-          mode: modeNow
-        });
-      } catch {}
-    }
     return piecewiseColour(v);
   };
 
@@ -191,11 +171,6 @@ export function peptideChart(
       const latest = Array.isArray(globalThis.__chartRowsI) ? globalThis.__chartRowsI : [];
       const prevSize = elMap.size;
       buildMaps(latest);
-      if (typeof console !== 'undefined') {
-        try {
-          console.debug('[peptideChart] alleleRows-ready refresh', { prevSize, newSize: elMap.size });
-        } catch {}
-      }
       bars.attr('fill', fillForBar);
     };
     addEventListener('alleleRows-ready', onAlleleRows);
