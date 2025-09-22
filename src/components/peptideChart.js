@@ -37,6 +37,12 @@ export function peptideChart(
   } = {}
 ) {
   /* ---------- pack rows into non-overlapping levels ------------ */
+  if (typeof console !== 'undefined') {
+    try {
+      console.debug('[peptideChart] init', { colourBy, usingAlleleColour, alleleDataLen: Array.isArray(alleleData) ? alleleData.length : 'not array' });
+    } catch {}
+  }
+
   const rows = Array.isArray(data) ? [...data] : [];
   rows.sort((a, b) => d3.ascending(a.start, b.start));
 

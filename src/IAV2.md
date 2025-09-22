@@ -3072,6 +3072,17 @@ const chartRowsI = (() => {
 
   const map = new Map();
 
+  if (typeof console !== "undefined") {
+    try {
+      console.debug('[chartRowsI] recompute', {
+        allelesNow: Array.from(allelesNow),
+        allowedCount: allowed.size,
+        cachePreviewCount: Array.isArray(cachePreviewI) ? cachePreviewI.length : 'not array',
+        runResultsCount: Array.isArray(runResultsI) ? runResultsI.length : 'not array'
+      });
+    } catch {}
+  }
+
   for (const r of cachePreviewI) {
     const al = String(r.allele || "").toUpperCase();
     const pp = String(r.peptide|| "").toUpperCase();
@@ -3088,6 +3099,11 @@ const chartRowsI = (() => {
     }
   }
   const out = [...map.values()];
+  if (typeof console !== "undefined") {
+    try {
+      console.debug('[chartRowsI] out', { outCount: out.length, sample: out.slice(0,3) });
+    } catch {}
+  }
   try { globalThis.__chartRowsI = out; dispatchEvent(new Event('alleleRows-ready')); } catch {}
   return out;
 })();
