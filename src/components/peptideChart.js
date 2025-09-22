@@ -111,10 +111,16 @@ export function peptideChart(
       const key = String(raw);
       return colourScale ? colourScale(key) : "#A3A3A3";
     }
-    // Allele path: look up percentile for (colourBy allele, ungapped peptide)
-    const pepKey = normPep(d.peptide_aligned || d.peptide);
-    const pair   = `${colourByUC}|${pepKey}`;
-    const v = (modeNow === "BA" ? baMap.get(pair) : elMap.get(pair));
+    // Allele path: try uploaded (ungapped) then aligned forms for mapping
+    const candidates = [];
+    if (d.peptide != null) candidates.push(normPep(d.peptide));
+    if (d.peptide_aligned != null) candidates.push(normPep(d.peptide_aligned));
+    let v;
+    for (const pepKey of candidates.filter(Boolean)) {
+      const pair = `${colourByUC}|${pepKey}`;
+      v = (modeNow === "BA" ? baMap.get(pair) : elMap.get(pair));
+      if (v != null) break;
+    }
     return piecewiseColour(v);
   };
 
@@ -244,3 +250,4 @@ export function peptideChart(
 
   return { update, height };
 }
+
