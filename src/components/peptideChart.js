@@ -90,6 +90,12 @@ export function peptideChart(
     }
   }
 
+  if (usingAlleleColour && typeof console !== 'undefined') {
+    try {
+      console.debug('[peptideChart] map sizes', { colourBy, elEntries: elMap.size, baEntries: baMap.size });
+    } catch {}
+  }
+
   // piecewise percentile → colour (0–2 blue→white, 2–50 white→red, 50–100 red)
   const blueWhite = d3.scaleLinear().domain([0, 2]).range(["#006DAE", "#ffffff"]).clamp(true);
   const whiteRed  = d3.scaleLinear().domain([2, 50]).range(["#ffffff", "#e60000"]).clamp(true);
@@ -122,13 +128,27 @@ export function peptideChart(
       alleleCandidates.push(`HLA-${colourByUC}`);
     }
     let v;
+    let match = null;
     for (const alleleKey of alleleCandidates.filter(Boolean)) {
       for (const pepKey of pepKeys) {
         const pair = `${alleleKey}|${pepKey}`;
         v = (modeNow === "BA" ? baMap.get(pair) : elMap.get(pair));
-        if (v != null) break;
+        if (v != null) {
+          match = { alleleKey, pepKey, value: v, mode: modeNow };
+          break;
+        }
       }
-      if (v != null) break;
+      if (match) break;
+    }
+    if (typeof console !== 'undefined') {
+      try {
+        console.debug('[peptideChart] fillForBar', {
+          colourBy, rawAllele, alleleCandidates, pepKeys,
+          match, missing: match == null,
+          peptide: d.peptide, peptide_aligned: d.peptide_aligned,
+          mode: modeNow
+        });
+      } catch {}
     }
     return piecewiseColour(v);
   };
