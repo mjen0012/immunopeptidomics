@@ -115,10 +115,19 @@ export function peptideChart(
     const candidates = [];
     if (d.peptide != null) candidates.push(normPep(d.peptide));
     if (d.peptide_aligned != null) candidates.push(normPep(d.peptide_aligned));
+    const pepKeys = candidates.filter(Boolean);
+    const rawAllele = String(colourBy || "").toUpperCase().trim();
+    const alleleCandidates = [colourByUC, rawAllele];
+    if (colourByUC && (!rawAllele || !rawAllele.startsWith("HLA-"))) {
+      alleleCandidates.push(`HLA-${colourByUC}`);
+    }
     let v;
-    for (const pepKey of candidates.filter(Boolean)) {
-      const pair = `${colourByUC}|${pepKey}`;
-      v = (modeNow === "BA" ? baMap.get(pair) : elMap.get(pair));
+    for (const alleleKey of alleleCandidates.filter(Boolean)) {
+      for (const pepKey of pepKeys) {
+        const pair = `${alleleKey}|${pepKey}`;
+        v = (modeNow === "BA" ? baMap.get(pair) : elMap.get(pair));
+        if (v != null) break;
+      }
       if (v != null) break;
     }
     return piecewiseColour(v);
