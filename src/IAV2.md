@@ -208,9 +208,10 @@ function createIAVDashboardResponsive({
   addEventListener('aa-ready',       scheduleRender);
   addEventListener('area-ready',     scheduleRender);
   addEventListener('stacked-ready',  scheduleRender);
-  // UI controls affecting colours/alleles
+  // UI controls and async data affecting colours/alleles
   addEventListener('colourAttr-change', scheduleRender);
   addEventListener('allele-change',     scheduleRender);
+  addEventListener('alleleRows-ready',  scheduleRender);
   addEventListener('percMode-change',   scheduleRender);
   if (typeof invalidation !== 'undefined' && invalidation?.then) invalidation.then(()=> {
     ro.disconnect(); if (roLeft) roLeft.disconnect();
@@ -223,6 +224,7 @@ function createIAVDashboardResponsive({
     removeEventListener('stacked-ready',  scheduleRender);
     removeEventListener('colourAttr-change', scheduleRender);
     removeEventListener('allele-change',     scheduleRender);
+    removeEventListener('alleleRows-ready',  scheduleRender);
     removeEventListener('percMode-change',   scheduleRender);
   });
 
@@ -337,7 +339,6 @@ function createIAVDashboardResponsive({
 </style>
 
 <!-- HTML -->
-
 <div class="layout-20-80">
 
   <!-- Row 1 20 % Select files -->
@@ -2512,10 +2513,12 @@ const heatmapSVG2 = Generators.observe(change => {
   const onEvt = () => render();
   addEventListener('peptides-ready', onEvt);
   addEventListener('tallies-ready',  onEvt);
+  addEventListener('alleleRows-ready',  onEvt);
   addEventListener('peptide-selected', onEvt);
   if (typeof invalidation !== 'undefined' && invalidation?.then) invalidation.then(() => {
     removeEventListener('peptides-ready', onEvt);
     removeEventListener('tallies-ready',  onEvt);
+    removeEventListener('alleleRows-ready',  onEvt);
     removeEventListener('peptide-selected', onEvt);
   });
 });
@@ -3470,6 +3473,10 @@ const committedWorksetI = snapshotOn(runBtnI,  () => Array.from(peptidesIWorkset
 const committedProteinI = snapshotOn(runBtnI,  () => committedProteinId);
 const committedII       = snapshotOn(runBtnII, () => Array.from(alleleCtrl2.value || []));
 ```
+
+
+
+
 
 
 
