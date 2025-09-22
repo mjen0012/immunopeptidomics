@@ -1772,7 +1772,18 @@ function createIAVDashboard({
   const pepTargetRH = 18 * sizeFactor;                // preferred bar thickness
   const pepRowHeight = Math.max(12, Math.min(pepTargetRH, pepAvailH / Math.max(1, nLevels)));
     const selectedIArray = Array.from(selectedI || []);
+    if (typeof console !== 'undefined') {
+      try {
+        console.debug('[dashboard] selectedIArray', selectedIArray);
+        console.debug('[dashboard] __chartRowsI sample', Array.isArray(globalThis.__chartRowsI) ? globalThis.__chartRowsI.slice(0,3) : globalThis.__chartRowsI);
+      } catch {}
+    }
     const alleleDataForChart = selectedIArray.length ? (globalThis.__chartRowsI || []) : [];
+    if (typeof console !== 'undefined') {
+      try {
+        console.debug('[dashboard] alleleDataForChart length', Array.isArray(alleleDataForChart) ? alleleDataForChart.length : 'not array');
+      } catch {}
+    }
     const pep = peptideChart(gPep, {
       data       : pepDataForChart,
       xScale     : xCurrent,
