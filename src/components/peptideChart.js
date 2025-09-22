@@ -75,7 +75,8 @@ export function peptideChart(
     || String(colourBy || "").toUpperCase() === 'PROPORTION');
 
   const normPep    = s => String(s || "").toUpperCase().replace(/-/g, "").trim();
-  const normAllele = s => String(s || "").toUpperCase().replace(/^HLA-/, "").trim();
+  const canonAllele = s => String(s || "").toUpperCase().replace(/^HLA-/, "").replace(/[^A-Z0-9]/g, "").trim();
+  const normAllele = canonAllele;
 
   const resolveMode = () => {
     const m = (percentileMode && percentileMode.value !== undefined
@@ -86,6 +87,11 @@ export function peptideChart(
 
   // Build EL/BA maps keyed by "ALLELE|PEPTIDEUNGAPPED"
   const elMap = new Map(), baMap = new Map();
+  if (usingAlleleColour && typeof console !== 'undefined') {
+    try {
+      console.debug('[peptideChart] alleleData state', { isArray: Array.isArray(alleleData), length: Array.isArray(alleleData) ? alleleData.length : 'n/a' });
+    } catch {}
+  }
   if (usingAlleleColour && Array.isArray(alleleData)) {
     for (const r of alleleData) {
       const a = normAllele(r?.allele);
@@ -98,7 +104,7 @@ export function peptideChart(
 
   if (usingAlleleColour && typeof console !== 'undefined') {
     try {
-      console.debug('[peptideChart] map sizes', { colourBy, elEntries: elMap.size, baEntries: baMap.size });
+      console.debug('[peptideChart] map sizes', { colourBy, elEntries: elMap.size, baEntries: baMap.size, sampleEL: Array.from(elMap.keys()).slice(0,3), alleleDataSample: Array.isArray(alleleData) ? alleleData.slice(0,1) : 'n/a' });
     } catch {}
   }
 
@@ -129,18 +135,20 @@ export function peptideChart(
     if (d.peptide_aligned != null) candidates.push(normPep(d.peptide_aligned));
     const pepKeys = candidates.filter(Boolean);
     const rawAllele = String(colourBy || "").toUpperCase().trim();
-    const alleleCandidates = [colourByUC, rawAllele];
+    const alleleCandidates = [colourBy, colourByUC, rawAllele];
     if (colourByUC && (!rawAllele || !rawAllele.startsWith("HLA-"))) {
       alleleCandidates.push(`HLA-${colourByUC}`);
     }
     let v;
     let match = null;
-    for (const alleleKey of alleleCandidates.filter(Boolean)) {
+    for (const alleleCandidate of alleleCandidates.filter(Boolean)) {
+      const keyAllele = canonAllele(alleleCandidate);
+      if (!keyAllele) continue;
       for (const pepKey of pepKeys) {
-        const pair = `${alleleKey}|${pepKey}`;
+        const pair = `${keyAllele}|${pepKey}`;
         v = (modeNow === "BA" ? baMap.get(pair) : elMap.get(pair));
         if (v != null) {
-          match = { alleleKey, pepKey, value: v, mode: modeNow };
+          match = { alleleCandidate, keyAllele, pepKey, value: v, mode: modeNow };
           break;
         }
       }
