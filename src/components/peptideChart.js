@@ -87,18 +87,27 @@ export function peptideChart(
 
   // Build EL/BA maps keyed by "ALLELE|PEPTIDEUNGAPPED"
   const elMap = new Map(), baMap = new Map();
-  if (usingAlleleColour && typeof console !== 'undefined') {
-    try {
-      console.debug('[peptideChart] alleleData state', { isArray: Array.isArray(alleleData), length: Array.isArray(alleleData) ? alleleData.length : 'n/a' });
-    } catch {}
-  }
-  if (usingAlleleColour && Array.isArray(alleleData)) {
-    for (const r of alleleData) {
+  const buildMaps = (source = []) => {
+    elMap.clear();
+    baMap.clear();
+    for (const r of Array.isArray(source) ? source : []) {
       const a = normAllele(r?.allele);
       const p = normPep(r?.peptide);
       if (!a || !p) continue;
       if (r?.netmhcpan_el_percentile != null) elMap.set(`${a}|${p}`, +r.netmhcpan_el_percentile);
       if (r?.netmhcpan_ba_percentile != null) baMap.set(`${a}|${p}`, +r.netmhcpan_ba_percentile);
+    }
+  };
+
+  if (usingAlleleColour && typeof console !== 'undefined') {
+    try {
+      console.debug('[peptideChart] alleleData state', { isArray: Array.isArray(alleleData), length: Array.isArray(alleleData) ? alleleData.length : 'n/a' });
+    } catch {}
+  }
+  if (usingAlleleColour) {
+    buildMaps(alleleData);
+    if (!elMap.size && Array.isArray(globalThis.__chartRowsI) && globalThis.__chartRowsI.length) {
+      buildMaps(globalThis.__chartRowsI);
     }
   }
 
@@ -176,6 +185,22 @@ export function peptideChart(
       .attr("stroke", "#444")
       .attr("stroke-width", 0.5 * sizeFactor)
       .on("click", (_, d) => onClick(d));
+
+  if (usingAlleleColour && typeof addEventListener === 'function') {
+    const onAlleleRows = () => {
+      const latest = Array.isArray(globalThis.__chartRowsI) ? globalThis.__chartRowsI : [];
+      const prevSize = elMap.size;
+      buildMaps(latest);
+      if (typeof console !== 'undefined') {
+        try {
+          console.debug('[peptideChart] alleleRows-ready refresh', { prevSize, newSize: elMap.size });
+        } catch {}
+      }
+      bars.attr('fill', fillForBar);
+    };
+    addEventListener('alleleRows-ready', onAlleleRows);
+    try { invalidation.then(() => removeEventListener('alleleRows-ready', onAlleleRows)); } catch {}
+  }
 
   /* ---------- axis styling helper (unified with peptideScanChart) --- */
   function axisStyling(sel){
