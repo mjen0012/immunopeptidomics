@@ -3062,6 +3062,9 @@ const cachePreviewI = await (async () => {
 const chartRowsI = (() => {
   selectedI;
   committedProteinId;
+  cachePreviewI;
+  peptidesIWorkset;
+  runResultsI;
 
   const allelesNow = new Set((alleleCtrl1?.value || []).map(a => String(a).toUpperCase()));
   const allowed    = new Set((peptidesIWorkset || []).map(p => String(p).toUpperCase()));
@@ -3484,6 +3487,7 @@ const committedWorksetI = snapshotOn(runBtnI,  () => Array.from(peptidesIWorkset
 const committedProteinI = snapshotOn(runBtnI,  () => committedProteinId);
 const committedII       = snapshotOn(runBtnII, () => Array.from(alleleCtrl2.value || []));
 ```
+
 
 
 
