@@ -139,7 +139,7 @@ function createIAVDashboardResponsive({
       const nLevels = computeLevels(pepDataForChart);
       const pepBaseInner = Math.max(24, perH - marginFirst.top - marginFirst.bottom);
       const pepTargetRH = Math.max(12, Math.round(16 * sizeFactor));
-      const pepRowHeight = Math.max(10, Math.min(pepTargetRH, pepBaseInner / Math.max(1, nLevels)));
+      const pepRowHeight = Math.max(7, Math.min(pepTargetRH, pepBaseInner / Math.max(1, nLevels)));
       const alleleDataForChart = selI.length ? (globalThis.__chartRowsI || []) : [];
       pep = peptideChart(gPep, { data:pepDataForChart, xScale:xCurrent, rowHeight:pepRowHeight, gap, sizeFactor, margin: marginFirst,
         colourBy:colourByForChart, colourScale, isAlleleColour:isAlleleNow, missingColor:'#f0f0f0', alleleData:alleleDataForChart,
