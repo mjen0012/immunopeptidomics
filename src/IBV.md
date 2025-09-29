@@ -21,9 +21,10 @@ function createIAVDashboardResponsive({
   margin      = {top:20,right:20,bottom:12,left:56}
 } = {}){
   const root = document.createElement('div');
-  root.style.width  = '100%';
-  root.style.height = '100%';
+  root.style.width = '100%';
   root.style.display = 'block';
+  root.style.height = 'auto';
+  root.style.minHeight = '0';
 
   // ===== TUNABLE CONSTANTS (adjust to tweak behaviour) =====
   // Per-chart height bounds (px)
@@ -124,6 +125,7 @@ function createIAVDashboardResponsive({
     const marginLast  = { ...margin, bottom: 6 };
     const gPep = slot();
     let pep = { update: () => {}, height: perH };
+    let pepBlockHeight = perH;
     if (!pepDataForChart.length) {
       gPep.append('text')
         .attr('x', marginFirst.left)
@@ -131,21 +133,24 @@ function createIAVDashboardResponsive({
         .attr('font-style', 'italic')
         .attr('fill', '#555')
         .text('Upload peptides to view tracks.');
-      addYLabel(gPep, perH, 'Peptides');
-      yOff += perH;
+      addYLabel(gPep, pepBlockHeight, 'Peptides');
+      yOff += pepBlockHeight;
     } else {
       const nLevels = computeLevels(pepDataForChart);
-      const pepAvailH   = Math.max(24, perH - marginFirst.top - marginFirst.bottom);
-      const pepTargetRH = 18 * sizeFactor;
-      const pepRowHeight = Math.max(12, Math.min(pepTargetRH, pepAvailH / Math.max(1, nLevels)));
+      const pepBaseInner = Math.max(24, perH - marginFirst.top - marginFirst.bottom);
+      const pepTargetRH = Math.max(12, Math.round(16 * sizeFactor));
+      const pepRowHeight = Math.max(10, Math.min(pepTargetRH, pepBaseInner / Math.max(1, nLevels)));
       const alleleDataForChart = selI.length ? (globalThis.__chartRowsI || []) : [];
       pep = peptideChart(gPep, { data:pepDataForChart, xScale:xCurrent, rowHeight:pepRowHeight, gap, sizeFactor, margin: marginFirst,
         colourBy:colourByForChart, colourScale, isAlleleColour:isAlleleNow, missingColor:'#f0f0f0', alleleData:alleleDataForChart,
         alleles:selI, percentileMode:percModeNow,
         onClick:d=>{ setSelectedPeptide(d.peptide_aligned); setSelectedStart(d.start); setSelectedLength(d.length); } });
-      // Force equal block heights so the dashboard always fits the card
-      addYLabel(gPep, perH, 'Peptides');
-      yOff += perH;
+      const fallbackPepHeight = marginFirst.top + marginFirst.bottom + nLevels * pepRowHeight;
+      const measuredPepHeight = (pep && typeof pep.height === 'number') ? pep.height : fallbackPepHeight;
+      const neededPepHeight = Math.max(fallbackPepHeight, measuredPepHeight);
+      pepBlockHeight = Math.max(perH, neededPepHeight);
+      addYLabel(gPep, pepBlockHeight, 'Peptides');
+      yOff += pepBlockHeight;
     }
 
     // Sequences
@@ -180,8 +185,10 @@ function createIAVDashboardResponsive({
 
     // Finalize & zoom
     const totalH = yOff + dynTopPad + dynBotPad;
-    const svgH = Math.max(1, Math.min(avail, totalH));
-    svg.style('height','100%').attr('height', svgH).attr('viewBox', `0 0 ${svgWidth} ${totalH}`);
+    const svgH = Math.max(1, Math.round(totalH));
+    svg.attr('height', svgH).style('height', `${svgH}px`).attr('viewBox', `0 0 ${svgWidth} ${totalH}`);
+    root.style.minHeight = `${svgH}px`;
+    root.style.height = `${svgH}px`;
     const updaters = [pep.update, stack.update, seqcmp.update, area.update];
     const EPS=1e-6; const zoom = d3.zoom().scaleExtent([1,15]).translateExtent([[margin.left,0],[svgWidth-margin.right,totalH]]).on('zoom', ev => { if (Math.abs(ev.transform.k-1)<EPS && Math.abs(ev.transform.x)>EPS){ svg.call(zoom.transform, d3.zoomIdentity); return; } xCurrent = ev.transform.rescaleX(x0); updaters.forEach(fn=>fn(xCurrent)); });
     svg.call(zoom);
