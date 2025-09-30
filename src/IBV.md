@@ -61,7 +61,7 @@ function createIAVDashboardResponsive({
 
     // --- Build a fresh dashboard SVG (re-using existing chart components) ---
     // Avoid hard dependencies; use globals and defaults so we can render immediately.
-    const proteinNow = (globalThis.__committedProteinId || globalThis.DEFAULT_PROTEIN || 'IBV_M1');
+    const proteinNow = (globalThis.__committedProteinId || globalThis.DEFAULT_PROTEIN || 'M1');
     const pepData = (Array.isArray(globalThis.__peptidesAligned) ? globalThis.__peptidesAligned : [])
       .filter(d => d.protein === proteinNow);
     const colourAttrNow = (globalThis.__colourAttrNow != null ? globalThis.__colourAttrNow : 'Proportion');
