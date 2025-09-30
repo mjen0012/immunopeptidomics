@@ -537,6 +537,13 @@ const toToken = (id) => (id?.startsWith("IBV_") ? id.slice(4) : id);
 // Build the filename key we actually fetch
 const toIBVFileKey = (token) => `IBV_${token}`;
 
+// Cache-busting helper so DuckDB httpfs never sees 304 revalidation
+const getIBVParquetUrl = (fileKey) => {
+  const cacheParam = (globalThis.__ibvCacheParam ??= `v=${Date.now().toString(36)}`);
+  const base = `https://gbxc45oychilox63.public.blob.vercel-storage.com/${encodeURIComponent(fileKey)}.parquet`;
+  return `${base}?${cacheParam}`;
+};
+
 // Default selection shown in the UI (token, no prefix)
 const DEFAULT_PROTEIN_TOKEN = "M1";
 
@@ -546,7 +553,7 @@ const DEFAULT_PROTEIN_TOKEN = "M1";
   if (!ALLOWED_IBV_TOKENS.has(token)) throw new Error(`Unknown IBV token: ${token}`);
 
   const fileKey = toIBVFileKey(token);      // e.g., "IBV_M1"
-  const url0 = `https://gbxc45oychilox63.public.blob.vercel-storage.com/${encodeURIComponent(fileKey)}.parquet`;
+  const url0 = getIBVParquetUrl(fileKey);
   await db.sql`CREATE OR REPLACE TABLE proteins_cache AS
     SELECT * FROM read_parquet('${url0}')`;
   await db.sql`CREATE OR REPLACE VIEW proteins AS SELECT * FROM proteins_cache`;
@@ -2111,7 +2118,7 @@ const dashboardSlot = Generators.observe(change => {
 
   const state = (globalThis.__proteinViewState ??= { lastFileKey: null });
   if (state.lastFileKey !== fileKey) {
-    const url = `https://gbxc45oychilox63.public.blob.vercel-storage.com/${encodeURIComponent(fileKey)}.parquet`;
+    const url = getIBVParquetUrl(fileKey);
     await db.sql`CREATE OR REPLACE TABLE proteins_cache AS
       SELECT * FROM read_parquet('${url}')`;
     await db.sql`CREATE OR REPLACE VIEW proteins AS SELECT * FROM proteins_cache`;
