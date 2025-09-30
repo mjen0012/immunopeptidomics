@@ -1,7 +1,7 @@
 ---
 theme: [wide, air, alt]
 title: Influenza A (IAV) with netMHC
-slug: IAVnew
+slug: IAV
 toc: false
 ---
 
