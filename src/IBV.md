@@ -424,17 +424,25 @@ function createIAVDashboardResponsive({
 .dashboard-card {
   padding: 1rem;               /* equal padding on all sides */
   display: flex;
-  align-items: flex-start;     /* start at top */
-  align-self: start;           /* don't stretch to tall grid row */
-  overflow: hidden;            /* prevent content clipping outside card */
+  flex-direction: column;      /* stack dashboard root and future controls */
+  align-items: stretch;        /* let content fill available width */
+  align-self: stretch;         /* participate in flex sizing of column */
+  overflow: visible;           /* keep charts visible when they grow */
+}
+.dashboard-card > * {
+  flex: 1 1 auto;
+  min-height: 0;               /* enable children to shrink if needed */
+  width: 100%;
 }
 .dashboard-card svg {
   display: block;              /* remove inline svg gaps */
   margin: 0;
-  height: 100%;                /* fit svg to card height */
+  width: 100%;
+  height: auto;                /* let SVG dictate its own height */
+  min-height: 0;
 }
 
-/* right column wrapper spans rows 2?4, manages its own vertical flow */
+/* right column wrapper spans rows 2-4, manages its own vertical flow */
 .right-stack {
   grid-column: 2 / 3;
   grid-row: 2 / span 3;
@@ -442,10 +450,12 @@ function createIAVDashboardResponsive({
   flex-direction: column;
   gap: 1rem;
   align-self: stretch;
-  height: 100%;
-  min-height: 0; /* allow children to size without forcing overflow */
+  min-height: 0;              /* allow flex items to shrink without overflow */
 }
-.right-stack .dashboard-card { flex: 1 1 0; min-height: 0; }
+.right-stack .dashboard-card {
+  flex: 1 1 auto;
+  min-height: clamp(320px, 45vh, 560px); /* keep charts legible yet responsive */
+}
 .right-stack > * { margin: 0; }
 </style>
 
