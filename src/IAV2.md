@@ -397,6 +397,7 @@ function createIAVDashboardResponsive({
     <br>${downloadCSVI}
     ${downloadCSVII}
     ${downloadCSVI_annot}
+    ${downloadCSVI_freq}
 
   </div>
 
@@ -3250,6 +3251,141 @@ const downloadCSVII = downloadButton({
   tooltipTitle: "Download Class II predictions",
   tooltipBody : "netMHCIIpan EL/BA scores and percentiles for selected Class II alleles and uploaded peptides. Outputs as .csv"
 });
+
+const downloadCSVI_freq = downloadButton({
+  filename: "mhcI_frequency_summary.csv",
+  tooltipTitle: "Download frequency tallies",
+  tooltipBody : "Peptide-level frequency/proportion tallies and roots for the committed protein under current filters.",
+  data: () => {
+    try {
+      const rows = Array.isArray(globalThis.__windowTalliesRows) ? globalThis.__windowTalliesRows : [];
+      if (!rows.length) return [];
+
+      const pid = committedProteinId;
+      const normPep = s => String(s || "").toUpperCase().replace(/-/g, "");
+      const protein = proteinCommitted ?? "";
+
+      // Map each uploaded peptide (root) to its window(s)
+      const rootWindows = new Map(); // root peptide -> Set(windowKey)
+      for (const r of (globalThis.__peptidesAligned || [])) {
+        if ((r?.protein || "").toUpperCase() !== pid) continue;
+        const pep = normPep(r?.peptide);
+        const st  = Number(r?.start);
+        const ln  = Number(r?.aligned_length ?? r?.length);
+        if (!pep || !(st > 0 && ln > 0)) continue;
+        const key = `${st}|${ln}`;
+        const set = rootWindows.get(pep) || new Set();
+        set.add(key);
+        rootWindows.set(pep, set);
+      }
+      if (!rootWindows.size) return [];
+
+      const rowsByWindow = new Map();
+      for (const r of rows) {
+        const key = `${Number(r?.start)}|${Number(r?.len)}`;
+        if (!rowsByWindow.has(key)) rowsByWindow.set(key, []);
+        rowsByWindow.get(key).push(r);
+      }
+
+      const makeRow = (pep, rec, rootLabel, fallbackTotals) => {
+        const total_all = Number.isFinite(rec.total_all) ? rec.total_all : (fallbackTotals?.total_all ?? 0);
+        const total_unique = Number.isFinite(rec.total_unique) ? rec.total_unique : (fallbackTotals?.total_unique ?? 0);
+        const frequency_all = rec.frequency_all;
+        const frequency_unique = rec.frequency_unique;
+        return {
+          peptide: pep,
+          protein,
+          frequency_all,
+          total_all,
+          proportion_all: total_all ? (frequency_all / total_all) : 0,
+          frequency_unique,
+          total_unique,
+          proportion_unique: total_unique ? (frequency_unique / total_unique) : 0,
+          root_peptide: rootLabel
+        };
+      };
+
+      const output = [];
+      const rootsSorted = [...rootWindows.keys()].sort();
+
+      for (const root of rootsSorted) {
+        const windowKeys = rootWindows.get(root);
+        if (!windowKeys || windowKeys.size === 0) continue;
+
+        const agg = new Map(); // peptide -> {frequency_all, frequency_unique, total_all, total_unique}
+        for (const key of windowKeys) {
+          const arr = rowsByWindow.get(key);
+          if (!arr) continue;
+          for (const row of arr) {
+            const pep = normPep(row?.peptide);
+            if (!pep) continue;
+            const rec = agg.get(pep) || { frequency_all: 0, frequency_unique: 0, total_all: null, total_unique: null };
+            rec.frequency_all += Number(row.frequency_all) || 0;
+            rec.frequency_unique += Number(row.frequency_unique) || 0;
+            const tAll = Number(row.total_all);
+            if (Number.isFinite(tAll)) rec.total_all = tAll;
+            const tUni = Number(row.total_unique);
+            if (Number.isFinite(tUni)) rec.total_unique = tUni;
+            agg.set(pep, rec);
+          }
+        }
+
+        const rootRec = agg.get(root);
+        if (!rootRec) continue;
+
+        const rootRow = makeRow(root, rootRec, root, rootRec);
+        output.push(rootRow);
+
+        const altEntries = [];
+        for (const [pep, rec] of agg.entries()) {
+          if (pep === root) continue;
+          altEntries.push({ peptide: pep, rec });
+        }
+        if (!altEntries.length) continue;
+
+        const sortAll = (a, b) =>
+          (b.rec.frequency_all - a.rec.frequency_all) ||
+          (b.rec.frequency_unique - a.rec.frequency_unique) ||
+          a.peptide.localeCompare(b.peptide);
+        const sortUnique = (a, b) =>
+          (b.rec.frequency_unique - a.rec.frequency_unique) ||
+          (b.rec.frequency_all - a.rec.frequency_all) ||
+          a.peptide.localeCompare(b.peptide);
+
+        const topAll = altEntries.slice().sort(sortAll).slice(0, 4);
+        const topUnique = altEntries.slice().sort(sortUnique).slice(0, 4);
+
+        const selected = new Map();
+        for (const entry of topAll) {
+          if (selected.size >= 4) break;
+          if (!selected.has(entry.peptide)) selected.set(entry.peptide, entry);
+        }
+        if (selected.size < 4) {
+          for (const entry of topUnique) {
+            if (selected.size >= 4) break;
+            if (!selected.has(entry.peptide)) selected.set(entry.peptide, entry);
+          }
+        }
+
+        const altRows = [...selected.values()]
+          .map(entry => makeRow(entry.peptide, entry.rec, root, rootRec))
+          .sort((a, b) =>
+            (b.frequency_all - a.frequency_all) ||
+            (b.frequency_unique - a.frequency_unique) ||
+            a.peptide.localeCompare(b.peptide)
+          );
+
+        output.push(...altRows);
+      }
+
+      return output;
+    } catch (e) {
+      return [];
+    }
+  }
+});
+
+
 
 // Annotated Class I CSV: merge predictions with tallies and root peptide
 const downloadCSVI_annot = downloadButton({
